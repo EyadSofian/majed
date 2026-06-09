@@ -39,8 +39,8 @@
    كمحادثة طبيعية ويرد، والرد هيوصل تلقائيًا.
 
 ### بيانات المتدرب جوه البوت
-البريدج بيبعت `userData` (اسم/كورسات/تقدم من Odoo) في حقل **`profile`** بتاع الـ Chat user
-(JSON string بحد 1000 حرف). جوه البوت اقرأها من tags بتاعة الـ user
+البريدج بيبعت ملخص مضغوط من `userData` (اسم/إيميل/موبايل/كورس/تقدم) في حقل **`profile`** بتاع الـ Chat user
+(JSON string تحت حد Botpress الحالي 500 حرف). جوه البوت اقرأها من tags بتاعة الـ user
 (Execute Code: `(user as any).tags?.['chat:profile']` أو شوف الـ user object في الـ Inspector).
 
 ### الـ handoff من البوت (3 طرق مدعومة)

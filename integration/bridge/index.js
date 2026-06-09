@@ -230,7 +230,30 @@ function welcomeCard() {
 const sseClients = new Map(); // cwConvId -> Set<res>
 const pushedIds = lruSet(5000); // chatwoot message ids already delivered to widget
 const bridgeIncomingIds = lruSet(5000); // incoming cw msg ids the bridge itself created (skip webhook echo)
+const bridgeIncomingEchoes = new Map(); // short-lived conv+content keys for Chatwoot echo skip
 const welcomedConvs = new Set();
+
+function echoKey(convId, content) {
+  return `${convId}:${String(content || '').trim()}`;
+}
+
+function markBridgeIncoming(convId, msg, content) {
+  if (msg?.id != null) bridgeIncomingIds.add(`cw-${msg.id}`);
+  bridgeIncomingEchoes.set(echoKey(convId, content), Date.now() + 30000);
+}
+
+function isBridgeIncomingEcho(convId, msg) {
+  if (msg?.id != null && bridgeIncomingIds.has(`cw-${msg.id}`)) return true;
+  const key = echoKey(convId, msg?.content);
+  const until = bridgeIncomingEchoes.get(key);
+  if (!until) return false;
+  if (until < Date.now()) {
+    bridgeIncomingEchoes.delete(key);
+    return false;
+  }
+  bridgeIncomingEchoes.delete(key);
+  return true;
+}
 
 function addClient(convId, res) {
   if (!sseClients.has(convId)) sseClients.set(convId, new Set());
@@ -293,11 +316,28 @@ function bpUrl(suffix) {
   return `${config.botpressChatBase}/${config.botpressChatWebhookId}${suffix}`;
 }
 
+function compactProfile(userData) {
+  const data = userData || {};
+  const compact = {
+    isLoggedIn: data.isLoggedIn,
+    name: data.name || data.userFullName || data.fullName,
+    email: data.email || data.userEmail,
+    phone: data.phone || data.userPhone,
+    course: data.extractedCourseName || data.course_name || data.current_course,
+    progress: data.progress_percent || data.progress_percentage,
+    remainingLessons: data.remaining_lessons || data.remainingLessons,
+  };
+  for (const key of Object.keys(compact)) {
+    if (compact[key] == null || compact[key] === '') delete compact[key];
+  }
+  return JSON.stringify(compact).slice(0, 450);
+}
+
 async function bpCreateUser({ name, userData }) {
-  // profile: custom data string (max 1000 chars) — how trainee context reaches the bot.
+  // Botpress stores this under tags.profile and currently enforces a 500-char cap.
   let profile = '';
   try {
-    profile = JSON.stringify(userData || {}).slice(0, 1000);
+    profile = compactProfile(userData);
   } catch (_) {}
   const { data } = await axios.post(
     bpUrl('/users'),
@@ -642,7 +682,7 @@ app.post('/widget/message', async (req, res) => {
 
     // a) Chatwoot first (source of truth). Remember the id so the webhook echo is skipped.
     const created = await cwSendMessage(convId, { content: text, messageType: 'incoming' });
-    if (created?.id != null) bridgeIncomingIds.add(`cw-${created.id}`);
+    markBridgeIncoming(convId, created, text);
 
     // b) Botpress Chat API (status-gated). Bot replies return via SSE listener.
     try {
@@ -758,7 +798,7 @@ app.post('/chatwoot/webhook', async (req, res) => {
 
     if (isIncoming) {
       // Echo of a message the bridge itself wrote → already forwarded. Skip.
-      if (p.id != null && bridgeIncomingIds.has(`cw-${p.id}`)) {
+      if (isBridgeIncomingEcho(convId, p)) {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_echo' });
       }
       // Genuinely external incoming message (created by some other client) → forward to bot.
