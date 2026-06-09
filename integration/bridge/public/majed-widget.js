@@ -26,6 +26,10 @@
   if (!BRIDGE) { console.error('[Majed] MajedConfig.bridgeUrl is required'); return; }
   var USER_CTX_URL = CFG.userContextUrl || '/ai_webhook/user_context';
   var AVATAR = CFG.avatarUrl || '/ai_user_context_webhook/static/src/img/majed-avatar.png';
+  // Fallback avatar served by the bridge itself — guarantees the image never breaks,
+  // even if the Odoo static path is unavailable (preview, module not upgraded, etc.).
+  var AVATAR_FB = BRIDGE + '/majed-avatar.png';
+  var AVA_ERR = ' onerror="this.onerror=null;this.src=\'' + AVATAR_FB + '\'"';
   var WA = String(CFG.waNumber || '966920016295').replace(/[^\d]/g, '');
   var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
@@ -130,7 +134,7 @@
   root.appendChild(inject('div', {}, '' +
     '<div id="mjd-panel" data-theme="' + THEME + '" role="dialog" aria-label="محادثة ماجد">' +
       '<div class="mjd-hd">' +
-        '<img src="' + AVATAR + '" alt="ماجد"/>' +
+        '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
         '<div class="mjd-nm"><b>ماجد</b><s>● متاح الآن</s></div>' +
         '<div class="mjd-tools">' +
           '<button class="mjd-ic" id="mjd-theme" aria-label="تبديل الثيم">' + I.moon + '</button>' +
@@ -149,7 +153,7 @@
       '</div>' +
       '<div class="mjd-credit">مدعوم بواسطة Engosoft</div>' +
     '</div>' +
-    '<button id="mjd-fab" aria-label="تحدّث مع ماجد"><span class="mjd-ring"></span><img src="' + AVATAR + '" alt="ماجد"/><span class="mjd-dot"></span></button>'
+    '<button id="mjd-fab" aria-label="تحدّث مع ماجد"><span class="mjd-ring"></span><img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/><span class="mjd-dot"></span></button>'
   ));
   document.body.appendChild(root);
 
@@ -163,7 +167,7 @@
 
   function addBot(html) {
     var row = inject('div', { class: 'mjd-row mjd-bot' },
-      '<img class="mjd-mini" src="' + AVATAR + '"/><div class="mjd-bub">' + html + '</div>');
+      '<img class="mjd-mini" src="' + AVATAR + '"' + AVA_ERR + '/><div class="mjd-bub">' + html + '</div>');
     bd.appendChild(row); scrollDown();
   }
   function addMe(text) {
