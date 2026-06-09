@@ -23,6 +23,7 @@ const state = {
   cwStatus: 'pending',
   cwAttrs: {},
   assignments: [],
+  cwConversations: 0,
   bpUsers: 0,
   bpConvs: 0,
   bpMessages: [], // { text }
@@ -41,10 +42,25 @@ function mockApp() {
   m.post('/api/v1/accounts/2/contacts', (q, r) =>
     r.json({ payload: { contact: { id: 1, contact_inboxes: [{ source_id: 'src-1' }] }, contact_inbox: { source_id: 'src-1' } } })
   );
-  m.post('/api/v1/accounts/2/conversations', (_q, r) => r.json({ id: 9001 }));
+  m.post('/api/v1/accounts/2/conversations', (_q, r) => {
+    state.cwConversations++;
+    r.json({ id: 9001 });
+  });
   m.post('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
     const id = ++state.msgSeq;
     state.cwMessages.push({ convId: q.params.id, id, body: q.body });
+    if (q.body.message_type === 'incoming') {
+      setTimeout(() => {
+        axios.post(`${BRIDGE}/chatwoot/webhook`, {
+          event: 'message_created',
+          id,
+          message_type: 'incoming',
+          content: q.body.content,
+          conversation: { id: Number(q.params.id), status: state.cwStatus },
+          sender: { name: 'Echo' },
+        }).catch(() => {});
+      }, 0);
+    }
     r.json({ id, content: q.body.content, message_type: q.body.message_type, content_type: q.body.content_type, content_attributes: q.body.content_attributes });
   });
   m.get('/api/v1/accounts/2/conversations/:id', (_q, r) =>
@@ -78,8 +94,12 @@ function mockApp() {
     r.status(201).json({ message: { id: 'm' + state.bpMessages.length } });
     // bot "thinks" then replies over SSE
     setTimeout(() => {
-      const reply = text.includes('موظف') ? '[[HANDOFF:3]] حوّلتك لزميل بشري' : 'رد البوت: ' + text;
-      sseSend({ type: 'message_created', data: { id: 'bot-' + Date.now(), userId: 'bot-1', conversationId: 'bpconv-1', payload: { type: 'text', text: reply } } });
+      let payload;
+      if (text.includes('موظف')) payload = { type: 'text', text: '[[HANDOFF:3]] حوّلتك لزميل بشري' };
+      else if (text.includes('اختيارات')) payload = { type: 'choice', text: 'اختار اللي يناسبك:', options: [{ label: 'مسار هندسي', value: 'engineering' }, { label: 'مسار إداري', value: 'management' }] };
+      else if (text.includes('صورة')) payload = { type: 'image', imageUrl: 'https://example.com/majed.png', title: 'صورة توضيحية' };
+      else payload = { type: 'text', text: 'رد البوت: ' + text };
+      sseSend({ type: 'message_created', data: { id: 'bot-' + Date.now(), userId: 'bot-1', conversationId: 'bpconv-1', payload } });
     }, 120);
   });
   m.get('/bp/wh1/conversations/bpconv-1/listen', (q, r) => {
@@ -156,8 +176,14 @@ function check(name, cond, extra) {
     check('debug shows no secrets, chatWebhookId=true', dbg.botpress.chatWebhookId === true && !JSON.stringify(dbg).includes('test-token'));
 
     console.log('TEST 2 — widget session + stream');
+    state.cwStatus = 'open';
     const s = (await axios.post(`${BRIDGE}/widget/session`, { name: 'إياد', userData: { progress: '64' } })).data;
     check('session returns conversationId', s.conversationId === '9001', JSON.stringify(s));
+    check('new widget conversation is forced to pending', state.cwStatus === 'pending', `status=${state.cwStatus}`);
+    const createsAfterFirstSession = state.cwConversations;
+    const s2 = (await axios.post(`${BRIDGE}/widget/session`, { existingConversationId: s.conversationId, name: 'إياد', userData: { progress: '64' } })).data;
+    check('existing conversation is reused', s2.conversationId === s.conversationId && s2.reused === true);
+    check('reuse does not create a new Chatwoot conversation', state.cwConversations === createsAfterFirstSession);
     const ws = widgetStream('9001');
     await sleep(300);
 
@@ -167,7 +193,7 @@ function check(name, cond, extra) {
     let st = (await axios.get(`${MOCK}/__state`)).data;
     check('incoming written to Chatwoot', st.cwMessages.some((m) => m.body.message_type === 'incoming' && m.body.content === 'مرحبا'));
     check('real Chat API used (user+conversation created)', st.bpUsers === 1 && st.bpConvs === 1, `users=${st.bpUsers} convs=${st.bpConvs}`);
-    check('message sent to Botpress', st.bpMessages.length === 1 && st.bpMessages[0].text === 'مرحبا');
+    check('message sent to Botpress once despite Chatwoot echo', st.bpMessages.length === 1 && st.bpMessages[0].text === 'مرحبا', `count=${st.bpMessages.length}`);
     check('bot reply written to Chatwoot as outgoing', st.cwMessages.some((m) => m.body.message_type === 'outgoing' && m.body.content === 'رد البوت: مرحبا'));
     check('bot reply reached widget via SSE', ws.events.some((e) => e.content === 'رد البوت: مرحبا'));
     check('mapping persisted in conversation attrs', st.cwAttrs.bp_conv_id === 'bpconv-1' && !!st.cwAttrs.bp_user_key);
@@ -225,7 +251,18 @@ function check(name, cond, extra) {
     check('marker stripped from customer-visible text',
       st.cwMessages.some((m) => m.body.content === 'حوّلتك لزميل بشري') && !st.cwMessages.some((m) => (m.body.content || '').includes('HANDOFF')));
 
-    console.log('TEST 10 — legacy /botpress/webhook still works (flow compat)');
+    console.log('TEST 10 — Botpress choice + media payloads');
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'pending' });
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'اختيارات', userData: {} });
+    await sleep(900);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('choice payload written as Chatwoot input_select', st.cwMessages.some((m) => m.body.content_type === 'input_select'));
+    check('choice payload reached widget', ws.events.some((e) => e.content_type === 'input_select'));
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'صورة', userData: {} });
+    await sleep(900);
+    check('media payload reached widget as media', ws.events.some((e) => e.content_type === 'media' && e.content_attributes?.media_type === 'image'));
+
+    console.log('TEST 11 — legacy /botpress/webhook still works (flow compat)');
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'pending' });
     const r10 = await axios.post(`${BRIDGE}/botpress/webhook`, { conversationId: 'chatwoot-conv-9001', messages: [{ text: 'رد من فلو قديم' }] });
     await sleep(200);

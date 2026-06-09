@@ -38,6 +38,11 @@
 5. مفيش حاجة تانية مطلوبة جوه Botpress — أي Autonomous Node/فلو عادي هيستقبل الرسائل
    كمحادثة طبيعية ويرد، والرد هيوصل تلقائيًا.
 
+### سلوك المحادثة في Chatwoot
+- الويدجت بيخزن `conversationId` محليًا ويبعته في `/widget/session`؛ البريدج يعيد استخدام نفس محادثة Chatwoot لو لسه مش `resolved`.
+- أي محادثة جديدة من الويدجت بتتظبط `pending` فعليًا في Chatwoot. لما البوت يعمل handoff تتحول `open`، ولما ترجع `pending` البوت يستأنف.
+- رسالة الترحيب بتتسجل مرة واحدة لكل محادثة (`majed_welcome_sent`) عشان reload/restart ما يكرروش الترحيب.
+
 ### بيانات المتدرب جوه البوت
 البريدج بيبعت ملخص مضغوط من `userData` (اسم/إيميل/موبايل/كورس/تقدم) في حقل **`profile`** بتاع الـ Chat user
 (JSON string تحت حد Botpress الحالي 500 حرف). جوه البوت اقرأها من tags بتاعة الـ user
@@ -82,10 +87,17 @@
 4. handoff: خلّي البوت يرد بـ `[[HANDOFF:3]] حوّلتك لزميل` → الحالة تبقى open + assign للتيم + البوت يقف.
 5. رد الموظف من Chatwoot → يوصل الويدجت فوري. رسائل العميل أثناء open → للموظف فقط (`SKIP bot`).
 6. الموظف يقفل/يرجّع الحالة pending → البوت يرجع يرد.
+7. جرّب Botpress choices/cards/media:
+   - `choice/buttons` → تظهر كأزرار داخل الويدجت و`input_select` في Chatwoot.
+   - `card/carousel` → تظهر ككروت وروابط/أزرار.
+   - `image/audio/video/file` → تظهر كمعاينة/مشغّل/رابط في الويدجت، وكوصلة قابلة للفتح في Chatwoot.
 
-## 8) ضمانات مدمجة (متغطية باختبارات mock — 22 check)
+## 8) ضمانات مدمجة (متغطية باختبارات mock — 28 check)
 - ✅ outgoing/private عمرها ما تتبعت للبوت أو للعميل بالغلط.
-- ✅ dedup بالـ message id (ويدجت) + bp message id (SSE reconnect) + echo الرسائل اللي البريدج كتبها.
+- ✅ dedup بالـ message id (ويدجت) + bp message id (SSE reconnect) + echo الرسائل اللي البريدج كتبها، حتى لو Chatwoot webhook وصل قبل رد API.
+- ✅ إعادة استخدام محادثة Chatwoot الموجودة بدل فتح محادثة جديدة كل مرة.
+- ✅ المحادثة الجديدة تبدأ `pending` فعليًا.
+- ✅ دعم Botpress choice/cards/carousel/media payloads في الويدجت وChatwoot.
 - ✅ mapping (cwConv ↔ bpUser/bpConv) محفوظ في **custom_attributes بتاعة محادثة Chatwoot** → يعيش بعد restart للبريدج.
   (in-memory + استرجاع تلقائي؛ مفيش DB — المخاطرة الوحيدة: SSE listener بيتفتح من جديد عند أول رسالة بعد الـ restart.)
 - ✅ فشل Botpress مش بيوقّع رسالة العميل (بتتكتب في Chatwoot على أي حال).

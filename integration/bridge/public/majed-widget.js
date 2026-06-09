@@ -34,6 +34,7 @@
   var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
+  var STORE_PREFIX = 'majed:conversation:' + BRIDGE + ':';
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
@@ -90,9 +91,16 @@
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;border-bottom-left-radius:6px}',
     '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden}',
+    '.mjd-card img{width:100%;max-height:160px;object-fit:cover;display:block;background:var(--surf2)}',
     '.mjd-card .mjd-ct{padding:11px 13px}.mjd-card .mjd-ct b{font-size:14px;display:block}.mjd-card .mjd-ct span{font-size:12px;color:var(--muted)}',
     '.mjd-card a,.mjd-card button{display:flex;align-items:center;gap:8px;padding:11px 13px;font:inherit;font-size:13px;font-weight:700;color:#7c5cff;text-decoration:none;cursor:pointer;border:0;background:transparent;border-top:1px solid var(--line);width:100%;text-align:start}',
     '.mjd-card a:hover,.mjd-card button:hover{background:var(--surf2)}',
+    '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%}',
+    '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
+    '.mjd-opt:hover{background:var(--surf2)}',
+    '.mjd-media{align-self:flex-start;max-width:88%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden}',
+    '.mjd-media img,.mjd-media video{max-width:100%;display:block}.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
+    '.mjd-media a{display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word}',
     '.mjd-typing{align-self:flex-start;display:flex;gap:5px;padding:13px 15px;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;border-bottom-right-radius:6px}',
     '.mjd-typing i{width:7px;height:7px;border-radius:50%;background:var(--soft);animation:mjdBlink 1.3s infinite}',
     '.mjd-typing i:nth-child(2){animation-delay:.2s}.mjd-typing i:nth-child(3){animation-delay:.4s}',
@@ -177,7 +185,8 @@
   function addCard(attrs) {
     var items = (attrs && attrs.items) || [];
     items.forEach(function (it) {
-      var h = '<div class="mjd-ct"><b>' + esc(it.title) + '</b>' + (it.description ? '<span>' + esc(it.description) + '</span>' : '') + '</div>';
+      var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +
+        '<div class="mjd-ct"><b>' + esc(it.title) + '</b>' + (it.description ? '<span>' + esc(it.description) + '</span>' : '') + '</div>';
       (it.actions || []).forEach(function (a, i) {
         if (a.type === 'link') h += '<a href="' + esc(a.uri) + '" target="_blank" rel="noopener">' + esc(a.text) + '</a>';
         else h += '<button data-pb="' + esc(a.payload || a.text) + '">' + esc(a.text) + '</button>';
@@ -188,6 +197,30 @@
       });
       bd.appendChild(card); scrollDown();
     });
+  }
+  function addOptions(attrs, content) {
+    var items = (attrs && attrs.items) || [];
+    if (content) addBot(esc(content));
+    var wrap = inject('div', { class: 'mjd-options' }, '');
+    items.forEach(function (it) {
+      var b = inject('button', { class: 'mjd-opt', type: 'button', 'data-val': it.value || it.title || '' }, esc(it.title || it.value || 'اختيار'));
+      b.addEventListener('click', function () { sendMessage(b.getAttribute('data-val')); });
+      wrap.appendChild(b);
+    });
+    if (items.length) { bd.appendChild(wrap); scrollDown(); }
+  }
+  function addMedia(attrs, content) {
+    attrs = attrs || {};
+    var url = attrs.url || '';
+    var kind = attrs.media_type || 'file';
+    var title = attrs.title || content || url || 'ملف';
+    var h = '';
+    if (url && kind === 'image') h = '<img src="' + esc(url) + '" alt="' + esc(title) + '"/>';
+    else if (url && kind === 'video') h = '<video src="' + esc(url) + '" controls></video>';
+    else if (url && (kind === 'audio' || kind === 'voice')) h = '<audio src="' + esc(url) + '" controls></audio>';
+    if (url) h += '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>';
+    else h += '<a>' + esc(title) + '</a>';
+    bd.appendChild(inject('div', { class: 'mjd-media' }, h)); scrollDown();
   }
   var typingEl = null;
   function showTyping() {
@@ -216,6 +249,23 @@
       .catch(function () { return {}; });
   }
 
+  function storageKey() {
+    return STORE_PREFIX + (userData.odoo_user_id || userData.email || 'anon');
+  }
+  function loadStoredConv() {
+    try {
+      var raw = localStorage.getItem(storageKey());
+      if (!raw) return '';
+      var d = JSON.parse(raw);
+      if (!d || !d.conversationId) return '';
+      if (Date.now() - (d.ts || 0) > 14 * 24 * 60 * 60 * 1000) return '';
+      return String(d.conversationId);
+    } catch (e) { return ''; }
+  }
+  function saveStoredConv(id) {
+    try { localStorage.setItem(storageKey(), JSON.stringify({ conversationId: id, ts: Date.now() })); } catch (e) {}
+  }
+
   function openStream() {
     if (!convId || es) return;
     es = new EventSource(BRIDGE + '/widget/stream?conversationId=' + encodeURIComponent(convId));
@@ -225,6 +275,10 @@
       if (m.content_type === 'cards' && m.content_attributes) {
         if (m.content) addBot(esc(m.content));
         addCard(m.content_attributes);
+      } else if (m.content_type === 'input_select' && m.content_attributes) {
+        addOptions(m.content_attributes, m.content);
+      } else if (m.content_type === 'media' && m.content_attributes) {
+        addMedia(m.content_attributes, m.content);
       } else if (m.content) {
         addBot(esc(m.content));
       }
@@ -237,12 +291,13 @@
     started = true;
     return fetchUserContext().then(function (ud) {
       userData = ud || {};
+      var existingConversationId = loadStoredConv();
       return fetch(BRIDGE + '/widget/session', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: userData.name, email: userData.email, userData: userData })
+        body: JSON.stringify({ name: userData.name, email: userData.email, userData: userData, existingConversationId: existingConversationId })
       });
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.conversationId) { convId = d.conversationId; openStream(); }
+      if (d && d.conversationId) { convId = d.conversationId; saveStoredConv(convId); openStream(); }
       else { addBot('تعذّر بدء المحادثة، حاول تاني بعد لحظات.'); started = false; }
     }).catch(function () { addBot('تعذّر الاتصال، حاول تاني.'); started = false; });
   }

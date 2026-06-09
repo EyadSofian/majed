@@ -112,6 +112,11 @@ function cwUrl(suffix) {
   return `${config.chatwootBaseUrl}/api/v1/accounts/${config.chatwootAccountId}/${suffix}`;
 }
 
+function cleanId(value) {
+  const m = String(value || '').match(/\d+/);
+  return m ? m[0] : '';
+}
+
 async function resolveInboxId() {
   if (resolvedInboxId) return resolvedInboxId;
   const { data } = await axios.get(cwUrl('inboxes'), { headers: cwHeaders(), timeout: 15000 });
@@ -167,6 +172,21 @@ async function cwCreateConversation(sourceId) {
   return String(data.id);
 }
 
+async function tryReuseConversation(convId) {
+  const id = cleanId(convId);
+  if (!id) return null;
+  try {
+    const conv = await cwGetConversation(id);
+    const status = conv?.status || conv?.payload?.status || 'pending';
+    if (status === 'resolved') return null;
+    convStatus.set(id, status);
+    return { conversationId: id, status };
+  } catch (e) {
+    console.warn('conversation reuse failed:', e.response?.status || e.message);
+    return null;
+  }
+}
+
 async function cwSendMessage(convId, { content, messageType, contentType, contentAttributes, isPrivate }) {
   const body = { content: content || '', message_type: messageType || 'outgoing', private: !!isPrivate };
   if (contentType && contentType !== 'text') {
@@ -186,9 +206,14 @@ async function cwGetConversation(convId) {
 }
 
 async function cwSetConversationAttrs(convId, attrs) {
+  let current = {};
+  try {
+    const conv = await cwGetConversation(convId);
+    current = conv?.custom_attributes || conv?.payload?.custom_attributes || {};
+  } catch (_) {}
   await axios.post(
     cwUrl(`conversations/${convId}/custom_attributes`),
-    { custom_attributes: attrs },
+    { custom_attributes: { ...current, ...(attrs || {}) } },
     { headers: cwHeaders(), timeout: 15000 }
   );
 }
@@ -374,47 +399,134 @@ async function performHandoff(cwConvId, teamId) {
   console.log(`HANDOFF conv ${cwConvId}${teamId ? ` → team ${teamId}` : ''} (status: open)`);
 }
 
-// A bot reply arrived from Botpress (via SSE) → write to Chatwoot + push to widget.
-async function handleBotReply(cwConvId, payload) {
-  const type = payload?.type || 'text';
-  let text = typeof payload?.text === 'string' ? payload.text : '';
+function pickText(...values) {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
 
-  // handoff marker
-  const hm = text.match(HANDOFF_RE);
-  if (hm) {
-    text = text.replace(HANDOFF_RE, '').trim();
-    try {
-      await performHandoff(cwConvId, hm[1]);
-    } catch (e) {
-      console.error('handoff failed:', e.response?.data || e.message);
+function normalizeAction(action) {
+  const label = pickText(action?.label, action?.title, action?.text, action?.name, action?.value, action?.payload, 'اختيار');
+  const url = pickText(action?.url, action?.uri, action?.href, action?.link);
+  if (url) return { type: 'link', text: label, uri: url };
+  return { type: 'postback', text: label, payload: pickText(action?.value, action?.payload, action?.id, label) };
+}
+
+function normalizeOptions(options) {
+  return (Array.isArray(options) ? options : [])
+    .map((o) => ({
+      title: pickText(o?.label, o?.title, o?.text, o?.name, o?.value),
+      value: pickText(o?.value, o?.payload, o?.id, o?.label, o?.title, o?.text),
+    }))
+    .filter((o) => o.title && o.value);
+}
+
+function mediaUrl(payload) {
+  return pickText(
+    payload?.url,
+    payload?.fileUrl,
+    payload?.imageUrl,
+    payload?.audioUrl,
+    payload?.videoUrl,
+    payload?.mediaUrl,
+    payload?.file?.url,
+    payload?.image?.url,
+    payload?.audio?.url,
+    payload?.video?.url
+  );
+}
+
+function normalizeCardItem(item) {
+  const actions = item?.actions || item?.buttons || [];
+  return {
+    title: pickText(item?.title, item?.name, item?.text, 'عنصر'),
+    description: pickText(item?.description, item?.subtitle, item?.body),
+    media_url: mediaUrl(item),
+    actions: (Array.isArray(actions) ? actions : []).map(normalizeAction),
+  };
+}
+
+function normalizeBotMessages(payload) {
+  const p = payload || {};
+  const type = (p.type || 'text').toString().toLowerCase();
+  const out = [];
+
+  const options = normalizeOptions(p.options || p.choices || p.buttons);
+  if (options.length) {
+    out.push({
+      content: pickText(p.text, p.title, 'اختار اللي يناسبك:'),
+      contentType: 'input_select',
+      contentAttributes: { items: options },
+    });
+    return out;
+  }
+
+  if (type === 'card') {
+    out.push({
+      content: pickText(p.text, p.prompt),
+      contentType: 'cards',
+      contentAttributes: { items: [normalizeCardItem(p)] },
+    });
+    return out;
+  }
+
+  if (type === 'carousel' || type === 'cards') {
+    const rawItems = p.items || p.cards || p.elements || [];
+    const items = (Array.isArray(rawItems) ? rawItems : []).map(normalizeCardItem).filter((it) => it.title || it.media_url);
+    if (items.length) {
+      out.push({ content: pickText(p.text, p.title), contentType: 'cards', contentAttributes: { items } });
+      return out;
     }
   }
 
-  if (type === 'text') {
-    if (!text) return;
-    const created = await cwSendMessage(cwConvId, { content: text, messageType: 'outgoing' });
-    console.log(`OUT Chatwoot conv ${cwConvId} (bot): ${text.slice(0, 60)}`);
-    pushToWidget(cwConvId, created);
-    return;
-  }
-
-  // Non-text payloads (choice/card/...) → map basic ones to Chatwoot interactive messages.
-  if (type === 'choice' && Array.isArray(payload.options)) {
-    const created = await cwSendMessage(cwConvId, {
-      content: payload.text || '',
-      messageType: 'outgoing',
-      contentType: 'input_select',
-      contentAttributes: { items: payload.options.map((o) => ({ title: o.label || o.value, value: o.value })) },
+  const url = mediaUrl(p);
+  if (url || ['image', 'audio', 'voice', 'video', 'file', 'document', 'attachment'].includes(type)) {
+    const mediaType = type === 'voice' ? 'audio' : type === 'document' || type === 'attachment' ? 'file' : type;
+    const title = pickText(p.title, p.name, p.fileName, p.text, p.caption, mediaType);
+    const content = [title, url].filter(Boolean).join('\n');
+    out.push({
+      content,
+      widgetContentType: 'media',
+      widgetContentAttributes: { media_type: mediaType, url, title, mime_type: p.mimeType || p.mime_type || '' },
     });
-    pushToWidget(cwConvId, created);
-    return;
+    return out;
   }
 
-  // Fallback: stringify unknown payloads as text so nothing is silently lost.
-  const fallback = payload?.text || payload?.title || '';
-  if (fallback) {
-    const created = await cwSendMessage(cwConvId, { content: fallback, messageType: 'outgoing' });
-    pushToWidget(cwConvId, created);
+  const text = pickText(p.text, p.markdown, p.title, p.content);
+  if (text) out.push({ content: text });
+  return out;
+}
+
+// A bot reply arrived from Botpress (via SSE) → write to Chatwoot + push to widget.
+async function handleBotReply(cwConvId, payload) {
+  const messages = normalizeBotMessages(payload);
+  for (const msg of messages) {
+    let content = msg.content || '';
+    const hm = content.match(HANDOFF_RE);
+    if (hm) {
+      content = content.replace(HANDOFF_RE, '').trim();
+      try {
+        await performHandoff(cwConvId, hm[1]);
+      } catch (e) {
+        console.error('handoff failed:', e.response?.data || e.message);
+      }
+    }
+    if (!content && !msg.contentType) continue;
+
+    const created = await cwSendMessage(cwConvId, {
+      content,
+      messageType: 'outgoing',
+      contentType: msg.contentType,
+      contentAttributes: msg.contentAttributes,
+    });
+    console.log(`OUT Chatwoot conv ${cwConvId} (bot): ${content.slice(0, 60) || msg.contentType || msg.widgetContentType}`);
+    pushToWidget(cwConvId, {
+      ...created,
+      content,
+      content_type: msg.widgetContentType || created.content_type || msg.contentType,
+      content_attributes: msg.widgetContentAttributes || created.content_attributes || msg.contentAttributes || {},
+    });
   }
 }
 
@@ -579,6 +691,9 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
 // Reap idle Botpress listeners.
 setInterval(() => {
   const now = Date.now();
+  for (const [key, until] of bridgeIncomingEchoes) {
+    if (until < now) bridgeIncomingEchoes.delete(key);
+  }
   for (const [cwConvId, m] of bpMap) {
     if (now - m.lastActivity > BP_IDLE_MS && m.stream) {
       try { m.stream.destroy(); } catch (_) {}
@@ -623,12 +738,23 @@ app.get('/debug/config', (_req, res) => {
 //    on first message, so sessions stay fast and Botpress outages can't block opening).
 app.post('/widget/session', async (req, res) => {
   try {
-    const { name, email, userData } = req.body || {};
+    const { name, email, userData, existingConversationId } = req.body || {};
+    const reusable = await tryReuseConversation(existingConversationId);
+    if (reusable) {
+      console.log(`Widget session reuse: conv ${reusable.conversationId} (${reusable.status})`);
+      return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status });
+    }
+
     const { contactId, sourceId } = await cwCreateContact({ name, email, customAttributes: userData || {} });
     const convId = await cwCreateConversation(sourceId);
+    try {
+      await cwSetStatus(convId, 'pending');
+    } catch (e) {
+      console.warn('set pending failed:', e.response?.status || e.message);
+    }
     convStatus.set(convId, 'pending');
     console.log(`Widget session: contact ${contactId} → conv ${convId}`);
-    return res.json({ conversationId: convId });
+    return res.json({ conversationId: convId, reused: false, status: 'pending' });
   } catch (err) {
     console.error('session error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'session_failed' });
@@ -655,14 +781,21 @@ app.get('/widget/stream', async (req, res) => {
   if (config.welcomeEnabled && !welcomedConvs.has(convId)) {
     welcomedConvs.add(convId);
     try {
-      const m1 = await cwSendMessage(convId, { content: config.welcomeText, messageType: 'outgoing' });
-      pushToWidget(convId, m1);
-      if (config.welcomeCardEnabled) {
-        const c = welcomeCard();
-        const m2 = await cwSendMessage(convId, {
-          content: c.content, messageType: 'outgoing', contentType: c.contentType, contentAttributes: c.contentAttributes,
-        });
-        pushToWidget(convId, m2);
+      const conv = await cwGetConversation(convId).catch(() => null);
+      const attrs = conv?.custom_attributes || conv?.payload?.custom_attributes || {};
+      if (!attrs.majed_welcome_sent) {
+        const m1 = await cwSendMessage(convId, { content: config.welcomeText, messageType: 'outgoing' });
+        pushToWidget(convId, m1);
+        if (config.welcomeCardEnabled) {
+          const c = welcomeCard();
+          const m2 = await cwSendMessage(convId, {
+            content: c.content, messageType: 'outgoing', contentType: c.contentType, contentAttributes: c.contentAttributes,
+          });
+          pushToWidget(convId, m2);
+        }
+        cwSetConversationAttrs(convId, { majed_welcome_sent: 'true' }).catch((e) =>
+          console.warn('welcome persist failed:', e.response?.status || e.message)
+        );
       }
     } catch (err) {
       console.error('welcome error:', err.response?.data || err.message);
@@ -681,6 +814,7 @@ app.post('/widget/message', async (req, res) => {
     console.log(`IN widget conv ${convId}: ${text.slice(0, 60)}`);
 
     // a) Chatwoot first (source of truth). Remember the id so the webhook echo is skipped.
+    markBridgeIncoming(convId, null, text);
     const created = await cwSendMessage(convId, { content: text, messageType: 'incoming' });
     markBridgeIncoming(convId, created, text);
 
@@ -773,7 +907,6 @@ app.post('/chatwoot/webhook', async (req, res) => {
 
     const convId = String(p.conversation?.id || p.conversation_id || '');
     if (!convId) return res.status(200).json({ status: 'skipped' });
-    if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
 
     const isOutgoing = p.message_type === 'outgoing' || p.message_type === 1;
     const isIncoming = p.message_type === 'incoming' || p.message_type === 0;
@@ -784,6 +917,7 @@ app.post('/chatwoot/webhook', async (req, res) => {
     }
 
     if (isOutgoing) {
+      if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
       // Human agent (or flow) reply → widget. Never re-forwarded to Botpress.
       pushToWidget(convId, {
         id: p.id,
@@ -801,6 +935,7 @@ app.post('/chatwoot/webhook', async (req, res) => {
       if (isBridgeIncomingEcho(convId, p)) {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_echo' });
       }
+      if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
       // Genuinely external incoming message (created by some other client) → forward to bot.
       if (p.content) {
         console.log(`IN Chatwoot(external) conv ${convId}: ${String(p.content).slice(0, 60)}`);
