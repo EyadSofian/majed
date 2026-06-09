@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# secrets — never commit
+.env
+.env.local
+*.env
+!.env.example
+
+# local browser profiles (huge)
+chrome-profile/
+chrome-profile-2/
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# stale build artifact (Path A bridge zip — Path B deploys from repo)
+integration/chatwoot-botpress-bridge-RAILWAY.zip

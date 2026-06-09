@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>الشكل المستهدف — الأزرار جوه الشات</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root{--blue:#1267f5;--cyan:#0ea5e9;--green:#19c37d;--wa:#25d366;--ink:#111827;--muted:#667085}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Cairo",system-ui,sans-serif;background:
+    linear-gradient(135deg,rgba(18,103,245,.12),rgba(25,195,125,.08) 40%,rgba(245,158,11,.06)),#eef3fb;
+    min-height:100dvh;display:grid;place-items:center;padding:24px}
+  .win{width:380px;max-width:100%;height:600px;background:#fff;border-radius:20px;overflow:hidden;
+    box-shadow:0 30px 90px rgba(15,23,42,.22);display:flex;flex-direction:column}
+  /* header */
+  .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
+    background:linear-gradient(135deg,var(--blue),var(--cyan));color:#fff}
+  .hd .id{display:flex;align-items:center;gap:10px}
+  .hd .av{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.25);display:grid;place-items:center;
+    border:2px solid rgba(255,255,255,.6);overflow:hidden}
+  .hd .av svg{opacity:.95}
+  .hd strong{font-size:16px;display:block;line-height:1.2}
+  .hd small{font-size:12px;opacity:.9}
+  .hd .x{background:transparent;border:0;color:#fff;cursor:pointer;opacity:.9;display:grid;place-items:center;width:32px;height:32px}
+  /* body */
+  .bd{flex:1;padding:18px 16px;overflow:auto;background:#f7f9fc;display:flex;flex-direction:column;gap:12px}
+  .msg{max-width:88%;padding:12px 14px;border-radius:16px;font-size:14px;line-height:1.7}
+  .msg.bot{align-self:flex-start;background:#fff;color:#16233a;border:1px solid #eef0f4;border-top-right-radius:6px;
+    box-shadow:0 2px 8px rgba(15,23,42,.04)}
+  /* the Card with 3 buttons (interactive message) */
+  .card{align-self:flex-start;width:88%;background:#fff;border:1px solid #eef0f4;border-radius:16px;
+    border-top-right-radius:6px;padding:12px;box-shadow:0 2px 8px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:8px}
+  .card .ttl{font-size:13px;color:var(--muted);margin:2px 2px 4px}
+  .opt{display:flex;align-items:center;gap:10px;min-height:46px;padding:0 14px;border-radius:12px;
+    border:1px solid #e6e9ef;background:#fff;color:var(--ink);font:inherit;font-size:14px;font-weight:600;
+    cursor:pointer;text-decoration:none;transition:transform .15s,box-shadow .15s,border-color .15s}
+  .opt:hover{box-shadow:0 6px 16px rgba(15,23,42,.10);transform:translateY(-1px)}
+  .opt:active{transform:scale(.98)}
+  .opt .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;color:#fff}
+  .opt.wa .ic{background:var(--wa)}
+  .opt.em .ic{background:linear-gradient(135deg,#475467,var(--blue))}
+  .opt.vo{opacity:.55;cursor:not-allowed}
+  .opt.vo .ic{background:#98a2b3}
+  .opt .soon{margin-inline-start:auto;font-size:11px;font-weight:700;color:#7a3b00;background:#fff4d6;
+    border:1px solid rgba(245,158,11,.3);border-radius:999px;padding:2px 9px}
+  /* input */
+  .ip{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #eef0f4;background:#fff}
+  .ip .field{flex:1;color:#98a2b3;font-size:14px}
+  .ip .tool{width:34px;height:34px;display:grid;place-items:center;color:#98a2b3}
+  .credit{text-align:center;font-size:11px;color:#aab2c0;padding:6px 0 10px;background:#fff}
+</style>
+</head>
+<body>
+  <div class="win">
+    <div class="hd">
+      <div class="id">
+        <span class="av">
+          <!-- صورة ماجد هتيجي من Chatwoot Channel Avatar -->
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <div><strong>ماجد</strong><small>متاح الآن</small></div>
+      </div>
+      <button class="x" aria-label="إغلاق"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+
+    <div class="bd">
+      <div class="msg bot">أهلاً 👋 أنا ماجد، مساعد Engosoft. اختر طريقة التواصل أو اكتب سؤالك على طول.</div>
+
+      <!-- الـ Card = الأزرار التفاعلية اللي البوت بيبعتها -->
+      <div class="card" role="group" aria-label="طرق التواصل">
+        <div class="ttl">طرق التواصل:</div>
+        <a class="opt wa" href="#" aria-label="تواصل عبر واتساب">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 32 32" fill="#fff"><path d="M16 2C8.3 2 2 8.3 2 16c0 2.5.7 4.9 1.8 7L2 30l7.3-1.8A14 14 0 1016 2zm0 25.6c-2.1 0-4.1-.6-5.9-1.6l-.4-.300000000000004-4.3 1.1 1.1-4.2-.3-.4A11.6 11.6 0 1116 27.6zm6.3-8.7c-.3-.2-2-1-2.4-1.1-.3-.1-.5-.2-.8.2s-.9 1.1-1.1 1.4c-.2.2-.4.300000000000004-.7.1-.3-.2-1.5-.5-2.8-1.7-1-.9-1.7-2.1-1.9-2.4-.2-.300000000000004 0-.5.2-.7l.5-.6c.2-.2.2-.300000000000004.4-.6.1-.2.1-.4 0-.6l-1.1-2.6c-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4-.300000000000004.300000000000004-1.2 1.2-1.2 2.9s1.2 3.4 1.4 3.6c.2.2 2.4 3.7 5.9 5.2.8.4 1.5.6 2 .7.8.300000000000004 1.6.2 2.2.1.700000000000001-.1 2-.8 2.3-1.6.300000000000004-.8.300000000000004-1.5.2-1.6z"/></svg></span>
+          واتساب
+        </a>
+        <a class="opt em" href="#" aria-label="راسلنا بالإيميل">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 5 10 8L22 5"/></svg></span>
+          إيميل
+        </a>
+        <button class="opt vo" type="button" aria-disabled="true" disabled aria-label="ماجد فويس قريبا">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg></span>
+          ماجد فويس
+          <span class="soon">قريبًا</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="ip">
+      <span class="tool"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke-linecap="round"/></svg></span>
+      <span class="field">اكتب رسالتك...</span>
+      <span class="tool"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m21.4 11.1-8.8 8.8a5 5 0 0 1-7-7l8.5-8.5a3 3 0 0 1 4.3 4.3l-8.5 8.5a1 1 0 0 1-1.4-1.4l7.8-7.8"/></svg></span>
+    </div>
+    <div class="credit">مدعوم بواسطة Engosoft</div>
+  </div>
+</body>
+</html>

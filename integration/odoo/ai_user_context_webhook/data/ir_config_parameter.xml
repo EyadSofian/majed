@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        System Parameters (Settings → Technical → Parameters → System Parameters).
+        Path B — custom «نور» widget.
+
+        ⚠ REQUIRED: set ai_webhook.bridge_url to your deployed bridge URL (Railway),
+        otherwise the widget will not load.
+    -->
+
+    <!-- Bridge URL (Railway). MUST be set — e.g. https://majed-bridge.up.railway.app -->
+    <record id="param_bridge_url" model="ir.config_parameter">
+        <field name="key">ai_webhook.bridge_url</field>
+        <field name="value"></field>
+    </record>
+
+    <!-- صورة ماجد (الزرار + الهيدر). سيبها للصورة المرفقة أو حط رابط أونلاين -->
+    <record id="param_majed_avatar_url" model="ir.config_parameter">
+        <field name="key">ai_webhook.majed_avatar_url</field>
+        <field name="value">/ai_user_context_webhook/static/src/img/majed-avatar.png</field>
+    </record>
+
+    <!-- اسم/ترحيب ماجد في الهيدر -->
+    <record id="param_majed_greeting" model="ir.config_parameter">
+        <field name="key">ai_webhook.majed_greeting</field>
+        <field name="value">أهلاً، أنا ماجد</field>
+    </record>
+
+    <!-- رقم واتساب لزر التواصل (أرقام فقط، بكود الدولة) -->
+    <record id="param_wa_number" model="ir.config_parameter">
+        <field name="key">ai_webhook.wa_number</field>
+        <field name="value">966920016295</field>
+    </record>
+
+    <!-- إيميل الدعم لزر التواصل -->
+    <record id="param_support_email" model="ir.config_parameter">
+        <field name="key">ai_webhook.support_email</field>
+        <field name="value">aibot@engosoft.com</field>
+    </record>
+
+    <!-- ثيم الويدجت الافتراضي: light أو dark -->
+    <record id="param_theme" model="ir.config_parameter">
+        <field name="key">ai_webhook.theme</field>
+        <field name="value">light</field>
+    </record>
+
+</odoo>

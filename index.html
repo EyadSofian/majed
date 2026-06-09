@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ويدجت ماجد - Liquid Glass Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #667085;
+      --line: rgba(15, 23, 42, .12);
+      --blue: #1267f5;
+      --blue-deep: #0b4fd1;
+      --cyan: #0ea5e9;
+      --green: #19c37d;
+      --whatsapp: #25d366;
+      --amber: #f59e0b;
+      --surface: rgba(255, 255, 255, .72);
+      --glass-border: rgba(255, 255, 255, .62);
+      --shadow: 0 30px 90px rgba(15, 23, 42, .24);
+      --ease: cubic-bezier(.2, .9, .2, 1);
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      font-family: "Cairo", "Inter", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(18, 103, 245, .12), rgba(25, 195, 125, .08) 35%, rgba(245, 158, 11, .08)),
+        repeating-linear-gradient(90deg, rgba(15, 23, 42, .035) 0 1px, transparent 1px 84px),
+        repeating-linear-gradient(0deg, rgba(15, 23, 42, .028) 0 1px, transparent 1px 84px),
+        #f6f9ff;
+      overflow-x: hidden;
+    }
+
+    button, a { font: inherit; }
+    button { border: 0; }
+
+    .preview-page { min-height: 100dvh; padding: 28px; }
+
+    .preview-shell {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      background: rgba(255, 255, 255, .52);
+      border: 1px solid rgba(255, 255, 255, .68);
+      border-radius: 24px;
+      box-shadow: 0 18px 70px rgba(15, 23, 42, .12);
+      overflow: hidden;
+      backdrop-filter: blur(22px) saturate(1.35);
+    }
+
+    .preview-topbar {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, .6);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--green));
+      box-shadow: 0 14px 30px rgba(18, 103, 245, .28);
+      font-weight: 800;
+    }
+
+    .brand strong { display: block; font-size: 16px; line-height: 1.2; }
+    .brand span { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
+
+    .top-actions { display: flex; gap: 8px; }
+
+    .icon-button {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #344054;
+      background: rgba(255, 255, 255, .74);
+      border: 1px solid rgba(255, 255, 255, .72);
+      cursor: pointer;
+      transition: transform .18s var(--ease), background .18s var(--ease);
+    }
+
+    .icon-button:hover { transform: translateY(-1px); background: #fff; }
+
+    .preview-content {
+      padding: 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+      gap: 22px;
+    }
+
+    .course-band, .activity-band {
+      min-height: 260px;
+      padding: 24px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, .62);
+      background: rgba(255, 255, 255, .58);
+    }
+
+    .course-band h1, .activity-band h2 { margin: 0 0 12px; font-size: 24px; line-height: 1.35; }
+    .course-band p, .activity-band p { margin: 0; color: var(--muted); line-height: 1.8; max-width: 58ch; }
+
+    .progress-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .metric {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .68);
+      border: 1px solid rgba(15, 23, 42, .06);
+    }
+
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .metric strong { font-size: 22px; color: var(--blue); }
+
+    .timeline { display: grid; gap: 12px; margin-top: 20px; }
+
+    .timeline-row {
+      display: grid;
+      grid-template-columns: 38px 1fr;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .62);
+    }
+
+    .timeline-row i {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: rgba(18, 103, 245, .1);
+      color: var(--blue);
+      font-style: normal;
+      font-weight: 800;
+    }
+
+    /* ===== Majed widget ===== */
+    .majed-widget {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 9999;
+      direction: rtl;
+      font-family: "Cairo", "Inter", system-ui, sans-serif;
+    }
+
+    /* زرار زجاجي (Liquid Glass) بصورة ماجد جواه */
+    .majed-launcher {
+      position: relative;
+      width: 66px;
+      height: 66px;
+      padding: 3px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(150deg, rgba(255, 255, 255, .9), rgba(224, 235, 255, .5));
+      border: 1px solid rgba(255, 255, 255, .9);
+      box-shadow: 0 12px 30px rgba(37, 99, 235, .30), inset 0 1px 0 rgba(255, 255, 255, .95);
+      backdrop-filter: blur(12px) saturate(1.6);
+      transition: transform .22s var(--ease), box-shadow .22s var(--ease);
+      overflow: visible;
+    }
+
+    .majed-launcher:hover {
+      transform: translateY(-3px) scale(1.05);
+      box-shadow: 0 18px 44px rgba(37, 99, 235, .38), inset 0 1px 0 #fff;
+    }
+
+    .majed-launcher:active {
+      transform: scale(.96);
+    }
+
+    .majed-launcher img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: 50% 28%;
+      display: block;
+    }
+
+    .launcher-ring {
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(37, 99, 235, .20);
+      animation: breathe 2.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .status-dot {
+      position: absolute;
+      top: 1px;
+      right: 1px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--green);
+      border: 2px solid #fff;
+    }
+
+    /* hide launcher ring while chat is open, keep avatar visible */
+    .majed-widget.is-chat-open .launcher-ring { opacity: 0; }
+
+    /* ===== Chat panel (matches target screenshot) ===== */
+    .majed-chat {
+      position: absolute;
+      right: 0;
+      bottom: 94px;
+      width: min(380px, calc(100vw - 28px));
+      height: min(620px, calc(100dvh - 130px));
+      display: flex;
+      flex-direction: column;
+      border-radius: 26px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, .96);
+      border: 1px solid rgba(255, 255, 255, .8);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(24px) saturate(1.35);
+      transform: translateY(18px) scale(.96);
+      transform-origin: bottom right;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .24s var(--ease), transform .28s var(--ease);
+    }
+
+    .majed-chat.is-visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(15, 23, 42, .08);
+      background: rgba(255, 255, 255, .85);
+    }
+
+    .chat-tools, .chat-identity { display: flex; align-items: center; gap: 6px; }
+
+    .chat-tool {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      color: #475467;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .16s var(--ease), color .16s var(--ease);
+    }
+
+    .chat-tool:hover { background: rgba(15, 23, 42, .06); color: var(--ink); }
+
+    .chat-identity strong { font-size: 17px; font-weight: 800; }
+
+    .chat-identity img {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: 50% 28%;
+      border: 2px solid #fff;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, .12);
+    }
+
+    .chat-back { color: #98a2b3; }
+
+    .chat-body {
+      flex: 1;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: auto;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(18, 103, 245, .04), transparent 60%);
+    }
+
+    /* loading state — the two dots from the target screenshot */
+    .chat-loading {
+      flex: 1;
+      display: grid;
+      place-items: center;
+    }
+
+    .chat-loading .dots { display: flex; gap: 8px; }
+
+    .chat-loading .dots span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #c7d0dc;
+      animation: dotPulse 1.1s ease-in-out infinite;
+    }
+
+    .chat-loading .dots span:nth-child(2) {
+      background: var(--blue);
+      animation-delay: .35s;
+    }
+
+    .chat-loading.is-hidden { display: none; }
+
+    .message {
+      max-width: 86%;
+      padding: 12px 14px;
+      border-radius: 18px;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .message.agent {
+      align-self: flex-start;
+      color: #122033;
+      background: rgba(18, 103, 245, .09);
+      border: 1px solid rgba(18, 103, 245, .1);
+      border-top-left-radius: 8px;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--cyan));
+      border-top-right-radius: 8px;
+    }
+
+    .chat-input {
+      display: grid;
+      grid-template-columns: 40px 1fr 40px;
+      gap: 8px;
+      align-items: center;
+      margin: 0 14px 6px;
+      padding: 7px;
+      border-radius: 999px;
+      background: rgba(241, 244, 249, .95);
+      border: 1px solid rgba(15, 23, 42, .07);
+    }
+
+    .chat-input input {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #344054;
+      font: inherit;
+      font-size: 14px;
+      text-align: right;
+    }
+
+    .input-wa, .input-add {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 0;
+      text-decoration: none;
+      transition: transform .16s var(--ease);
+    }
+
+    .input-wa { color: #fff; background: var(--whatsapp); box-shadow: 0 8px 20px rgba(37, 211, 102, .3); }
+    .input-wa:hover { transform: scale(1.06); }
+
+    .input-add { color: #667085; background: rgba(255, 255, 255, .9); border: 1px solid rgba(15, 23, 42, .08); }
+    .input-add:hover { color: var(--blue); }
+
+    .chat-credit {
+      margin: 4px 0 12px;
+      text-align: center;
+      color: #98a2b3;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .chat-credit i { width: 13px; height: 13px; color: var(--amber); vertical-align: -2px; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); opacity: .5; }
+      50% { transform: scale(1.06); opacity: .85; }
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { transform: scale(.7); opacity: .5; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+
+    @media (max-width: 760px) {
+      .preview-page { padding: 14px; }
+      .preview-content { grid-template-columns: 1fr; padding: 16px; }
+      .preview-topbar { padding: 14px 16px; }
+      .top-actions { display: none; }
+      .progress-row { grid-template-columns: 1fr; }
+      .majed-widget { right: 14px; bottom: 14px; }
+      .majed-chat {
+        width: calc(100vw - 28px);
+        height: calc(100dvh - 120px);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview-page">
+    <section class="preview-shell" aria-label="صفحة اختبار ويدجت ماجد">
+      <header class="preview-topbar">
+        <div class="brand">
+          <div class="brand-mark">EN</div>
+          <div>
+            <strong>Engosoft LMS</strong>
+            <span>معاينة داخل صفحة عميل فعلية</span>
+          </div>
+        </div>
+        <div class="top-actions" aria-hidden="true">
+          <button class="icon-button"><i data-lucide="search"></i></button>
+          <button class="icon-button"><i data-lucide="bell"></i></button>
+          <button class="icon-button"><i data-lucide="settings"></i></button>
+        </div>
+      </header>
+
+      <div class="preview-content">
+        <section class="course-band">
+          <h1>المسار الاحترافي للتصميم الداخلي والديكور</h1>
+          <p>الخلفية هنا مجرد مساحة اختبار عشان نراجع حجم الودجت، مكانه، ووضوحه فوق صفحة حقيقية قبل دمجه داخل Odoo.</p>
+          <div class="progress-row" aria-hidden="true">
+            <div class="metric"><span>الدروس المكتملة</span><strong>18</strong></div>
+            <div class="metric"><span>نسبة التقدم</span><strong>64%</strong></div>
+            <div class="metric"><span>المتعلمون</span><strong>50,243+</strong></div>
+          </div>
+        </section>
+
+        <aside class="activity-band">
+          <h2>نشاط اليوم</h2>
+          <p>ماجد يقدر يستقبل بيانات المتدرب من Odoo ويعرضها داخل Chatwoot كـ contact attributes.</p>
+          <div class="timeline" aria-hidden="true">
+            <div class="timeline-row"><i>1</i><span>متابعة الدروس المتبقية</span></div>
+            <div class="timeline-row"><i>2</i><span>توجيه للدرس التالي</span></div>
+            <div class="timeline-row"><i>3</i><span>تحويل لفريق الدعم عند الحاجة</span></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div class="majed-widget" id="majedWidget">
+    <!-- Chat panel: opens directly from the avatar (no radial menu) -->
+    <section class="majed-chat" id="majedChat" aria-label="محادثة ماجد" aria-hidden="true">
+      <header class="chat-header">
+        <div class="chat-identity">
+          <button class="chat-tool chat-back" id="chatBack" type="button" aria-label="رجوع"><i data-lucide="chevron-left"></i></button>
+          <img src="assets/majed-avatar.png" alt="ماجد" />
+          <strong>ماجد</strong>
+        </div>
+        <div class="chat-tools">
+          <a class="chat-tool" href="mailto:aibot@engosoft.com" aria-label="راسلنا بالإيميل"><i data-lucide="mail"></i></a>
+          <button class="chat-tool" id="chatRestart" type="button" aria-label="بدء محادثة جديدة"><i data-lucide="rotate-ccw"></i></button>
+          <button class="chat-tool" id="chatClose" type="button" aria-label="إغلاق المحادثة"><i data-lucide="x"></i></button>
+        </div>
+      </header>
+
+      <div class="chat-body" id="chatBody">
+        <div class="chat-loading" id="chatLoading" aria-hidden="true">
+          <div class="dots"><span></span><span></span></div>
+        </div>
+      </div>
+
+      <form class="chat-input" id="chatForm">
+        <button class="input-add" type="submit" aria-label="إرسال"><i data-lucide="plus"></i></button>
+        <input type="text" placeholder="اكتب رسالتك..." aria-label="اكتب رسالتك" />
+        <a class="input-wa" href="https://wa.me/966920016295?utm_source=website&utm_medium=whatsapp" target="_blank" rel="noopener noreferrer" aria-label="تواصل عبر واتساب">
+          <i data-lucide="message-circle"></i>
+        </a>
+      </form>
+
+      <div class="chat-credit">by Engosoft <i data-lucide="zap"></i></div>
+    </section>
+
+    <button class="majed-launcher" id="launcherButton" type="button" aria-label="تحدث مع ماجد" aria-expanded="false">
+      <span class="launcher-ring"></span>
+      <img src="assets/majed-avatar.png" alt="ماجد" />
+      <span class="status-dot" aria-hidden="true"></span>
+    </button>
+  </div>
+
+  <script>
+    const CHATWOOT_BASE_URL = "https://chat.engosoft.com";
+    const CHATWOOT_WEBSITE_TOKEN = "faaNReedHd76N7wxGjbCUh1x";
+
+    // Hide Chatwoot's default bubble — the Majed avatar is our launcher instead.
+    window.chatwootSettings = {
+      hideMessageBubble: true,
+      showUnreadMessagesDialog: false,
+      position: "right",
+      locale: "ar",
+      useBrowserLanguage: false,
+      type: "standard",
+      darkMode: "light",
+      showPopoutButton: false,
+      launcherTitle: "تحدث مع ماجد",
+      welcomeTitle: "تحدث مع ماجد",
+      welcomeDescription: "ماجد يساعدك في رحلتك التعليمية.",
+      availableMessage: "ماجد متاح الآن.",
+      unavailableMessage: "اترك رسالتك وسنرد عليك."
+    };
+
+    const widget = document.getElementById("majedWidget");
+    const launcherButton = document.getElementById("launcherButton");
+    const chat = document.getElementById("majedChat");
+    const chatBody = document.getElementById("chatBody");
+    const chatLoading = document.getElementById("chatLoading");
+    const chatForm = document.getElementById("chatForm");
+    const chatClose = document.getElementById("chatClose");
+    const chatBack = document.getElementById("chatBack");
+    const chatRestart = document.getElementById("chatRestart");
+
+    let chatwootReady = false;
+    let fallbackSeeded = false;
+
+    function refreshIcons() {
+      if (window.lucide) {
+        window.lucide.createIcons({ attrs: { width: 19, height: 19, strokeWidth: 2.2 } });
+      }
+    }
+
+    function pushMessage(role, text) {
+      const el = document.createElement("div");
+      el.className = "message " + role;
+      el.textContent = text;
+      chatBody.appendChild(el);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    // Local fallback conversation when Chatwoot isn't loaded (preview mode).
+    function seedFallback() {
+      if (fallbackSeeded) return;
+      fallbackSeeded = true;
+      chatLoading.classList.add("is-hidden");
+      pushMessage("agent", "أهلاً، أنا ماجد 👋 أقدر أساعدك في معرفة تقدّمك، الدرس التالي، أو أوصلك بفريق Engosoft.");
+    }
+
+    function hideFallback() {
+      chat.classList.remove("is-visible");
+      chat.setAttribute("aria-hidden", "true");
+    }
+
+    function showFallback() {
+      chat.classList.add("is-visible");
+      chat.setAttribute("aria-hidden", "false");
+      // brief loading state, then greeting — mirrors Chatwoot's load.
+      window.setTimeout(seedFallback, 650);
+      window.setTimeout(() => {
+        const input = chatForm.querySelector("input");
+        if (input) input.focus({ preventScroll: true });
+      }, 120);
+    }
+
+    function setChatOpen(open) {
+      widget.classList.toggle("is-chat-open", open);
+      launcherButton.setAttribute("aria-expanded", String(open));
+
+      // If the real Chatwoot widget is ready, it owns the conversation UI.
+      if (chatwootReady && window.$chatwoot && typeof window.$chatwoot.toggle === "function") {
+        hideFallback();
+        window.$chatwoot.toggle(open ? "open" : "close");
+        return;
+      }
+
+      // Otherwise drive the styled fallback panel (matches the screenshot).
+      if (open) showFallback();
+      else hideFallback();
+    }
+
+    function isChatOpen() {
+      return widget.classList.contains("is-chat-open");
+    }
+
+    function loadChatwoot() {
+      if (!CHATWOOT_BASE_URL || !CHATWOOT_WEBSITE_TOKEN) return;
+      const script = document.createElement("script");
+      script.async = true;
+      script.src = `${CHATWOOT_BASE_URL}/packs/js/sdk.js`;
+      script.onload = function () {
+        if (window.chatwootSDK) {
+          window.chatwootSDK.run({
+            websiteToken: CHATWOOT_WEBSITE_TOKEN,
+            baseUrl: CHATWOOT_BASE_URL
+          });
+        }
+      };
+      document.head.appendChild(script);
+    }
+
+    window.addEventListener("chatwoot:ready", function () {
+      chatwootReady = true;
+      if (window.$chatwoot && typeof window.$chatwoot.toggleBubbleVisibility === "function") {
+        window.$chatwoot.toggleBubbleVisibility("hide");
+      }
+      // If the user opened the fallback while the SDK was still loading,
+      // hand the conversation over to the real Chatwoot widget.
+      if (chat.classList.contains("is-visible")) {
+        hideFallback();
+        window.$chatwoot.toggle("open");
+      }
+    });
+
+    // Keep our launcher state in sync if the user closes Chatwoot from inside it.
+    window.addEventListener("chatwoot:on-message", function () {
+      widget.classList.add("is-chat-open");
+    });
+
+    launcherButton.addEventListener("click", () => {
+      // When Chatwoot owns the UI, let it manage its own open/close state
+      // (no-arg toggle) so closing from inside Chatwoot stays in sync.
+      if (chatwootReady && window.$chatwoot && typeof window.$chatwoot.toggle === "function") {
+        widget.classList.add("is-chat-open");
+        launcherButton.setAttribute("aria-expanded", "true");
+        hideFallback();
+        window.$chatwoot.toggle();
+        return;
+      }
+      setChatOpen(!isChatOpen());
+    });
+    chatClose.addEventListener("click", () => setChatOpen(false));
+    chatBack.addEventListener("click", () => setChatOpen(false));
+
+    chatRestart.addEventListener("click", () => {
+      if (chatwootReady && window.$chatwoot && typeof window.$chatwoot.reset === "function") {
+        window.$chatwoot.reset();
+        return;
+      }
+      chatBody.querySelectorAll(".message").forEach((m) => m.remove());
+      fallbackSeeded = false;
+      chatLoading.classList.remove("is-hidden");
+      window.setTimeout(seedFallback, 500);
+    });
+
+    chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = chatForm.querySelector("input");
+      const text = input.value.trim();
+      if (!text) return;
+      pushMessage("user", text);
+      input.value = "";
+      window.setTimeout(() => {
+        pushMessage("agent", "دي معاينة UI فقط. في النسخة الحقيقية الرسالة هتروح لـ Chatwoot ثم Botpress.");
+      }, 600);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") setChatOpen(false);
+    });
+
+    if (new URLSearchParams(window.location.search).get("open") === "1") {
+      window.setTimeout(() => setChatOpen(true), 250);
+    }
+
+    window.addEventListener("load", refreshIcons);
+    window.setTimeout(refreshIcons, 500);
+    loadChatwoot();
+  </script>
+</body>
+</html>

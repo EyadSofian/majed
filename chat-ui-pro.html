@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ماجد — نافذة الشات (نسخة العرض المطوّرة)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --brand:#1267f5; --brand-600:#0d57e0; --brand-2:#3b9bf6; --sky:#0ea5e9;
+    --online:#16a34a; --wa:#25d366;
+    --ink:#0f1b33; --ink-soft:#33425e; --muted:#7b889c;
+    --surface:#ffffff; --surface-2:#f6f9fe; --line:#e9edf5;
+    --bubble-bot:#ffffff; --shadow:0 24px 70px rgba(13,40,92,.20);
+    --r:24px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:"Cairo",system-ui,-apple-system,sans-serif;color:var(--ink);
+    display:grid;place-items:center;padding:28px 16px;
+    background:
+      radial-gradient(900px 500px at 12% -5%, rgba(18,103,245,.18), transparent 55%),
+      radial-gradient(800px 520px at 100% 8%, rgba(14,165,233,.16), transparent 55%),
+      radial-gradient(700px 600px at 50% 120%, rgba(25,195,125,.12), transparent 55%),
+      linear-gradient(160deg,#eaf1fb,#eef3fb 55%,#e8effa);
+  }
+
+  /* ====== window ====== */
+  .win{width:392px;max-width:100%;height:640px;background:var(--surface);
+    border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column;
+    border:1px solid rgba(255,255,255,.7);box-shadow:var(--shadow);position:relative;
+    animation:pop .5s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+
+  /* ====== header (liquid glass tinted) ====== */
+  .hd{position:relative;display:flex;align-items:center;gap:11px;padding:13px 14px 14px;
+    background:linear-gradient(135deg,#ffffff,#f3f8ff);border-bottom:1px solid var(--line)}
+  .hd::after{content:"";position:absolute;inset:0 0 -1px 0;height:3px;top:auto;
+    background:linear-gradient(90deg,var(--brand),var(--sky),var(--online))}
+  .hd .id{display:flex;align-items:center;gap:11px;min-width:0}
+  .avwrap{position:relative;flex-shrink:0}
+  .av{width:46px;height:46px;border-radius:50%;object-fit:cover;display:block;
+    border:2.5px solid #fff;box-shadow:0 6px 16px rgba(18,103,245,.28)}
+  .avwrap::before{content:"";position:absolute;inset:-4px;border-radius:50%;z-index:-1;
+    background:conic-gradient(from 180deg,var(--brand),var(--sky),var(--online),var(--brand))}
+  .dot{position:absolute;left:1px;bottom:1px;width:12px;height:12px;border-radius:50%;
+    background:var(--online);border:2.5px solid #fff}
+  .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--online);
+    opacity:.6;animation:ping 1.8s ease-out infinite}
+  @keyframes ping{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.7);opacity:0}}
+  .nm{line-height:1.25;min-width:0}
+  .nm strong{display:block;font-size:16.5px;font-weight:800;color:var(--ink)}
+  .nm .st{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--online);font-weight:600;margin-top:1px}
+  .nm .st i{width:6px;height:6px;border-radius:50%;background:var(--online);display:inline-block}
+  .tools{margin-inline-start:auto;display:flex;align-items:center;gap:2px}
+  .ib{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;border:0;background:transparent;
+    color:#5b6a82;cursor:pointer;text-decoration:none;transition:background .18s,color .18s,transform .12s}
+  .ib:hover{background:#eef3fc;color:var(--ink)}
+  .ib:active{transform:scale(.92)}
+  .ib:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  .ib.spark{color:var(--brand)} .ib.spark:hover{background:rgba(18,103,245,.12)}
+  .ib svg{width:20px;height:20px}
+
+  /* ====== body ====== */
+  .bd{flex:1;overflow-y:auto;padding:16px 14px 8px;background:
+      linear-gradient(180deg,var(--surface-2),#fbfcff);display:flex;flex-direction:column;gap:12px;
+    scrollbar-width:thin;scrollbar-color:#d7deea transparent}
+  .bd::-webkit-scrollbar{width:7px}
+  .bd::-webkit-scrollbar-thumb{background:#d7deea;border-radius:99px}
+
+  .daychip{align-self:center;font-size:11px;font-weight:700;color:var(--muted);
+    background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 13px;box-shadow:0 2px 6px rgba(13,40,92,.05)}
+
+  /* row with avatar for bot */
+  .row{display:flex;gap:8px;align-items:flex-end;max-width:90%;animation:rise .4s ease both}
+  .row.me{align-self:flex-end;flex-direction:row;max-width:88%}
+  .row.bot{align-self:flex-start}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .mini{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #fff;
+    box-shadow:0 3px 8px rgba(13,40,92,.14)}
+  .stack{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .who{font-size:11px;font-weight:700;color:var(--muted);margin:0 4px}
+
+  .bubble{font-size:14px;line-height:1.75;padding:11px 14px;border-radius:16px;word-wrap:break-word}
+  .bot .bubble{background:var(--bubble-bot);color:var(--ink-soft);border:1px solid var(--line);
+    border-bottom-right-radius:6px;box-shadow:0 3px 12px rgba(13,40,92,.05)}
+  .me .bubble{background:linear-gradient(135deg,var(--brand),var(--sky));color:#fff;
+    border-bottom-left-radius:6px;box-shadow:0 8px 20px rgba(18,103,245,.28)}
+  .time{font-size:10px;color:var(--muted);margin:1px 6px}
+  .me .time{text-align:start}
+
+  /* quick-reply suggestion chips */
+  .chips{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 2px 36px;animation:rise .45s ease both}
+  .chip{font:inherit;font-size:13px;font-weight:700;cursor:pointer;padding:9px 15px;border-radius:999px;
+    background:#fff;border:1.5px solid rgba(18,103,245,.35);color:var(--brand);
+    transition:background .18s,color .18s,transform .12s,box-shadow .18s}
+  .chip:hover{background:var(--brand);color:#fff;transform:translateY(-1px);box-shadow:0 8px 18px rgba(18,103,245,.28)}
+  .chip:active{transform:scale(.97)}
+  .chip:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+  /* contact card (the in-chat interactive concept) */
+  .card{align-self:flex-start;width:88%;background:#fff;border:1px solid var(--line);border-radius:16px;
+    border-bottom-right-radius:6px;overflow:hidden;box-shadow:0 3px 12px rgba(13,40,92,.06);
+    margin-inline-start:36px;animation:rise .5s ease both}
+  .card .ch{padding:12px 14px 8px}
+  .card .ch strong{display:block;font-size:14px}
+  .card .ch span{font-size:12px;color:var(--muted)}
+  .act{display:flex;align-items:center;gap:11px;padding:12px 14px;font-size:13.5px;font-weight:700;
+    color:var(--ink);text-decoration:none;cursor:pointer;border-top:1px solid var(--line);transition:background .16s}
+  .act:hover{background:#f3f8ff}
+  .act .ic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;color:#fff;flex-shrink:0}
+  .act.wa .ic{background:var(--wa)}
+  .act.em .ic{background:linear-gradient(135deg,#475569,var(--brand))}
+  .act.vo{color:var(--muted)} .act.vo .ic{background:#aab4c4}
+  .act .soon{margin-inline-start:auto;font-size:10.5px;font-weight:800;color:#9a5b00;background:#fff3d6;
+    border:1px solid rgba(245,158,11,.32);border-radius:999px;padding:2px 9px}
+  .act .go{margin-inline-start:auto;color:var(--muted)}
+
+  /* typing indicator */
+  .typing{align-self:flex-start;display:flex;align-items:center;gap:8px;margin-inline-start:0}
+  .typing .mini{margin-bottom:0}
+  .tdots{background:#fff;border:1px solid var(--line);border-radius:16px;border-bottom-right-radius:6px;
+    padding:13px 15px;display:flex;gap:5px;box-shadow:0 3px 12px rgba(13,40,92,.05)}
+  .tdots i{width:7px;height:7px;border-radius:50%;background:#b9c4d6;display:inline-block;animation:blink 1.3s infinite}
+  .tdots i:nth-child(2){animation-delay:.2s} .tdots i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+  /* ====== input ====== */
+  .ip{display:flex;align-items:center;gap:9px;padding:11px 13px;border-top:1px solid var(--line);
+    background:#fff}
+  .wa-q{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;
+    background:var(--wa);color:#fff;text-decoration:none;box-shadow:0 7px 18px rgba(37,211,102,.32);
+    transition:transform .14s,box-shadow .18s}
+  .wa-q:hover{transform:translateY(-1px) scale(1.04)} .wa-q svg{width:21px;height:21px}
+  .field{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:999px;padding:0 8px 0 14px;height:46px;transition:border-color .18s,box-shadow .18s}
+  .field:focus-within{border-color:var(--brand);box-shadow:0 0 0 4px rgba(18,103,245,.12);background:#fff}
+  .field input{flex:1;border:0;background:transparent;font:inherit;font-size:14px;color:var(--ink);outline:none}
+  .field input::placeholder{color:#9aa6b8}
+  .field .emoji{color:#9aa6b8;display:grid;place-items:center;cursor:pointer;width:30px;height:30px;border-radius:50%;transition:color .15s,background .15s}
+  .field .emoji:hover{color:var(--brand);background:#eef3fc}
+  .send{width:46px;height:46px;border-radius:50%;flex-shrink:0;border:0;cursor:pointer;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--brand),var(--sky));color:#fff;box-shadow:0 8px 20px rgba(18,103,245,.34);
+    transition:transform .14s,box-shadow .18s}
+  .send:hover{transform:translateY(-1px) scale(1.04)} .send:active{transform:scale(.95)}
+  .send:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  .send svg{width:19px;height:19px;transform:scaleX(-1)}
+
+  .credit{text-align:center;font-size:11px;color:#aeb8c8;padding:8px 0 11px;background:#fff;font-weight:600;
+    display:flex;align-items:center;justify-content:center;gap:5px}
+  .credit svg{width:12px;height:12px;color:var(--brand)}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important;transition:none!important}
+  }
+  @media(max-width:430px){.win{height:88dvh}}
+</style>
+</head>
+<body>
+  <div class="win" role="dialog" aria-label="محادثة ماجد">
+    <!-- Header -->
+    <header class="hd">
+      <div class="id">
+        <span class="avwrap">
+          <img class="av" src="assets/majed-avatar.png" alt="ماجد"/>
+          <span class="dot" aria-hidden="true"></span>
+        </span>
+        <span class="nm">
+          <strong>ماجد</strong>
+          <span class="st"><i></i> متاح الآن · يرد خلال دقائق</span>
+        </span>
+      </div>
+      <nav class="tools" aria-label="أدوات">
+        <button class="ib spark" title="محادثة جديدة" aria-label="محادثة جديدة">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.3L18 9l-4.4 1.7L12 15l-1.6-4.3L6 9l4.4-1.7z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/></svg>
+        </button>
+        <a class="ib" href="mailto:aibot@engosoft.com" title="راسلنا بالإيميل" aria-label="إيميل">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7L22 6"/></svg>
+        </a>
+        <button class="ib" title="إغلاق" aria-label="إغلاق">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Body -->
+    <main class="bd" id="bd">
+      <span class="daychip">اليوم</span>
+
+      <!-- Bot welcome -->
+      <div class="row bot" style="animation-delay:.05s">
+        <img class="mini" src="assets/majed-avatar.png" alt=""/>
+        <div class="stack">
+          <span class="who">ماجد</span>
+          <div class="bubble">أهلاً 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن دوراتك، تقدّمك، أو الدرس الجاي.</div>
+          <span class="time">2:14 م</span>
+        </div>
+      </div>
+
+      <!-- Quick replies -->
+      <div class="chips" style="animation-delay:.15s" role="group" aria-label="اقتراحات سريعة">
+        <button class="chip" data-q="عايز أعرف تقدّمي">📊 تقدّمي</button>
+        <button class="chip" data-q="إيه الدرس الجاي؟">▶️ الدرس الجاي</button>
+        <button class="chip" data-q="عايز أكلّم موظف">🧑‍💼 أكلّم موظف</button>
+      </div>
+
+      <!-- User message -->
+      <div class="row me" style="animation-delay:.25s">
+        <div class="stack">
+          <div class="bubble">عايز أعرف باقي لي كام درس في مسار التصميم الداخلي.</div>
+          <span class="time">2:15 م ✓✓</span>
+        </div>
+      </div>
+
+      <!-- Bot reply -->
+      <div class="row bot" style="animation-delay:.32s">
+        <img class="mini" src="assets/majed-avatar.png" alt=""/>
+        <div class="stack">
+          <div class="bubble">باقي لك <strong>7 دروس</strong> 👍 تحب أحجزلك تذكير للدرس الجاي، ولا أوصّلك بفريق الدعم؟</div>
+          <span class="time">2:15 م</span>
+        </div>
+      </div>
+
+      <!-- Contact card (in-chat interactive concept) -->
+      <div class="card" style="animation-delay:.4s">
+        <div class="ch"><strong>طرق التواصل المباشر</strong><span>اختار الوسيلة اللي تناسبك</span></div>
+        <a class="act wa" href="https://wa.me/966920016295" target="_blank" rel="noopener">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 32 32" fill="#fff"><path d="M16 2C8.3 2 2 8.3 2 16c0 2.5.7 4.9 1.8 7L2 30l7.3-1.8A14 14 0 1016 2zm0 25.6c-2.1 0-4.1-.6-5.9-1.6l-.4-.3-4.3 1.1 1.1-4.2-.3-.4A11.6 11.6 0 1116 27.6zm6.3-8.7c-.3-.2-2-1-2.4-1.1-.3-.1-.5-.2-.8.2s-.9 1.1-1.1 1.4c-.2.2-.4.3-.7.1-.3-.2-1.5-.5-2.8-1.7-1-.9-1.7-2.1-1.9-2.4-.2-.3 0-.5.2-.7l.5-.6.3-.5c.1-.2.1-.4 0-.6L9.9 8.4c-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4s-1.2 1.2-1.2 2.9 1.2 3.4 1.4 3.6c.2.2 2.4 3.7 5.9 5.2 2.7 1.2 3.3 1 3.9.9.7-.1 2-.8 2.3-1.6.3-.8.3-1.5.2-1.6z"/></svg></span>
+          واتساب <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></span>
+        </a>
+        <a class="act em" href="mailto:aibot@engosoft.com">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7L22 6"/></svg></span>
+          إيميل <span class="go"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></span>
+        </a>
+        <span class="act vo" role="button" aria-disabled="true">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg></span>
+          ماجد فويس <span class="soon">قريبًا</span>
+        </span>
+      </div>
+
+      <!-- Typing indicator -->
+      <div class="typing" style="animation:rise .5s ease .5s both">
+        <img class="mini" src="assets/majed-avatar.png" alt=""/>
+        <div class="tdots" aria-label="ماجد بيكتب"><i></i><i></i><i></i></div>
+      </div>
+    </main>
+
+    <!-- Input -->
+    <div class="ip">
+      <a class="wa-q" href="https://wa.me/966920016295" title="واتساب" aria-label="واتساب">
+        <svg viewBox="0 0 32 32" fill="currentColor"><path d="M16 2C8.3 2 2 8.3 2 16c0 2.5.7 4.9 1.8 7L2 30l7.3-1.8A14 14 0 1016 2zm0 25.6c-2.1 0-4.1-.6-5.9-1.6l-.4-.3-4.3 1.1 1.1-4.2-.3-.4A11.6 11.6 0 1116 27.6zm6.3-8.7c-.3-.2-2-1-2.4-1.1-.3-.1-.5-.2-.8.2s-.9 1.1-1.1 1.4c-.2.2-.4.3-.7.1-.3-.2-1.5-.5-2.8-1.7-1-.9-1.7-2.1-1.9-2.4-.2-.3 0-.5.2-.7l.5-.6.3-.5c.1-.2.1-.4 0-.6L9.9 8.4c-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4s-1.2 1.2-1.2 2.9 1.2 3.4 1.4 3.6c.2.2 2.4 3.7 5.9 5.2 2.7 1.2 3.3 1 3.9.9.7-.1 2-.8 2.3-1.6.3-.8.3-1.5.2-1.6z"/></svg>
+      </a>
+      <div class="field">
+        <input id="msg" type="text" placeholder="اكتب رسالتك..." aria-label="اكتب رسالتك"/>
+        <span class="emoji" title="إيموجي" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke-linecap="round"/></svg>
+        </span>
+      </div>
+      <button class="send" id="send" title="إرسال" aria-label="إرسال">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+      </button>
+    </div>
+    <div class="credit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.3L18 9l-4.4 1.7L12 15l-1.6-4.3L6 9l4.4-1.7z"/></svg>
+      مدعوم بواسطة Engosoft
+    </div>
+  </div>
+
+<script>
+  // Demo interactivity: chips + send echo a user message and show Majed "typing"
+  const bd = document.getElementById('bd');
+  const typing = document.querySelector('.typing');
+  function nowTime(){const d=new Date();let h=d.getHours(),m=d.getMinutes();const ap=h>=12?'م':'ص';h=h%12||12;return `${h}:${m<10?'0'+m:m} ${ap}`;}
+  function addUser(text){
+    const row=document.createElement('div');row.className='row me';
+    row.innerHTML=`<div class="stack"><div class="bubble"></div><span class="time">${nowTime()} ✓✓</span></div>`;
+    row.querySelector('.bubble').textContent=text;
+    bd.insertBefore(row, typing);
+    bd.scrollTop=bd.scrollHeight;
+    typing.style.display='flex';
+    bd.appendChild(typing);
+  }
+  document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>addUser(c.dataset.q)));
+  const input=document.getElementById('msg');
+  function send(){const v=input.value.trim();if(!v)return;addUser(v);input.value='';}
+  document.getElementById('send').addEventListener('click',send);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+</script>
+</body>
+</html>

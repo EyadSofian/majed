@@ -1,0 +1,17 @@
+{
+  "name": "chatwoot-botpress-bridge",
+  "version": "1.0.0",
+  "description": "Bridge between Chatwoot and Botpress Messaging API",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo No build step required",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

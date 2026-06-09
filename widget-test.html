@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Majed Widget — local mock test</title>
+<style>body{margin:0;font-family:system-ui;background:linear-gradient(135deg,#1267f5,#0ea5e9);height:100vh}
+h1{color:#fff;padding:24px;font-size:18px}</style></head>
+<body>
+<h1>صفحة اختبار ويدجت ماجد (mock bridge)</h1>
+<script>
+  // ---- mock the bridge so we can test the widget UI/logic without a real server ----
+  window.MajedConfig = {
+    bridgeUrl: 'https://mock.local',
+    userContextUrl: '/__no_ctx__',           // will 404 → anonymous
+    avatarUrl: 'assets/majed-avatar.png',     // local image so it renders
+    waNumber: '966920016295',
+    supportEmail: 'aibot@engosoft.com',
+    theme: 'light',
+    position: 'right'
+  };
+
+  // stub fetch
+  var realFetch = window.fetch;
+  window.fetch = function(url, opts){
+    url = String(url);
+    if (url.indexOf('/widget/session') > -1)
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ conversationId:'123' }); } });
+    if (url.indexOf('/widget/message') > -1)
+      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ status:'ok' }); } });
+    if (url.indexOf('/__no_ctx__') > -1)
+      return Promise.resolve({ ok:false, status:404, json:function(){ return Promise.resolve(null);} });
+    return realFetch.apply(window, arguments);
+  };
+
+  // stub EventSource — emits a text msg then a cards msg shortly after "connecting"
+  window.EventSource = function(u){
+    this.url = u; var self = this; this._l = {};
+    this.addEventListener = function(t,f){ self._l[t]=f; };
+    setTimeout(function(){
+      if(self._l.message){
+        self._l.message({ data: JSON.stringify({ id:1, content:'أهلاً 👋 أنا ماجد، اسألني عن دوراتك.', content_type:'text' }) });
+        self._l.message({ data: JSON.stringify({ id:2, content:'طرق التواصل:', content_type:'cards',
+          content_attributes:{ items:[{ title:'تواصل مع Engosoft', description:'اختر وسيلة',
+            actions:[{type:'link',text:'واتساب',uri:'https://wa.me/966920016295'},{type:'postback',text:'موظف',payload:'human_agent'}] }] } }) });
+      }
+    }, 150);
+  };
+  window.__esEmitted = true;
+</script>
+<script src="integration/bridge/public/majed-widget.js"></script>
+</body></html>
