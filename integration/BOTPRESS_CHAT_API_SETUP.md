@@ -59,6 +59,13 @@
 > جهة Odoo (المستخدم مش مسجّل دخول، أو `/ai_webhook/user_context` مش راجع بيانات)،
 > وشوف كونسول المتصفح هتلاقي `[Majed] user context: …` بيوضح اللي اتجاب بالظبط.
 
+### مرفقات العميل جوه البوت (تلقائي)
+لما العميل يبعت ملف من الويدجت (زرار 📎)، البريدج بيكتبه في Chatwoot كمرفق حقيقي وبعدين
+يبعته للبوت كـ **payload حقيقي** حسب النوع: `image` (imageUrl) / `audio` / `video` / `file` (fileUrl+title).
+- الصور بتوصل الـ Autonomous Node كـ image message → **جاهزة للـ vision** لو الموديل بيدعمه.
+- لو العميل كتب كابشن مع الملف، بيوصل كرسالة نص منفصلة بعد الملف.
+- الرابط بيكون رابط مرفق Chatwoot (`data_url`) — لازم يكون متاح من الإنترنت عشان Botpress يقدر يقرأه.
+
 ### الـ handoff من البوت (3 طرق مدعومة)
 1. **ماركر في النص (الأسهل):** البوت يرد بنص فيه `[[HANDOFF]]` أو `[[HANDOFF:3]]`
    → البريدج يشيل الماركر (مش بيظهر للعميل)، يحوّل الحالة لـ open ويعمل assign للتيم.
@@ -102,8 +109,12 @@
    - `choice/buttons` → تظهر كأزرار داخل الويدجت و`input_select` في Chatwoot.
    - `card/carousel` → تظهر ككروت وروابط/أزرار.
    - `image/audio/video/file` → تظهر كمعاينة/مشغّل/رابط في الويدجت، وكوصلة قابلة للفتح في Chatwoot.
+8. ابعت **صورة** من الويدجت (زرار 📎) → تظهر كمرفق في Chatwoot، وتوصل Botpress كـ image payload
+   (لوج: `SEND Botpress media`) → البوت يقدر يعلّق عليها.
+9. اقفل الشات وافتحه تاني → الـ transcript يرجع كامل والهيدر يبقى زجاجي تلقائي.
+   جرّب زرار 🕘 (الهيستوري) → القائمة تظهر + «محادثة جديدة» تبدأ نظيفة.
 
-## 8) ضمانات مدمجة (متغطية باختبارات mock — 28 check)
+## 8) ضمانات مدمجة (متغطية باختبارات mock — 43 check)
 - ✅ outgoing/private عمرها ما تتبعت للبوت أو للعميل بالغلط.
 - ✅ dedup بالـ message id (ويدجت) + bp message id (SSE reconnect) + echo الرسائل اللي البريدج كتبها، حتى لو Chatwoot webhook وصل قبل رد API.
 - ✅ إعادة استخدام محادثة Chatwoot الموجودة بدل فتح محادثة جديدة كل مرة.
@@ -112,6 +123,8 @@
 - ✅ mapping (cwConv ↔ bpUser/bpConv) محفوظ في **custom_attributes بتاعة محادثة Chatwoot** → يعيش بعد restart للبريدج.
   (in-memory + استرجاع تلقائي؛ مفيش DB — المخاطرة الوحيدة: SSE listener بيتفتح من جديد عند أول رسالة بعد الـ restart.)
 - ✅ فشل Botpress مش بيوقّع رسالة العميل (بتتكتب في Chatwoot على أي حال).
+- ✅ مرفقات العميل: multipart → Chatwoot، وmedia payload حقيقي → Botpress، ورفض الأنواع غير المدعومة (415) والحجم الزائد (413). أسماء الملفات العربية بتتصلّح encoding تلقائي.
+- ✅ transcript + ملخصات المحادثات للهيستوري، وإحياء المحادثة الـ resolved لـ pending عند رسالة جديدة.
 - ✅ اللوجينج: `IN widget` / `IN Chatwoot(external)` / `SEND Botpress` / `BOTPRESS reply` / `OUT Chatwoot` / `HANDOFF` / `STATUS` / `SKIP`.
 
 ## 9) 🔐 تنبيه أمني (إلزامي)

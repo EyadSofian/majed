@@ -24,9 +24,10 @@ const state = {
   cwAttrs: {},
   assignments: [],
   cwConversations: 0,
+  cwUploads: 0,
   bpUsers: 0,
   bpConvs: 0,
-  bpMessages: [], // { text }
+  bpMessages: [], // { text, payload }
   sseRes: null, // botpress listen stream
   msgSeq: 1000,
 };
@@ -47,6 +48,23 @@ function mockApp() {
     r.json({ id: 9001 });
   });
   m.post('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
+    // multipart = widget attachment upload (don't parse, just acknowledge like Chatwoot)
+    if (String(q.headers['content-type'] || '').startsWith('multipart/')) {
+      q.resume();
+      q.on('end', () => {
+        const id = ++state.msgSeq;
+        state.cwUploads++;
+        state.cwMessages.push({ convId: q.params.id, id, body: { message_type: 'incoming', content: '', attachment: true } });
+        setTimeout(() => {
+          axios.post(`${BRIDGE}/chatwoot/webhook`, {
+            event: 'message_created', id, message_type: 'incoming', content: '',
+            conversation: { id: Number(q.params.id), status: state.cwStatus }, sender: { name: 'Echo' },
+          }).catch(() => {});
+        }, 0);
+        r.json({ id, content: '', attachments: [{ id: 1, file_type: 'image', data_url: `${MOCK}/up/${id}.png`, thumb_url: '', file_size: 321 }] });
+      });
+      return;
+    }
     const id = ++state.msgSeq;
     state.cwMessages.push({ convId: q.params.id, id, body: q.body });
     if (q.body.message_type === 'incoming') {
@@ -63,9 +81,33 @@ function mockApp() {
     }
     r.json({ id, content: q.body.content, message_type: q.body.message_type, content_type: q.body.content_type, content_attributes: q.body.content_attributes });
   });
-  m.get('/api/v1/accounts/2/conversations/:id', (_q, r) =>
-    r.json({ id: 9001, status: state.cwStatus, custom_attributes: state.cwAttrs })
-  );
+  m.get('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
+    const msgs = state.cwMessages
+      .filter((x) => String(x.convId) === String(q.params.id))
+      .map((x) => ({
+        id: x.id,
+        content: x.body.content || '',
+        message_type: x.body.message_type === 'outgoing' ? 1 : 0,
+        content_type: x.body.content_type || 'text',
+        content_attributes: x.body.content_attributes || {},
+        created_at: 1760000000,
+        private: !!x.body.private,
+        attachments: x.body.attachment ? [{ file_type: 'image', data_url: `${MOCK}/up/${x.id}.png`, file_size: 321 }] : [],
+      }));
+    r.json({ payload: msgs.slice(-20) });
+  });
+  m.get('/api/v1/accounts/2/conversations/:id', (_q, r) => {
+    const lastMsg = state.cwMessages[state.cwMessages.length - 1];
+    r.json({
+      id: 9001,
+      status: state.cwStatus,
+      custom_attributes: state.cwAttrs,
+      last_non_activity_message: lastMsg
+        ? { content: lastMsg.body.content || '', created_at: 1760000000, attachments: lastMsg.body.attachment ? [{}] : [] }
+        : null,
+      last_activity_at: 1760000001,
+    });
+  });
   m.post('/api/v1/accounts/2/conversations/:id/custom_attributes', (q, r) => {
     Object.assign(state.cwAttrs, q.body.custom_attributes || {});
     r.json({ ok: true });
@@ -90,7 +132,7 @@ function mockApp() {
   });
   m.post('/bp/wh1/messages', (q, r) => {
     const text = q.body?.payload?.text || '';
-    state.bpMessages.push({ text });
+    state.bpMessages.push({ text, payload: q.body?.payload });
     r.status(201).json({ message: { id: 'm' + state.bpMessages.length } });
     // bot "thinks" then replies over SSE. Like a real LLM, it answers the customer's
     // message (the last block) — the injected context preamble is background info.
@@ -286,6 +328,52 @@ function check(name, cond, extra) {
     check('legacy reply written + 200', r10.status === 200 && st.cwMessages.some((m) => m.body.content === 'رد من فلو قديم'));
     const r10b = await axios.post(`${BRIDGE}/botpress/webhook`, {});
     check('empty validation body returns 200 skipped', r10b.status === 200 && r10b.data.status === 'skipped');
+
+    console.log('TEST 12 — widget attachment upload → Chatwoot multipart + Botpress media payload');
+    const fd = new FormData();
+    fd.append('file', new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])], { type: 'image/png' }), 'صورة-تمرين.png');
+    fd.append('conversationId', '9001');
+    fd.append('caption', 'شوف الصورة دي');
+    fd.append('userData', '{}');
+    const up = await fetch(`${BRIDGE}/widget/upload`, { method: 'POST', body: fd });
+    const upd = await up.json();
+    check('upload returns 200 + hosted url', up.status === 200 && upd.status === 'ok' && /\/up\//.test(upd.message.url), JSON.stringify(upd));
+    check('arabic filename survives multipart (utf8 restore)', upd.message.name === 'صورة-تمرين.png', upd.message.name);
+    check('attachment written to Chatwoot via multipart', state.cwUploads === 1, `uploads=${state.cwUploads}`);
+    await sleep(500);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('Botpress got a real image payload (vision-ready)',
+      st.bpMessages.some((m) => m.payload && m.payload.type === 'image' && m.payload.imageUrl === upd.message.url));
+    check('caption forwarded to bot as text', st.bpMessages.some((m) => m.text === 'شوف الصورة دي'));
+
+    const badFd = new FormData();
+    badFd.append('file', new Blob([Buffer.from('MZ')], { type: 'application/x-msdownload' }), 'x.exe');
+    badFd.append('conversationId', '9001');
+    const badUp = await fetch(`${BRIDGE}/widget/upload`, { method: 'POST', body: badFd });
+    check('unsupported file type rejected with 415', badUp.status === 415);
+
+    console.log('TEST 13 — transcript endpoint for restore/history');
+    const tr = (await axios.get(`${BRIDGE}/widget/messages?conversationId=9001`)).data;
+    check('transcript returns mapped messages', Array.isArray(tr.messages) && tr.messages.length > 0);
+    check('both senders present + valid', tr.messages.every((m) => m.sender === 'agent' || m.sender === 'contact')
+      && tr.messages.some((m) => m.sender === 'contact') && tr.messages.some((m) => m.sender === 'agent'));
+    check('attachment surfaced in transcript', tr.messages.some((m) => (m.attachments || []).length > 0));
+
+    console.log('TEST 14 — conversation summaries for the history list');
+    const cv = (await axios.get(`${BRIDGE}/widget/conversations?ids=9001,abc,9001`)).data;
+    check('summaries deduped + mapped', cv.conversations.length === 1 && cv.conversations[0].id === '9001'
+      && typeof cv.conversations[0].last_message === 'string' && !!cv.conversations[0].last_at, JSON.stringify(cv));
+    const cvEmpty = (await axios.get(`${BRIDGE}/widget/conversations?ids=`)).data;
+    check('empty ids → empty list', Array.isArray(cvEmpty.conversations) && cvEmpty.conversations.length === 0);
+
+    console.log('TEST 15 — resolved conversation revived to pending on new customer message');
+    state.cwStatus = 'resolved';
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'resolved' });
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'رجعت تاني', userData: {} });
+    await sleep(500);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('status flipped back to pending', st.cwStatus === 'pending', `status=${st.cwStatus}`);
+    check('bot received the message after revive', st.bpMessages.some((m) => m.text === 'رجعت تاني'));
 
     ws.close();
   } catch (e) {

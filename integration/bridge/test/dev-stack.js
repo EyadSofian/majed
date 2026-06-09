@@ -18,6 +18,7 @@ const PAGE_PORT = process.env.PORT || 4810;
 
 let sseRes = null;
 let msgSeq = 5000;
+const cwMessages = []; // { convId, id, body } — feeds the widget transcript/history endpoints
 
 // ── fake Chatwoot + fake Botpress Chat API ──
 const mock = express();
@@ -27,9 +28,44 @@ mock.get('/api/v1/accounts/2/inboxes', (_q, r) =>
 mock.post('/api/v1/accounts/2/contacts', (_q, r) =>
   r.json({ payload: { contact: { id: 1, contact_inboxes: [{ source_id: 'src-1' }] }, contact_inbox: { source_id: 'src-1' } } }));
 mock.post('/api/v1/accounts/2/conversations', (_q, r) => r.json({ id: 9001 }));
-mock.post('/api/v1/accounts/2/conversations/:id/messages', (q, r) =>
-  r.json({ id: ++msgSeq, content: q.body.content, message_type: q.body.message_type, content_type: q.body.content_type, content_attributes: q.body.content_attributes }));
-mock.get('/api/v1/accounts/2/conversations/:id', (_q, r) => r.json({ id: 9001, status: 'pending', custom_attributes: {} }));
+mock.post('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
+  // multipart = attachment from the widget («اضافة ملفات»)
+  if (String(q.headers['content-type'] || '').startsWith('multipart/')) {
+    q.resume();
+    q.on('end', () => {
+      const id = ++msgSeq;
+      cwMessages.push({ convId: q.params.id, id, body: { message_type: 'incoming', content: '', attachment: true } });
+      r.json({ id, content: '', attachments: [{ id, file_type: 'image', data_url: `http://localhost:${MOCK_PORT}/up/${id}.png`, thumb_url: '', file_size: 4096 }] });
+    });
+    return;
+  }
+  const id = ++msgSeq;
+  cwMessages.push({ convId: q.params.id, id, body: q.body });
+  r.json({ id, content: q.body.content, message_type: q.body.message_type, content_type: q.body.content_type, content_attributes: q.body.content_attributes });
+});
+mock.get('/up/:f', (_q, r) => r.sendFile(path.join(__dirname, '..', 'public', 'majed-avatar.png')));
+mock.get('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
+  const msgs = cwMessages
+    .filter((x) => String(x.convId) === String(q.params.id))
+    .map((x) => ({
+      id: x.id,
+      content: x.body.content || '',
+      message_type: x.body.message_type === 'outgoing' ? 1 : 0,
+      content_type: x.body.content_type || 'text',
+      content_attributes: x.body.content_attributes || {},
+      created_at: Math.floor(Date.now() / 1000),
+      attachments: x.body.attachment ? [{ file_type: 'image', data_url: `http://localhost:${MOCK_PORT}/up/${x.id}.png`, file_size: 4096 }] : [],
+    }));
+  r.json({ payload: msgs.slice(-20) });
+});
+mock.get('/api/v1/accounts/2/conversations/:id', (_q, r) => {
+  const last = cwMessages[cwMessages.length - 1];
+  r.json({
+    id: 9001, status: 'pending', custom_attributes: {},
+    last_non_activity_message: last ? { content: last.body.content || '', created_at: Math.floor(Date.now() / 1000), attachments: last.body.attachment ? [{}] : [] } : null,
+    last_activity_at: Math.floor(Date.now() / 1000),
+  });
+});
 mock.post('/api/v1/accounts/2/conversations/:id/custom_attributes', (_q, r) => r.json({ ok: true }));
 mock.post('/api/v1/accounts/2/conversations/:id/toggle_status', (_q, r) => r.json({ ok: true }));
 mock.post('/api/v1/accounts/2/conversations/:id/assignments', (_q, r) => r.json({ ok: true }));

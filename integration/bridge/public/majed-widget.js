@@ -1,9 +1,12 @@
 /*!
  * Majed «نور» Widget — custom chat widget for Engosoft (Path B)
  * Loads on the Odoo site, talks to the bridge (Railway):
- *   POST {bridge}/widget/session   → { conversationId }
- *   GET  {bridge}/widget/stream    → SSE (bot + agent replies, real-time)
- *   POST {bridge}/widget/message   → send customer message (+ trainee userData)
+ *   POST {bridge}/widget/session        → { conversationId }
+ *   GET  {bridge}/widget/stream         → SSE (bot + agent replies, real-time)
+ *   POST {bridge}/widget/message        → send customer message (+ trainee userData)
+ *   POST {bridge}/widget/upload         → send customer attachment (multipart)
+ *   GET  {bridge}/widget/messages       → conversation transcript (restore/history)
+ *   GET  {bridge}/widget/conversations  → summaries for the history list
  *
  * Configure before this script loads:
  *   window.MajedConfig = {
@@ -13,7 +16,12 @@
  *     waNumber:        '966920016295',
  *     supportEmail:    'aibot@engosoft.com',
  *     theme:           'light',                                // 'light' | 'dark'
- *     greeting:        'أهلاً، أنا ماجد'
+ *     greeting:        'أهلاً، أنا ماجد',
+ *     courseUrl:       'https://engosoft.com/shop/the-freelance-masterclass-2056',
+ *     promoCode:       'free100',
+ *     teaserDelay:     3500,      // ms before the attention bubble appears
+ *     teaserRotate:    9000,      // ms between teaser messages
+ *     teasers:         [{ html, link, linkText, code }]        // override the defaults
  *   };
  */
 (function () {
@@ -34,10 +42,35 @@
   var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
+  var COURSE_URL = CFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
+  var PROMO_CODE = CFG.promoCode || 'free100';
+  var TZ_DELAY = Number(CFG.teaserDelay) > 0 ? Number(CFG.teaserDelay) : 3500;
+  var TZ_ROTATE = Number(CFG.teaserRotate) > 2000 ? Number(CFG.teaserRotate) : 9000;
+  var MAX_FILE_MB = 10;
   var STORE_PREFIX = 'majed:conversation:' + BRIDGE + ':';
+  var LIST_PREFIX = 'majed:convlist:' + BRIDGE + ':';
+
+  // الرسالة اللي بتلفت انتباه العميل — بتتبدل كل شوية (تعريف ماجد ↔ عرض الكورس المجاني)
+  var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers : [
+    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
+    {
+      html: '🎁 كورس <b>The Freelance Masterclass</b> ببلاش!<br/>اطلبه واستخدم كود الخصم 👇',
+      link: COURSE_URL, linkText: 'افتح الكورس', code: PROMO_CODE
+    }
+  ];
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
+  var ctxPromise = null;          // user-context fetch (once)
+  var seenIds = {};               // message-id de-dup between transcript + SSE
+  var loadingTranscript = false;  // buffer SSE renders while a transcript loads
+  var pendingEvents = [];
+  var pendingFile = null;         // file picked but not sent yet
+  var pendingThumb = '';          // objectURL of the pending image preview
+  var uploading = false;
+  var forceNew = false;           // «محادثة جديدة»: skip the stored conversation id
+  var live = false;               // customer actually chatting → glass header
+  var tzTimer = null, tzRotateTimer = null, tzIndex = 0, tzVisible = false;
 
   // ---------- styles ----------
   var CSS = [
@@ -49,11 +82,32 @@
     'background:linear-gradient(150deg,#fff,#e7e1ff);box-shadow:0 12px 30px rgba(124,92,255,.34),0 4px 16px rgba(6,182,212,.2);',
     'transition:transform .2s cubic-bezier(.2,.9,.2,1)}',
     '#mjd-fab:hover{transform:translateY(-3px) scale(1.05)}#mjd-fab:active{transform:scale(.96)}',
-    '#mjd-fab img{width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:50% 28%;display:block}',
+    '#mjd-fab img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}',
     '#mjd-fab .mjd-dot{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#16a34a;border:2.5px solid #fff}',
     '#mjd-root[data-side="right"] #mjd-fab .mjd-dot{left:auto;right:2px}',
     '#mjd-fab .mjd-ring{position:absolute;inset:-6px;border-radius:50%;border:1.5px solid rgba(124,92,255,.3);animation:mjdBreathe 2.8s ease-in-out infinite;pointer-events:none}',
     '@keyframes mjdBreathe{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.07);opacity:.85}}',
+    '/* teaser (attention bubble) */',
+    '#mjd-tz{position:absolute;bottom:84px;left:0;width:min(305px,calc(100vw - 104px));cursor:pointer;display:none;',
+    'background:rgba(255,255,255,.94);backdrop-filter:blur(14px) saturate(1.4);-webkit-backdrop-filter:blur(14px) saturate(1.4);',
+    'border:1px solid rgba(124,92,255,.16);border-radius:18px;border-bottom-left-radius:6px;padding:12px 13px;',
+    'box-shadow:0 18px 44px rgba(15,30,66,.18),0 4px 14px rgba(124,92,255,.12)}',
+    '#mjd-root[data-side="right"] #mjd-tz{left:auto;right:0;border-bottom-left-radius:18px;border-bottom-right-radius:6px}',
+    '#mjd-tz.mjd-on{display:block;animation:mjdTzIn .38s cubic-bezier(.2,.9,.3,1.2) both}',
+    '@keyframes mjdTzIn{from{opacity:0;transform:translateY(10px) scale(.95)}to{opacity:1;transform:none}}',
+    '#mjd-tz .mjd-tz-in{display:flex;gap:10px;align-items:flex-start;transition:opacity .25s ease,transform .25s ease}',
+    '#mjd-tz.mjd-swap .mjd-tz-in{opacity:0;transform:translateY(7px)}',
+    '#mjd-tz img{width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid rgba(124,92,255,.25)}',
+    '#mjd-tz .mjd-tz-tx{font-size:13px;line-height:1.65;color:#171b2e;font-weight:500}',
+    '#mjd-tz .mjd-tz-tx b{font-weight:800}',
+    '#mjd-tz .mjd-tz-act{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}',
+    '#mjd-tz .mjd-tz-go{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;',
+    'font:inherit;font-size:12px;font-weight:800;border:0;border-radius:999px;padding:7px 13px;cursor:pointer;text-decoration:none}',
+    '#mjd-tz .mjd-tz-code{display:inline-flex;align-items:center;gap:5px;border:1.5px dashed rgba(124,92,255,.55);color:#7c5cff;',
+    'font-size:12px;font-weight:800;border-radius:999px;padding:6px 12px;cursor:pointer;background:rgba(124,92,255,.06);font-family:inherit}',
+    '#mjd-tz .mjd-tz-x{position:absolute;top:-9px;left:-9px;width:22px;height:22px;border-radius:50%;border:0;cursor:pointer;',
+    'background:#171b2e;color:#fff;font-size:12px;line-height:1;display:grid;place-items:center;box-shadow:0 4px 10px rgba(15,30,66,.3)}',
+    '#mjd-root[data-side="right"] #mjd-tz .mjd-tz-x{left:auto;right:-9px}',
     '/* panel */',
     '#mjd-panel{position:absolute;bottom:80px;left:0;width:380px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 120px);',
     'border-radius:22px;overflow:hidden;display:none;flex-direction:column;box-shadow:0 28px 70px rgba(15,30,66,.28);',
@@ -61,19 +115,31 @@
     '#mjd-root[data-side="right"] #mjd-panel{left:auto;right:0}',
     '#mjd-panel.mjd-open{display:flex;opacity:1;transform:none}',
     '/* theme tokens */',
-    '#mjd-panel[data-theme="light"]{--bg:#f7f8fc;--surf:#fff;--surf2:#f3f4fa;--line:#ebedf4;--text:#171b2e;--muted:#6b7280;--soft:#8b90a3;--botbd:#ececf4;--bar:#fff;--pill:#f6f7fb;--pillbd:#e9ebf3;--pilltx:#2d3550;--wa:#1fa855;--wabg:rgba(31,168,85,.1);--wabd:rgba(31,168,85,.28)}',
-    '#mjd-panel[data-theme="dark"]{--bg:#0e1326;--surf:rgba(255,255,255,.05);--surf2:rgba(255,255,255,.06);--line:rgba(255,255,255,.09);--text:#e9edf8;--muted:#9aa3bd;--soft:#7e87a3;--botbd:rgba(255,255,255,.1);--bar:rgba(255,255,255,.04);--pill:rgba(255,255,255,.05);--pillbd:rgba(255,255,255,.11);--pilltx:#e9edf8;--wa:#7ff0a8;--wabg:rgba(37,211,102,.16);--wabd:rgba(37,211,102,.4)}',
+    '#mjd-panel[data-theme="light"]{--bg:#f7f8fc;--surf:#fff;--surf2:#f3f4fa;--line:#ebedf4;--text:#171b2e;--muted:#6b7280;--soft:#8b90a3;--botbd:#ececf4;--bar:#fff;--pill:#f6f7fb;--pillbd:#e9ebf3;--pilltx:#2d3550;--wa:#1fa855;--wabg:rgba(31,168,85,.1);--wabd:rgba(31,168,85,.28);--glass:rgba(255,255,255,.62);--glassbd:rgba(23,27,46,.07)}',
+    '#mjd-panel[data-theme="dark"]{--bg:#0e1326;--surf:rgba(255,255,255,.05);--surf2:rgba(255,255,255,.06);--line:rgba(255,255,255,.09);--text:#e9edf8;--muted:#9aa3bd;--soft:#7e87a3;--botbd:rgba(255,255,255,.1);--bar:rgba(255,255,255,.04);--pill:rgba(255,255,255,.05);--pillbd:rgba(255,255,255,.11);--pilltx:#e9edf8;--wa:#7ff0a8;--wabg:rgba(37,211,102,.16);--wabd:rgba(37,211,102,.4);--glass:rgba(14,19,38,.55);--glassbd:rgba(255,255,255,.09)}',
     '#mjd-panel{background:var(--bg);color:var(--text)}',
     '#mjd-panel[data-theme="dark"]{background:radial-gradient(560px 300px at 86% -8%,rgba(124,92,255,.35),transparent 60%),radial-gradient(520px 300px at 0% 102%,rgba(34,211,238,.2),transparent 60%),#0e1326}',
     '/* header */',
-    '.mjd-hd{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line)}',
-    '.mjd-hd img{width:40px;height:40px;border-radius:13px;object-fit:cover;border:1px solid var(--line)}',
+    '.mjd-hd{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line);transition:padding .25s ease}',
+    '.mjd-hd img{width:40px;height:40px;border-radius:13px;object-fit:cover;border:1px solid var(--line);transition:width .25s ease,height .25s ease}',
     '.mjd-hd .mjd-nm b{font-size:15.5px;font-weight:800;display:block}',
     '.mjd-hd .mjd-nm s{text-decoration:none;font-size:11.5px;color:#16a34a}',
     '#mjd-panel[data-theme="dark"] .mjd-hd .mjd-nm s{color:#7df3c4}',
     '.mjd-hd .mjd-tools{margin-inline-start:auto;display:flex;gap:6px}',
-    '.mjd-ic{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surf);color:var(--muted);cursor:pointer;display:grid;place-items:center}',
+    '.mjd-ic{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surf);color:var(--muted);cursor:pointer;display:grid;place-items:center;text-decoration:none}',
     '.mjd-ic:hover{color:var(--text)}.mjd-ic svg{width:18px;height:18px}',
+    '.mjd-live-ic{display:none!important}',
+    '/* «وضع المحادثة»: هيدر زجاجي مدمج + إخفاء شريط التواصل = مساحة شات أكبر */',
+    '#mjd-panel.mjd-live .mjd-hd{position:absolute;top:0;left:0;right:0;z-index:6;border-bottom:1px solid var(--glassbd);',
+    'background:var(--glass);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);padding:8px 12px}',
+    '#mjd-panel.mjd-live .mjd-hd img{width:32px;height:32px;border-radius:10px}',
+    '#mjd-panel.mjd-live .mjd-hd .mjd-nm b{font-size:13.5px}',
+    '#mjd-panel.mjd-live .mjd-hd .mjd-nm s{font-size:10.5px}',
+    '#mjd-panel.mjd-live .mjd-ic{width:32px;height:32px;border-radius:9px;background:transparent;border-color:transparent}',
+    '#mjd-panel.mjd-live .mjd-ic:hover{background:var(--surf2)}',
+    '#mjd-panel.mjd-live .mjd-live-ic{display:grid!important}',
+    '#mjd-panel.mjd-live .mjd-cbar{display:none}',
+    '#mjd-panel.mjd-live .mjd-bd{padding-top:64px}',
     '/* pinned contact bar */',
     '.mjd-cbar{display:flex;gap:8px;padding:10px 14px;background:var(--bar);border-bottom:1px solid var(--line)}',
     '.mjd-cb{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:40px;border-radius:11px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none;background:var(--pill);border:1px solid var(--pillbd);color:var(--pilltx);transition:transform .14s}',
@@ -82,7 +148,7 @@
     '.mjd-cb.mjd-vo{opacity:.62}',
     '.mjd-cb .mjd-soon{font-size:9px;font-weight:800;background:#f59e0b;color:#fff;border-radius:999px;padding:1px 6px}',
     '/* body */',
-    '.mjd-bd{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:12px}',
+    '.mjd-bd{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:12px;transition:padding-top .25s ease}',
     '.mjd-row{display:flex;gap:8px;align-items:flex-end;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-row.mjd-bot{align-self:flex-start}.mjd-row.mjd-me{align-self:flex-end}',
     '@keyframes mjdRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
@@ -90,30 +156,72 @@
     '.mjd-bub{font-size:14px;line-height:1.7;padding:11px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;border-bottom-left-radius:6px}',
-    '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden}',
+    '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-card img{width:100%;max-height:160px;object-fit:cover;display:block;background:var(--surf2)}',
     '.mjd-card .mjd-ct{padding:11px 13px}.mjd-card .mjd-ct b{font-size:14px;display:block}.mjd-card .mjd-ct span{font-size:12px;color:var(--muted)}',
     '.mjd-card a,.mjd-card button{display:flex;align-items:center;gap:8px;padding:11px 13px;font:inherit;font-size:13px;font-weight:700;color:#7c5cff;text-decoration:none;cursor:pointer;border:0;background:transparent;border-top:1px solid var(--line);width:100%;text-align:start}',
     '.mjd-card a:hover,.mjd-card button:hover{background:var(--surf2)}',
-    '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%}',
+    '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
     '.mjd-opt:hover{background:var(--surf2)}',
-    '.mjd-media{align-self:flex-start;max-width:88%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden}',
-    '.mjd-media img,.mjd-media video{max-width:100%;display:block}.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
-    '.mjd-media a{display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word}',
+    '.mjd-media{align-self:flex-start;max-width:88%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
+    '.mjd-media.mjd-mine{align-self:flex-end}',
+    '.mjd-media img,.mjd-media video{max-width:100%;max-height:220px;display:block}.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
+    '.mjd-media a{display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word;font-size:13px}',
+    '.mjd-file{display:flex;align-items:center;gap:9px;padding:10px 13px;text-decoration:none;color:inherit}',
+    '.mjd-file .mjd-fi{width:36px;height:36px;border-radius:10px;background:rgba(124,92,255,.12);color:#7c5cff;display:grid;place-items:center;flex-shrink:0}',
+    '.mjd-file .mjd-fi svg{width:18px;height:18px}',
+    '.mjd-file b{font-size:12.5px;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mjd-file span{font-size:11px;color:var(--muted)}',
     '.mjd-typing{align-self:flex-start;display:flex;gap:5px;padding:13px 15px;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;border-bottom-right-radius:6px}',
     '.mjd-typing i{width:7px;height:7px;border-radius:50%;background:var(--soft);animation:mjdBlink 1.3s infinite}',
     '.mjd-typing i:nth-child(2){animation-delay:.2s}.mjd-typing i:nth-child(3){animation-delay:.4s}',
     '@keyframes mjdBlink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}',
+    '/* pending attachment chip */',
+    '.mjd-attbar{display:none;align-items:center;gap:9px;margin:0 14px;padding:8px 10px;background:var(--surf2);border:1px dashed var(--pillbd);border-radius:13px}',
+    '.mjd-attbar.mjd-on{display:flex}',
+    '.mjd-attbar img{width:38px;height:38px;border-radius:9px;object-fit:cover}',
+    '.mjd-attbar .mjd-fi{width:38px;height:38px;border-radius:9px;background:rgba(124,92,255,.12);color:#7c5cff;display:grid;place-items:center}',
+    '.mjd-attbar .mjd-fi svg{width:18px;height:18px}',
+    '.mjd-attbar b{font-size:12px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}',
+    '.mjd-attbar span{font-size:10.5px;color:var(--muted)}',
+    '.mjd-attbar .mjd-att-x{margin-inline-start:auto;width:26px;height:26px;border-radius:8px;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:14px}',
+    '.mjd-attbar .mjd-att-x:hover{color:#ef4444}',
     '/* input */',
     '.mjd-ip{padding:12px 14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:9px;background:var(--bar)}',
-    '.mjd-box{flex:1;display:flex;align-items:center;background:var(--surf2);border:1px solid var(--line);border-radius:999px;padding:0 15px;height:46px;transition:border-color .16s,box-shadow .16s}',
+    '.mjd-box{flex:1;display:flex;align-items:center;gap:4px;background:var(--surf2);border:1px solid var(--line);border-radius:999px;padding:0 6px 0 15px;height:46px;transition:border-color .16s,box-shadow .16s}',
     '.mjd-box:focus-within{border-color:#7c5cff;box-shadow:0 0 0 4px rgba(124,92,255,.18)}',
     '.mjd-box input{flex:1;background:transparent;border:0;outline:none;color:var(--text);font:inherit;font-size:13.5px}',
     '.mjd-box input::placeholder{color:var(--soft)}',
+    '.mjd-att-btn{width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:var(--soft);cursor:pointer;display:grid;place-items:center;flex-shrink:0}',
+    '.mjd-att-btn:hover{color:#7c5cff;background:rgba(124,92,255,.1)}.mjd-att-btn svg{width:18px;height:18px}',
     '.mjd-snd{width:42px;height:42px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#7c5cff,#06b6d4);box-shadow:0 8px 22px rgba(124,92,255,.45);transition:transform .14s}',
     '.mjd-snd:hover{transform:scale(1.06)}.mjd-snd svg{width:18px;height:18px;transform:scaleX(-1)}',
+    '.mjd-snd[disabled]{opacity:.55;cursor:default;transform:none}',
     '.mjd-credit{text-align:center;font-size:10.5px;color:var(--soft);padding:7px 0 10px;background:var(--bar);font-weight:600}',
+    '/* history overlay */',
+    '.mjd-hist{position:absolute;inset:0;z-index:9;background:var(--bg);display:none;flex-direction:column}',
+    '.mjd-hist.mjd-on{display:flex;animation:mjdHistIn .25s ease both}',
+    '@keyframes mjdHistIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}',
+    '.mjd-hist-hd{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line);background:var(--bar)}',
+    '.mjd-hist-hd b{font-size:15px;font-weight:800}',
+    '.mjd-hist-hd .mjd-ic{margin-inline-start:auto}',
+    '.mjd-hist-ls{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}',
+    '.mjd-hrow{display:flex;align-items:center;gap:10px;width:100%;text-align:start;padding:11px 12px;border-radius:14px;border:1px solid var(--line);background:var(--surf);cursor:pointer;font:inherit;color:var(--text)}',
+    '.mjd-hrow:hover{border-color:rgba(124,92,255,.4)}',
+    '.mjd-hrow.mjd-cur{border-color:#7c5cff;box-shadow:0 0 0 3px rgba(124,92,255,.14)}',
+    '.mjd-hrow img{width:34px;height:34px;border-radius:11px;object-fit:cover;flex-shrink:0}',
+    '.mjd-hrow .mjd-hx{flex:1;min-width:0}',
+    '.mjd-hrow .mjd-hx b{display:block;font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mjd-hrow .mjd-hx span{font-size:11px;color:var(--muted)}',
+    '.mjd-hrow .mjd-st{width:8px;height:8px;border-radius:50%;flex-shrink:0}',
+    '.mjd-hrow .mjd-st[data-st="open"]{background:#f59e0b}.mjd-hrow .mjd-st[data-st="pending"]{background:#7c5cff}.mjd-hrow .mjd-st[data-st="resolved"]{background:#9ca3af}',
+    '.mjd-hist-empty{text-align:center;color:var(--muted);font-size:13px;padding:40px 16px}',
+    '.mjd-skel{height:58px;border-radius:14px;background:linear-gradient(90deg,var(--surf2),var(--surf),var(--surf2));background-size:200% 100%;animation:mjdShimmer 1.2s linear infinite}',
+    '@keyframes mjdShimmer{from{background-position:200% 0}to{background-position:-200% 0}}',
+    '.mjd-hist-new{margin:10px 14px 14px;height:44px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:13.5px;font-weight:800;color:#fff;',
+    'background:linear-gradient(135deg,#7c5cff,#06b6d4);box-shadow:0 10px 24px rgba(124,92,255,.35);display:flex;align-items:center;justify-content:center;gap:8px}',
+    '.mjd-hist-new svg{width:16px;height:16px}',
     '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
   ].join('');
 
@@ -131,7 +239,12 @@
     mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>',
     send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-    moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+    moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+    clip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+    hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 3"/></svg>',
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
   };
 
   // ---------- build DOM ----------
@@ -145,6 +258,9 @@
         '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
         '<div class="mjd-nm"><b>ماجد</b><s>● متاح الآن</s></div>' +
         '<div class="mjd-tools">' +
+          '<a class="mjd-ic mjd-live-ic" href="https://wa.me/' + WA + '" target="_blank" rel="noopener" aria-label="واتساب" style="color:#1fa855">' + I.wa + '</a>' +
+          '<a class="mjd-ic mjd-live-ic" href="mailto:' + EMAIL + '" aria-label="إيميل">' + I.mail + '</a>' +
+          '<button class="mjd-ic" id="mjd-hist-btn" aria-label="المحادثات السابقة">' + I.hist + '</button>' +
           '<button class="mjd-ic" id="mjd-theme" aria-label="تبديل الثيم">' + I.moon + '</button>' +
           '<button class="mjd-ic" id="mjd-x" aria-label="إغلاق">' + I.close + '</button>' +
         '</div>' +
@@ -155,12 +271,23 @@
         '<button class="mjd-cb mjd-vo" id="mjd-voice" type="button">' + I.mic + 'فويس <span class="mjd-soon">قريبًا</span></button>' +
       '</div>' +
       '<div class="mjd-bd" id="mjd-bd"></div>' +
+      '<div class="mjd-attbar" id="mjd-attbar"></div>' +
       '<div class="mjd-ip">' +
-        '<div class="mjd-box"><input id="mjd-in" type="text" placeholder="اكتب رسالتك لماجد..." aria-label="رسالة"/></div>' +
+        '<div class="mjd-box">' +
+          '<input id="mjd-in" type="text" placeholder="اكتب رسالتك لماجد..." aria-label="رسالة"/>' +
+          '<button class="mjd-att-btn" id="mjd-att-btn" type="button" aria-label="إرفاق ملف">' + I.clip + '</button>' +
+        '</div>' +
         '<button class="mjd-snd" id="mjd-send" aria-label="إرسال">' + I.send + '</button>' +
       '</div>' +
       '<div class="mjd-credit">مدعوم بواسطة Engosoft</div>' +
+      '<input type="file" id="mjd-file" hidden accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"/>' +
+      '<div class="mjd-hist" id="mjd-hist" role="dialog" aria-label="المحادثات السابقة">' +
+        '<div class="mjd-hist-hd"><b>المحادثات</b><button class="mjd-ic" id="mjd-hist-x" aria-label="رجوع">' + I.close + '</button></div>' +
+        '<div class="mjd-hist-ls" id="mjd-hist-ls"></div>' +
+        '<button class="mjd-hist-new" id="mjd-new">' + I.pen + ' محادثة جديدة</button>' +
+      '</div>' +
     '</div>' +
+    '<div id="mjd-tz" role="button" aria-label="رسالة من ماجد"><button class="mjd-tz-x" aria-label="إخفاء">✕</button><div class="mjd-tz-in" id="mjd-tz-in"></div></div>' +
     '<button id="mjd-fab" aria-label="تحدّث مع ماجد"><span class="mjd-ring"></span><img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/><span class="mjd-dot"></span></button>'
   ));
   document.body.appendChild(root);
@@ -168,10 +295,39 @@
   var panel = document.getElementById('mjd-panel');
   var bd = document.getElementById('mjd-bd');
   var input = document.getElementById('mjd-in');
+  var sendBtn = document.getElementById('mjd-send');
+  var attBar = document.getElementById('mjd-attbar');
+  var fileIn = document.getElementById('mjd-file');
+  var tz = document.getElementById('mjd-tz');
+  var tzIn = document.getElementById('mjd-tz-in');
+  var hist = document.getElementById('mjd-hist');
+  var histLs = document.getElementById('mjd-hist-ls');
 
   // ---------- rendering ----------
   function scrollDown() { bd.scrollTop = bd.scrollHeight; }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function fmtSize(b) {
+    b = Number(b) || 0;
+    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+    if (b >= 1024) return Math.round(b / 1024) + ' KB';
+    return b + ' B';
+  }
+  function fmtRel(ts) {
+    if (!ts) return '';
+    var ms = ts > 1e12 ? ts : ts * 1000;
+    var d = Date.now() - ms;
+    if (d < 90e3) return 'الآن';
+    if (d < 3600e3) return 'من ' + Math.round(d / 60e3) + ' دقيقة';
+    if (d < 86400e3) return 'من ' + Math.round(d / 3600e3) + ' ساعة';
+    if (d < 7 * 86400e3) return 'من ' + Math.round(d / 86400e3) + ' يوم';
+    try { return new Date(ms).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }); } catch (e) { return ''; }
+  }
+
+  // وضع المحادثة: أول ما العميل يبدأ يتكلم — الهيدر يبقى زجاجي مدمج والشات ياخد مساحة أكبر
+  function setLive(on) {
+    live = !!on;
+    panel.classList.toggle('mjd-live', live);
+  }
 
   function addBot(html) {
     var row = inject('div', { class: 'mjd-row mjd-bot' },
@@ -182,12 +338,29 @@
     var row = inject('div', { class: 'mjd-row mjd-me' }, '<div class="mjd-bub">' + esc(text) + '</div>');
     bd.appendChild(row); scrollDown();
   }
+  function fileChipHtml(name, size, url) {
+    return '<a class="mjd-file"' + (url ? ' href="' + esc(url) + '" target="_blank" rel="noopener"' : '') + '>' +
+      '<span class="mjd-fi">' + I.file + '</span>' +
+      '<span><b>' + esc(name || 'ملف') + '</b><span>' + fmtSize(size) + '</span></span></a>';
+  }
+  // attachment bubble (image/video/audio preview, otherwise a file chip)
+  function addAttachment(att, mine) {
+    var kind = att.file_type || att.kind || 'file';
+    var url = att.data_url || att.url || '';
+    var h = '';
+    if (kind === 'image' && url) h = '<img src="' + esc(url) + '" alt="صورة"/>';
+    else if (kind === 'video' && url) h = '<video src="' + esc(url) + '" controls></video>';
+    else if (kind === 'audio' && url) h = '<audio src="' + esc(url) + '" controls></audio>';
+    else h = fileChipHtml(att.name, att.file_size || att.size, url);
+    var el = inject('div', { class: 'mjd-media' + (mine ? ' mjd-mine' : '') }, h);
+    bd.appendChild(el); scrollDown();
+  }
   function addCard(attrs) {
     var items = (attrs && attrs.items) || [];
     items.forEach(function (it) {
       var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +
         '<div class="mjd-ct"><b>' + esc(it.title) + '</b>' + (it.description ? '<span>' + esc(it.description) + '</span>' : '') + '</div>';
-      (it.actions || []).forEach(function (a, i) {
+      (it.actions || []).forEach(function (a) {
         if (a.type === 'link') h += '<a href="' + esc(a.uri) + '" target="_blank" rel="noopener">' + esc(a.text) + '</a>';
         else h += '<button data-pb="' + esc(a.payload || a.text) + '">' + esc(a.text) + '</button>';
       });
@@ -232,6 +405,21 @@
   }
   function hideTyping() { if (typingEl) { typingEl.remove(); typingEl = null; } }
 
+  // one agent/bot message (from SSE or transcript) → the right bubble type
+  function renderAgentMessage(m) {
+    if (m.content_type === 'cards' && m.content_attributes && (m.content_attributes.items || []).length) {
+      if (m.content) addBot(esc(m.content));
+      addCard(m.content_attributes);
+    } else if (m.content_type === 'input_select' && m.content_attributes) {
+      addOptions(m.content_attributes, m.content);
+    } else if (m.content_type === 'media' && m.content_attributes) {
+      addMedia(m.content_attributes, m.content);
+    } else if (m.content) {
+      addBot(esc(m.content));
+    }
+    (m.attachments || []).forEach(function (a) { addAttachment(a, false); });
+  }
+
   // ---------- network ----------
   function fetchUserContext() {
     return fetch(USER_CTX_URL, { credentials: 'same-origin' })
@@ -259,10 +447,15 @@
         return {};
       });
   }
-
-  function storageKey() {
-    return STORE_PREFIX + (userData.odoo_user_id || userData.email || 'anon');
+  function ensureCtx() {
+    if (!ctxPromise) ctxPromise = fetchUserContext().then(function (ud) { userData = ud || {}; return userData; });
+    return ctxPromise;
   }
+
+  function uid() { return userData.odoo_user_id || userData.email || 'anon'; }
+  function storageKey() { return STORE_PREFIX + uid(); }
+  function listKey() { return LIST_PREFIX + uid(); }
+
   function loadStoredConv() {
     try {
       var raw = localStorage.getItem(storageKey());
@@ -276,48 +469,108 @@
   function saveStoredConv(id) {
     try { localStorage.setItem(storageKey(), JSON.stringify({ conversationId: id, ts: Date.now() })); } catch (e) {}
   }
+  // history list (newest first, max 10) — the widget remembers its own conversations
+  function listConvs() {
+    try {
+      var arr = JSON.parse(localStorage.getItem(listKey()) || '[]');
+      if (!(arr instanceof Array)) arr = [];
+      var legacy = loadStoredConv();
+      if (legacy && !arr.some(function (e) { return String(e.id) === legacy; })) arr.push({ id: legacy, ts: Date.now() });
+      return arr;
+    } catch (e) { return []; }
+  }
+  function rememberConv(id) {
+    if (!id) return;
+    try {
+      var arr = listConvs().filter(function (e) { return String(e.id) !== String(id); });
+      arr.unshift({ id: String(id), ts: Date.now() });
+      localStorage.setItem(listKey(), JSON.stringify(arr.slice(0, 10)));
+    } catch (e) {}
+  }
+
+  function closeStream() { if (es) { try { es.close(); } catch (e) {} es = null; } }
 
   function openStream() {
     if (!convId || es) return;
     es = new EventSource(BRIDGE + '/widget/stream?conversationId=' + encodeURIComponent(convId));
     es.addEventListener('message', function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      hideTyping();
-      if (m.content_type === 'cards' && m.content_attributes) {
-        if (m.content) addBot(esc(m.content));
-        addCard(m.content_attributes);
-      } else if (m.content_type === 'input_select' && m.content_attributes) {
-        addOptions(m.content_attributes, m.content);
-      } else if (m.content_type === 'media' && m.content_attributes) {
-        addMedia(m.content_attributes, m.content);
-      } else if (m.content) {
-        addBot(esc(m.content));
-      }
+      if (loadingTranscript) { pendingEvents.push(m); return; }
+      renderStreamMessage(m);
     });
     es.onerror = function () { /* EventSource auto-reconnects */ };
+  }
+  function renderStreamMessage(m) {
+    if (m.id != null) {
+      if (seenIds[m.id]) return;
+      seenIds[m.id] = 1;
+    }
+    hideTyping();
+    renderAgentMessage(m);
+  }
+
+  // transcript restore (reopen / switch from history)
+  function loadMessages(id) {
+    loadingTranscript = true;
+    return fetch(BRIDGE + '/widget/messages?conversationId=' + encodeURIComponent(id))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var msgs = (d && d.messages) || [];
+        if (!msgs.length) return;
+        bd.innerHTML = ''; typingEl = null;
+        var anyMine = false;
+        msgs.forEach(function (m) {
+          if (m.id != null) seenIds[m.id] = 1;
+          if (m.sender === 'contact') {
+            anyMine = true;
+            if (m.content) addMe(m.content);
+            (m.attachments || []).forEach(function (a) { addAttachment(a, true); });
+          } else {
+            renderAgentMessage(m);
+          }
+        });
+        if (anyMine) setLive(true);
+        scrollDown();
+      })
+      .catch(function () {})
+      .then(function () {
+        loadingTranscript = false;
+        var q = pendingEvents.splice(0);
+        q.forEach(renderStreamMessage);
+      });
   }
 
   function startSession() {
     if (started) return Promise.resolve();
     started = true;
-    return fetchUserContext().then(function (ud) {
-      userData = ud || {};
-      var existingConversationId = loadStoredConv();
+    return ensureCtx().then(function () {
+      var existingConversationId = forceNew ? '' : loadStoredConv();
       return fetch(BRIDGE + '/widget/session', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: userData.name, email: userData.email, userData: userData, existingConversationId: existingConversationId })
       });
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.conversationId) { convId = d.conversationId; saveStoredConv(convId); openStream(); }
-      else { addBot('تعذّر بدء المحادثة، حاول تاني بعد لحظات.'); started = false; }
+      if (d && d.conversationId) {
+        convId = d.conversationId;
+        forceNew = false;
+        saveStoredConv(convId);
+        rememberConv(convId);
+        var p = d.reused ? loadMessages(convId) : Promise.resolve();
+        return p.then ? p.then(function () { openStream(); }) : openStream();
+      }
+      addBot('تعذّر بدء المحادثة، حاول تاني بعد لحظات.'); started = false;
     }).catch(function () { addBot('تعذّر الاتصال، حاول تاني.'); started = false; });
   }
 
   // text = what is sent to the bridge/bot; display = what the customer sees in their bubble
   // (for choice/postback clicks display is the button label, not the raw value).
   function sendMessage(text, display) {
-    text = (text || '').trim(); if (!text) return;
+    text = (text || '').trim();
+    // a picked file goes out with the typed text as caption (button clicks don't consume it)
+    if (pendingFile && display == null) { sendAttachment(text); return; }
+    if (!text) return;
     addMe((display || text).trim() || text);
+    setLive(true);
     if (!convId) { startSession().then(function () { if (convId) postMsg(text); }); return; }
     postMsg(text);
   }
@@ -329,13 +582,220 @@
     }).catch(function () { hideTyping(); addBot('تعذّر إرسال الرسالة.'); });
   }
 
+  // ---------- attachments («اضافة ملفات») ----------
+  function clearPendingFile() {
+    pendingFile = null;
+    if (pendingThumb) { try { URL.revokeObjectURL(pendingThumb); } catch (e) {} pendingThumb = ''; }
+    attBar.classList.remove('mjd-on');
+    attBar.innerHTML = '';
+    fileIn.value = '';
+  }
+  function setPendingFile(f) {
+    if (!f) return;
+    if (f.size > MAX_FILE_MB * 1024 * 1024) {
+      addBot('الملف أكبر من ' + MAX_FILE_MB + 'MB — ابعت ملف أصغر 🙏');
+      fileIn.value = '';
+      return;
+    }
+    clearPendingFile();
+    pendingFile = f;
+    var isImg = /^image\//.test(f.type);
+    var head = '';
+    if (isImg) { pendingThumb = URL.createObjectURL(f); head = '<img src="' + pendingThumb + '" alt=""/>'; }
+    else head = '<span class="mjd-fi">' + I.file + '</span>';
+    attBar.innerHTML = head + '<span><b>' + esc(f.name) + '</b><span>' + fmtSize(f.size) + '</span></span>' +
+      '<button class="mjd-att-x" type="button" aria-label="إزالة">✕</button>';
+    attBar.querySelector('.mjd-att-x').addEventListener('click', clearPendingFile);
+    attBar.classList.add('mjd-on');
+    input.focus();
+  }
+  function sendAttachment(caption) {
+    if (!pendingFile || uploading) return;
+    var f = pendingFile;
+    var thumb = pendingThumb;
+    pendingThumb = '';            // bubble keeps the objectURL alive
+    clearPendingFile();
+    input.value = '';
+
+    // optimistic local bubbles
+    var isImg = /^image\//.test(f.type);
+    addAttachment(isImg && thumb ? { file_type: 'image', data_url: thumb } : { file_type: 'file', name: f.name, size: f.size }, true);
+    if (caption) addMe(caption);
+    setLive(true);
+    uploading = true;
+    sendBtn.setAttribute('disabled', 'disabled');
+    showTyping();
+
+    var doUpload = function () {
+      if (!convId) { fail('تعذّر بدء المحادثة، حاول تاني.'); return; }
+      var fd = new FormData();
+      fd.append('file', f, f.name);
+      fd.append('conversationId', convId);
+      if (caption) fd.append('caption', caption);
+      try { fd.append('userData', JSON.stringify(userData)); } catch (e) {}
+      fetch(BRIDGE + '/widget/upload', { method: 'POST', body: fd })
+        .then(function (r) {
+          if (r.ok) return r.json();
+          if (r.status === 413) throw new Error('الملف أكبر من ' + MAX_FILE_MB + 'MB — ابعت ملف أصغر 🙏');
+          if (r.status === 415) throw new Error('نوع الملف ده مش مدعوم.');
+          throw new Error('تعذّر رفع الملف، حاول تاني.');
+        })
+        .then(function () { done(); })
+        .catch(function (e) { fail(e && e.message ? e.message : 'تعذّر رفع الملف، حاول تاني.'); });
+    };
+    var done = function () { uploading = false; sendBtn.removeAttribute('disabled'); };
+    var fail = function (msg) { uploading = false; sendBtn.removeAttribute('disabled'); hideTyping(); addBot(esc(msg)); };
+
+    if (!convId) startSession().then(doUpload);
+    else doUpload();
+  }
+
+  // ---------- conversation history («المحادثات السابقة») ----------
+  function openHistory() {
+    hist.classList.add('mjd-on');
+    histLs.innerHTML = '<div class="mjd-skel"></div><div class="mjd-skel"></div><div class="mjd-skel"></div>';
+    ensureCtx().then(function () {
+      var entries = listConvs();
+      if (!entries.length) {
+        histLs.innerHTML = '<div class="mjd-hist-empty">لسه مفيش محادثات سابقة —<br/>ابدأ أول محادثة مع ماجد 👇</div>';
+        return;
+      }
+      var ids = entries.map(function (e) { return e.id; }).join(',');
+      fetch(BRIDGE + '/widget/conversations?ids=' + encodeURIComponent(ids))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          var list = (d && d.conversations) || [];
+          if (!list.length) {
+            histLs.innerHTML = '<div class="mjd-hist-empty">لسه مفيش محادثات سابقة —<br/>ابدأ أول محادثة مع ماجد 👇</div>';
+            return;
+          }
+          // keep widget order (newest first per local list)
+          var byId = {};
+          list.forEach(function (c) { byId[String(c.id)] = c; });
+          histLs.innerHTML = '';
+          entries.forEach(function (e) {
+            var c = byId[String(e.id)];
+            if (!c) return;
+            var row = inject('button', { class: 'mjd-hrow' + (String(c.id) === String(convId) ? ' mjd-cur' : ''), type: 'button' },
+              '<img src="' + AVATAR + '"' + AVA_ERR + '/>' +
+              '<span class="mjd-hx"><b>' + esc(c.last_message || 'محادثة مع ماجد') + '</b>' +
+              '<span>' + fmtRel(c.last_at) + '</span></span>' +
+              '<span class="mjd-st" data-st="' + esc(c.status || 'pending') + '"></span>');
+            row.addEventListener('click', function () { switchConv(String(c.id)); });
+            histLs.appendChild(row);
+          });
+        })
+        .catch(function () {
+          histLs.innerHTML = '<div class="mjd-hist-empty">تعذّر تحميل المحادثات، حاول تاني.</div>';
+        });
+    });
+  }
+  function closeHistory() { hist.classList.remove('mjd-on'); }
+
+  function switchConv(id) {
+    closeHistory();
+    if (String(id) === String(convId)) return;
+    closeStream();
+    convId = String(id);
+    started = true;
+    forceNew = false;
+    saveStoredConv(convId);
+    rememberConv(convId);
+    seenIds = {};
+    bd.innerHTML = ''; typingEl = null;
+    setLive(false);
+    loadMessages(convId).then(function () { openStream(); input.focus(); });
+  }
+
+  function newConversation() {
+    closeHistory();
+    closeStream();
+    convId = null;
+    started = false;
+    forceNew = true;
+    seenIds = {};
+    bd.innerHTML = ''; typingEl = null;
+    clearPendingFile();
+    setLive(false);
+    startSession().then(function () { input.focus(); });
+  }
+
+  // ---------- teaser (رسالة لفت الانتباه — بتتبدل) ----------
+  function tzDismissed() { try { return sessionStorage.getItem('majed:tz:off') === '1'; } catch (e) { return false; } }
+  function tzDismiss() { try { sessionStorage.setItem('majed:tz:off', '1'); } catch (e) {} }
+
+  function renderTeaser() {
+    var t = TEASERS[tzIndex % TEASERS.length] || {};
+    var h = '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
+      '<div><div class="mjd-tz-tx">' + (t.html || '') + '</div>';
+    if (t.link || t.code) {
+      h += '<div class="mjd-tz-act">';
+      if (t.link) h += '<a class="mjd-tz-go" href="' + esc(t.link) + '" target="_blank" rel="noopener">' + esc(t.linkText || 'افتح الرابط') + ' ↗</a>';
+      if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '">🏷️ ' + esc(t.code) + '</button>';
+      h += '</div>';
+    }
+    h += '</div>';
+    tzIn.innerHTML = h;
+    var codeBtn = tzIn.querySelector('.mjd-tz-code');
+    if (codeBtn) codeBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var code = codeBtn.getAttribute('data-code') || '';
+      var ok = function () { codeBtn.textContent = '✓ اتنسخ'; setTimeout(function () { codeBtn.textContent = '🏷️ ' + code; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, ok);
+      else ok();
+    });
+    var go = tzIn.querySelector('.mjd-tz-go');
+    if (go) go.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  }
+  function rotateTeaser() {
+    if (!tzVisible || TEASERS.length < 2) return;
+    tz.classList.add('mjd-swap');
+    setTimeout(function () {
+      tzIndex++;
+      renderTeaser();
+      tz.classList.remove('mjd-swap');
+    }, 260);
+  }
+  function showTeaser(delay) {
+    if (tzDismissed() || tzVisible || panel.classList.contains('mjd-open') || live) return;
+    clearTimeout(tzTimer);
+    tzTimer = setTimeout(function () {
+      if (panel.classList.contains('mjd-open') || tzDismissed() || live) return;
+      renderTeaser();
+      tz.classList.add('mjd-on');
+      tzVisible = true;
+      clearInterval(tzRotateTimer);
+      tzRotateTimer = setInterval(rotateTeaser, TZ_ROTATE);
+    }, delay == null ? TZ_DELAY : delay);
+  }
+  function hideTeaser() {
+    clearTimeout(tzTimer);
+    clearInterval(tzRotateTimer);
+    tz.classList.remove('mjd-on');
+    tzVisible = false;
+  }
+  tz.addEventListener('click', function () { hideTeaser(); openPanel(); });
+  tz.querySelector('.mjd-tz-x').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    hideTeaser();
+    tzDismiss();
+  });
+
   // ---------- interactions ----------
   var fab = document.getElementById('mjd-fab');
-  function openPanel() { panel.classList.add('mjd-open'); startSession(); setTimeout(function () { input.focus(); }, 200); }
-  function closePanel() { panel.classList.remove('mjd-open'); }
+  function openPanel() {
+    hideTeaser();
+    panel.classList.add('mjd-open');
+    startSession();
+    setTimeout(function () { input.focus(); }, 200);
+  }
+  function closePanel() {
+    panel.classList.remove('mjd-open');
+    if (!live) showTeaser(1500); // لسه مبدأش يتكلم؟ فكّره تاني بعد شوية
+  }
   fab.addEventListener('click', function () { panel.classList.contains('mjd-open') ? closePanel() : openPanel(); });
   document.getElementById('mjd-x').addEventListener('click', closePanel);
-  document.getElementById('mjd-send').addEventListener('click', function () { sendMessage(input.value); input.value = ''; });
+  sendBtn.addEventListener('click', function () { sendMessage(input.value); input.value = ''; });
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { sendMessage(input.value); input.value = ''; } });
   document.getElementById('mjd-voice').addEventListener('click', function () {
     addBot('ماجد فويس قريّب جدًا 🎙️ — حاليًا أقدر أساعدك كتابة أو أوصّلك بموظف.');
@@ -343,4 +803,14 @@
   document.getElementById('mjd-theme').addEventListener('click', function () {
     panel.setAttribute('data-theme', panel.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
+  document.getElementById('mjd-att-btn').addEventListener('click', function () { fileIn.click(); });
+  fileIn.addEventListener('change', function () { setPendingFile(fileIn.files && fileIn.files[0]); });
+  document.getElementById('mjd-hist-btn').addEventListener('click', function () {
+    hist.classList.contains('mjd-on') ? closeHistory() : openHistory();
+  });
+  document.getElementById('mjd-hist-x').addEventListener('click', closeHistory);
+  document.getElementById('mjd-new').addEventListener('click', newConversation);
+
+  // أول ظهور لرسالة لفت الانتباه
+  showTeaser();
 })();

@@ -28,9 +28,56 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const crypto = require('crypto');
+const multer = require('multer');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
+
+// ── Uploads (widget attachments) ───────────────────────────────────
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 10);
+const uploadMw = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
+});
+
+// mime → Botpress payload kind ('' = rejected)
+function mimeKind(mime) {
+  const m = String(mime || '').toLowerCase();
+  if (/^image\/(png|jpe?g|webp|gif)$/.test(m)) return 'image';
+  if (/^audio\/(mpeg|mp4|ogg|wav|webm|aac|m4a)/.test(m)) return 'audio';
+  if (/^video\/(mp4|webm|quicktime)$/.test(m)) return 'video';
+  if (
+    [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/plain',
+      'text/csv',
+      'application/zip',
+      'application/x-zip-compressed',
+    ].includes(m)
+  )
+    return 'file';
+  return '';
+}
+
+function safeFileName(name) {
+  let s = String(name || 'file');
+  // Some clients (busboy latin1 default) deliver UTF-8 filenames as mojibake where every
+  // char is ≤ 0xFF — restore those. Names that already contain real unicode are kept as-is.
+  if (/[\u0080-\u00ff]/.test(s) && !/[\u0100-\uffff]/.test(s)) {
+    try {
+      const utf8 = Buffer.from(s, 'latin1').toString('utf8');
+      if (!utf8.includes('�')) s = utf8;
+    } catch (_) {}
+  }
+  const base = s.split(/[\\/]/).pop();
+  return base.replace(/[\x00-\x1f"'<>]/g, '').slice(0, 80) || 'file';
+}
 
 // ── Config ─────────────────────────────────────────────────────────
 const config = {
@@ -201,9 +248,30 @@ async function cwSendMessage(convId, { content, messageType, contentType, conten
   return data; // { id, content, ... }
 }
 
+// Multipart message with attachment (native fetch/FormData — axios JSON path can't do files).
+async function cwSendAttachmentMessage(convId, { buffer, mime, filename, caption }) {
+  const fd = new FormData();
+  fd.append('message_type', 'incoming');
+  if (caption) fd.append('content', caption);
+  fd.append('attachments[]', new Blob([buffer], { type: mime }), filename);
+  const resp = await fetch(cwUrl(`conversations/${convId}/messages`), {
+    method: 'POST',
+    headers: { api_access_token: config.chatwootApiToken },
+    body: fd,
+  });
+  if (!resp.ok) throw new Error(`chatwoot attachment upload failed: ${resp.status}`);
+  return resp.json(); // { id, content, attachments: [{ file_type, data_url, thumb_url, file_size }] }
+}
+
 async function cwGetConversation(convId) {
   const { data } = await axios.get(cwUrl(`conversations/${convId}`), { headers: cwHeaders(), timeout: 15000 });
   return data;
+}
+
+async function cwListMessages(convId, before) {
+  const url = cwUrl(`conversations/${convId}/messages`) + (before ? `?before=${before}` : '');
+  const { data } = await axios.get(url, { headers: cwHeaders(), timeout: 15000 });
+  return data?.payload || [];
 }
 
 async function cwSetConversationAttrs(convId, attrs) {
@@ -281,6 +349,15 @@ function isBridgeIncomingEcho(convId, msg) {
   return true;
 }
 
+function mapAttachments(list) {
+  return (Array.isArray(list) ? list : []).map((a) => ({
+    file_type: a.file_type || 'file',
+    data_url: a.data_url || '',
+    thumb_url: a.thumb_url || '',
+    file_size: a.file_size || 0,
+  }));
+}
+
 function addClient(convId, res) {
   if (!sseClients.has(convId)) sseClients.set(convId, new Set());
   sseClients.get(convId).add(res);
@@ -307,6 +384,7 @@ function pushToWidget(convId, msg) {
     content_type: msg.content_type || 'text',
     content_attributes: msg.content_attributes || {},
     sender: msg.sender?.type || (msg.message_type === 1 || msg.message_type === 'outgoing' ? 'agent' : 'contact'),
+    attachments: mapAttachments(msg.attachments),
   });
   for (const res of set) {
     try {
@@ -328,6 +406,20 @@ async function getConvStatus(cwConvId) {
   } catch (e) {
     console.warn('status fetch failed for', cwConvId, '-', e.message);
     return 'pending'; // fail open for the bot rather than dropping the message
+  }
+}
+
+// Writing into a resolved conversation (picked from the widget history) revives it
+// as "pending" so the bot answers again instead of staying muted.
+async function reviveIfResolved(convId) {
+  const status = await getConvStatus(convId);
+  if (status !== 'resolved') return;
+  try {
+    await cwSetStatus(convId, 'pending');
+    convStatus.set(convId, 'pending');
+    console.log(`REVIVE conv ${convId}: resolved → pending`);
+  } catch (e) {
+    console.warn('revive failed:', e.response?.status || e.message);
   }
 }
 
@@ -382,12 +474,16 @@ async function bpCreateConversation(userKey) {
   return data.conversation.id;
 }
 
-async function bpSendText(mapping, text) {
+async function bpSendPayload(mapping, payload) {
   await axios.post(
     bpUrl('/messages'),
-    { conversationId: mapping.bpConvId, payload: { type: 'text', text } },
+    { conversationId: mapping.bpConvId, payload },
     { headers: { 'Content-Type': 'application/json', 'x-user-key': mapping.userKey }, timeout: 20000 }
   );
+}
+
+async function bpSendText(mapping, text) {
+  await bpSendPayload(mapping, { type: 'text', text });
 }
 
 // Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]]
@@ -706,6 +802,23 @@ function contextSummary(userData) {
   return JSON.stringify(out).slice(0, 700);
 }
 
+// Trainee-context block, returned once per conversation (again only if the data changed).
+function ctxBlockIfChanged(mapping, cwConvId, userData) {
+  const ctx = contextSummary(userData);
+  if (!ctx) {
+    if (!mapping.ctxSig) console.log(`CTX empty (cw ${cwConvId}) — guest, or Odoo /ai_webhook/user_context returned no data`);
+    return '';
+  }
+  const sig = crypto.createHash('md5').update(ctx).digest('hex').slice(0, 12);
+  if (mapping.ctxSig === sig) return '';
+  mapping.ctxSig = sig;
+  cwSetConversationAttrs(cwConvId, { bp_ctx_sig: sig }).catch(() => {});
+  console.log(`CTX → bot (cw ${cwConvId}): ${ctx.slice(0, 100)}`);
+  return (
+    'معلومات المتدرب (سياق داخلي من نظام Engosoft — استخدمه للترحيب بالاسم ومتابعة الكورسات، ولا تعرضه كنص خام):\n' + ctx
+  );
+}
+
 // Forward one customer message to Botpress (status-gated).
 async function forwardToBot(cwConvId, text, { name, userData }) {
   if (!bpConfigured()) {
@@ -721,26 +834,42 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   if (!mapping) return;
 
   // Inject trainee context once per conversation (re-sent only when the data changes).
-  let outText = text;
-  const ctx = contextSummary(userData);
-  if (ctx) {
-    const sig = crypto.createHash('md5').update(ctx).digest('hex').slice(0, 12);
-    if (mapping.ctxSig !== sig) {
-      outText =
-        'معلومات المتدرب (سياق داخلي من نظام Engosoft — استخدمه للترحيب بالاسم ومتابعة الكورسات، ولا تعرضه كنص خام):\n' +
-        ctx +
-        '\n\n' +
-        text;
-      mapping.ctxSig = sig;
-      cwSetConversationAttrs(cwConvId, { bp_ctx_sig: sig }).catch(() => {});
-      console.log(`CTX → bot (cw ${cwConvId}): ${ctx.slice(0, 100)}`);
-    }
-  } else if (!mapping.ctxSig) {
-    console.log(`CTX empty (cw ${cwConvId}) — guest, or Odoo /ai_webhook/user_context returned no data`);
-  }
+  const ctxBlock = ctxBlockIfChanged(mapping, cwConvId, userData);
+  const outText = ctxBlock ? ctxBlock + '\n\n' + text : text;
 
   await bpSendText(mapping, outText);
   console.log(`SEND Botpress (cw ${cwConvId} → bp ${mapping.bpConvId}): ${text.slice(0, 60)}`);
+}
+
+// Forward a customer attachment to Botpress as a real media payload (status-gated).
+async function forwardMediaToBot(cwConvId, media, { name, userData }) {
+  if (!bpConfigured()) {
+    console.warn('SKIP Botpress (not configured) — set BOTPRESS_CHAT_WEBHOOK_ID');
+    return;
+  }
+  const status = await getConvStatus(cwConvId);
+  if (status === 'open') {
+    console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
+    return;
+  }
+  const mapping = await ensureBotpress(cwConvId, { name, userData });
+  if (!mapping) return;
+
+  const ctxBlock = ctxBlockIfChanged(mapping, cwConvId, userData);
+  if (ctxBlock) await bpSendText(mapping, ctxBlock);
+
+  const url = media.url || '';
+  const title = safeFileName(media.name);
+  let payload;
+  if (!url) payload = { type: 'text', text: `(أرسل العميل ملف: ${title})` };
+  else if (media.kind === 'image') payload = { type: 'image', imageUrl: url };
+  else if (media.kind === 'audio') payload = { type: 'audio', audioUrl: url };
+  else if (media.kind === 'video') payload = { type: 'video', videoUrl: url };
+  else payload = { type: 'file', fileUrl: url, title };
+
+  await bpSendPayload(mapping, payload);
+  if (media.caption) await bpSendText(mapping, media.caption);
+  console.log(`SEND Botpress media (cw ${cwConvId} → bp ${mapping.bpConvId}): ${media.kind} ${title}`);
 }
 
 // Reap idle Botpress listeners.
@@ -872,6 +1001,7 @@ app.post('/widget/message', async (req, res) => {
     markBridgeIncoming(convId, null, text);
     const created = await cwSendMessage(convId, { content: text, messageType: 'incoming' });
     markBridgeIncoming(convId, created, text);
+    await reviveIfResolved(convId);
 
     // b) Botpress Chat API (status-gated). Bot replies return via SSE listener.
     try {
@@ -885,6 +1015,132 @@ app.post('/widget/message', async (req, res) => {
   } catch (err) {
     console.error('message error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'message_failed' });
+  }
+});
+
+// 3b) Customer attachment from the widget («اضافة ملفات»).
+//     multipart: file + conversationId (+ caption + userData JSON)
+app.post('/widget/upload', uploadMw.single('file'), async (req, res) => {
+  try {
+    const convId = cleanId(req.body?.conversationId);
+    const caption = String(req.body?.caption || '').trim().slice(0, 2000);
+    let userData = {};
+    try { userData = JSON.parse(req.body?.userData || '{}') || {}; } catch (_) {}
+    if (!convId) return res.status(400).json({ error: 'missing_conversation' });
+    if (!req.file) return res.status(400).json({ error: 'missing_file' });
+
+    const kind = mimeKind(req.file.mimetype);
+    if (!kind) return res.status(415).json({ error: 'unsupported_type' });
+
+    const filename = safeFileName(req.file.originalname);
+    console.log(`IN widget conv ${convId}: 📎 ${filename} (${req.file.mimetype}, ${req.file.size}b)`);
+
+    // a) Chatwoot first (source of truth) — attachment + optional caption.
+    markBridgeIncoming(convId, null, caption);
+    const created = await cwSendAttachmentMessage(convId, {
+      buffer: req.file.buffer,
+      mime: req.file.mimetype,
+      filename,
+      caption,
+    });
+    markBridgeIncoming(convId, created, caption);
+    await reviveIfResolved(convId);
+
+    const att = (created.attachments || [])[0] || {};
+    const url = att.data_url || '';
+
+    // b) Botpress gets the hosted URL as a real media payload (vision-ready for images).
+    try {
+      await forwardMediaToBot(convId, { kind, url, name: filename, caption }, { name: userData.name, userData });
+    } catch (e) {
+      console.error('forwardMediaToBot failed:', e.response?.data || e.message);
+    }
+
+    return res.json({
+      status: 'ok',
+      message: {
+        id: created.id,
+        url,
+        thumb_url: att.thumb_url || '',
+        file_type: att.file_type || kind,
+        name: filename,
+        size: req.file.size,
+      },
+    });
+  } catch (err) {
+    console.error('upload error:', err.response?.data || err.message);
+    return res.status(500).json({ error: 'upload_failed' });
+  }
+});
+
+// 3c) Conversation transcript for the widget (restore on reopen / history switch).
+app.get('/widget/messages', async (req, res) => {
+  try {
+    const convId = cleanId(req.query.conversationId);
+    if (!convId) return res.status(400).json({ error: 'missing_conversation' });
+
+    // up to 3 pages (~60 messages), oldest → newest
+    let all = [];
+    let before = null;
+    for (let page = 0; page < 3; page++) {
+      const batch = await cwListMessages(convId, before);
+      if (!batch.length) break;
+      all = batch.concat(all);
+      before = batch[0]?.id;
+      if (batch.length < 20) break;
+    }
+
+    const messages = all
+      .filter((m) => {
+        if (m.private) return false;
+        const t = m.message_type;
+        return t === 0 || t === 1 || t === 'incoming' || t === 'outgoing';
+      })
+      .map((m) => ({
+        id: m.id,
+        content: m.content || '',
+        content_type: m.content_type || 'text',
+        content_attributes: m.content_attributes || {},
+        sender: m.message_type === 1 || m.message_type === 'outgoing' ? 'agent' : 'contact',
+        created_at: m.created_at || null,
+        attachments: mapAttachments(m.attachments),
+      }));
+
+    return res.json({ conversationId: convId, messages });
+  } catch (err) {
+    console.error('messages error:', err.response?.status || err.message);
+    return res.status(500).json({ error: 'messages_failed' });
+  }
+});
+
+// 3d) Conversation summaries for the widget history list.
+//     GET /widget/conversations?ids=12,15,18 (the widget remembers its own ids locally)
+app.get('/widget/conversations', async (req, res) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map(cleanId).filter(Boolean))].slice(0, 15);
+    if (!ids.length) return res.json({ conversations: [] });
+
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const conv = await cwGetConversation(id);
+        const c = conv?.payload || conv || {};
+        const last = c.last_non_activity_message || {};
+        const preview = String(last.content || ((last.attachments || []).length ? '📎 مرفق' : '')).slice(0, 140);
+        return {
+          id,
+          status: c.status || 'pending',
+          last_message: preview,
+          last_at: c.last_activity_at || last.created_at || c.timestamp || null,
+        };
+      })
+    );
+
+    return res.json({
+      conversations: results.filter((r) => r.status === 'fulfilled').map((r) => r.value),
+    });
+  } catch (err) {
+    console.error('conversations error:', err.message);
+    return res.status(500).json({ error: 'conversations_failed' });
   }
 });
 
@@ -979,6 +1235,7 @@ app.post('/chatwoot/webhook', async (req, res) => {
         content: p.content,
         content_type: p.content_type,
         content_attributes: p.content_attributes,
+        attachments: p.attachments,
         message_type: 'outgoing',
         sender: p.sender,
       });
@@ -1011,6 +1268,15 @@ app.post('/chatwoot/webhook', async (req, res) => {
     console.error('chatwoot webhook error:', err.message);
     return res.status(500).json({ error: 'webhook_failed' });
   }
+});
+
+// Multer/body errors → clean JSON (413 for oversize uploads instead of an HTML stack).
+app.use((err, _req, res, _next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'file_too_large', maxMb: MAX_UPLOAD_MB });
+  }
+  console.error('unhandled error:', err.message);
+  return res.status(500).json({ error: 'internal_error' });
 });
 
 // ── Startup ────────────────────────────────────────────────────────

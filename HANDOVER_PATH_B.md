@@ -151,8 +151,28 @@ majed-liquid-widget/
 | `POST /widget/session` | إنشاء contact+conversation → `{conversationId}` |
 | `GET /widget/stream?conversationId=` | SSE (ردود فورية) |
 | `POST /widget/message` | `{conversationId, text, userData}` |
+| `POST /widget/upload` | **مرفقات العميل** (multipart: `file` + `conversationId` + `caption` + `userData`) → Chatwoot attachment + Botpress media payload |
+| `GET /widget/messages?conversationId=` | transcript المحادثة (استرجاع عند إعادة الفتح/الهيستوري) |
+| `GET /widget/conversations?ids=1,2` | ملخصات المحادثات لقائمة الهيستوري (آخر رسالة + وقت + حالة) |
 | `POST /botpress/webhook` | رد Botpress (نص/cards/handoff) · `GET` للتحقق |
 | `POST /chatwoot/webhook` | **Webhook URL** للـ API channel (ردود الموظف → SSE) |
+
+### مزايا الويدجت (تحديث يونيو 2026) ✨
+- **رسالة لفت انتباه متغيّرة (Teaser):** بتظهر فوق الزرار العائم بعد ~3.5 ثانية وبتتبدل كل ~9 ثواني بين:
+  1. تعريف ماجد («أهلاً! أنا ماجد، مستشارك التعليمي») —
+  2. **عرض الكورس المجاني**: The Freelance Masterclass + زرار يفتح
+     `https://engosoft.com/shop/the-freelance-masterclass-2056` + كود `free100` (بينتسخ بالضغط).
+  قابلة للإغلاق (X = مش هتظهر تاني في نفس الجلسة). تخصيص عبر `MajedConfig.teasers / courseUrl / promoCode / teaserDelay / teaserRotate`.
+- **إرفاق ملفات:** زرار 📎 جوه خانة الكتابة (صور/PDF/Office/صوت/فيديو/zip — حد 10MB، `MAX_UPLOAD_MB`).
+  الملف بيتكتب في Chatwoot كمرفق حقيقي، وبيوصل Botpress كـ payload حقيقي (`image/audio/video/file` بالرابط) —
+  الصور جاهزة للـ vision. مرفقات الموظف من Chatwoot بتظهر برضه في الويدجت.
+- **هيستوري المحادثات:** زرار 🕘 في الهيدر يفتح قائمة المحادثات السابقة (آخر رسالة + الوقت + الحالة)،
+  فتح أي محادثة بيرجّع الـ transcript كامل، وزرار «محادثة جديدة» يبدأ من الصفر.
+  الفتح في محادثة `resolved` بيرجّعها `pending` تلقائي عشان البوت يرد تاني.
+- **هيدر زجاجي عند بدء الكلام:** أول ما العميل يبعت رسالة، الهيدر بيتحول لشريط زجاجي مدمج (blur)
+  وشريط واتساب/إيميل بيتطوى (بيظهروا كأيقونات صغيرة في الهيدر) → مساحة الشات أكبر.
+- **الأفاتار:** اتبدّل بالصورة الكاملة (بالبادج «م. ماجد») بدل القصّة المقرّبة — في البريدج والموديول والـ zip.
+- اعتماد جديد في البريدج: **multer** (رفع الملفات) — `npm install` بيجيبه تلقائيًا.
 
 ---
 

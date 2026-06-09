@@ -15,36 +15,84 @@ h1{color:#fff;padding:24px;font-size:18px}</style></head>
     waNumber: '966920016295',
     supportEmail: 'aibot@engosoft.com',
     theme: 'light',
-    position: 'right'
+    position: 'right',
+    teaserDelay: 900,                         // fast for testing
+    teaserRotate: 4500
   };
+
+  // pre-seed the local conversation list so the history screen has content
+  try {
+    localStorage.setItem('majed:convlist:https://mock.local:anon', JSON.stringify([
+      { id: '123', ts: Date.now() },
+      { id: '777', ts: Date.now() - 86400000 },
+      { id: '888', ts: Date.now() - 5 * 86400000 }
+    ]));
+    sessionStorage.removeItem('majed:tz:off');
+  } catch (e) {}
+
+  var SUMMARIES = { conversations: [
+    { id: '123', status: 'pending',  last_message: 'أهلاً 👋 أنا ماجد، اسألني عن دوراتك.', last_at: Math.floor(Date.now()/1000) - 120 },
+    { id: '777', status: 'resolved', last_message: 'تمام، تقدر تكمل الكورس من صفحة دوراتي.', last_at: Math.floor(Date.now()/1000) - 86400 },
+    { id: '888', status: 'open',     last_message: '📎 مرفق', last_at: Math.floor(Date.now()/1000) - 5*86400 }
+  ]};
+  var TRANSCRIPTS = {
+    '123': { messages: [] },
+    '777': { messages: [
+      { id: 9101, sender: 'agent',   content: 'أهلاً بيك! 👋 إزاي أقدر أساعدك؟', content_type: 'text', content_attributes: {}, attachments: [] },
+      { id: 9102, sender: 'contact', content: 'عايز أعرف تفاصيل كورس BIM', content_type: 'text', content_attributes: {}, attachments: [] },
+      { id: 9103, sender: 'agent',   content: 'تمام، تقدر تكمل الكورس من صفحة دوراتي.', content_type: 'text', content_attributes: {}, attachments: [] }
+    ]},
+    '888': { messages: [
+      { id: 9201, sender: 'contact', content: '', content_type: 'text', content_attributes: {},
+        attachments: [{ file_type: 'file', data_url: '#', thumb_url: '', file_size: 245760 }] },
+      { id: 9202, sender: 'agent',   content: 'وصلني الملف، هراجعه وأرد عليك.', content_type: 'text', content_attributes: {}, attachments: [] }
+    ]}
+  };
+
+  function jsonResp(obj, status) {
+    return Promise.resolve({ ok: (status || 200) < 400, status: status || 200,
+      json: function () { return Promise.resolve(obj); } });
+  }
 
   // stub fetch
   var realFetch = window.fetch;
-  window.fetch = function(url, opts){
+  window.fetch = function (url, opts) {
     url = String(url);
     if (url.indexOf('/widget/session') > -1)
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ conversationId:'123' }); } });
+      return jsonResp({ conversationId: '123', reused: false, status: 'pending' });
     if (url.indexOf('/widget/message') > -1)
-      return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({ status:'ok' }); } });
+      return jsonResp({ status: 'ok' });
+    if (url.indexOf('/widget/upload') > -1) {
+      // bot "answers" the attachment shortly after, over the stubbed SSE
+      setTimeout(function () { window.__mjdEmit({ id: Date.now(), content: 'وصلتني 👌 هبص عليها وأرد عليك حالًا.', content_type: 'text' }); }, 900);
+      return jsonResp({ status: 'ok', message: { id: Date.now(), url: '#', file_type: 'image', name: 'upload.png', size: 1234 } });
+    }
+    if (url.indexOf('/widget/conversations') > -1)
+      return jsonResp(SUMMARIES);
+    if (url.indexOf('/widget/messages') > -1) {
+      var m = url.match(/conversationId=(\d+)/);
+      return jsonResp(TRANSCRIPTS[(m && m[1]) || '123'] || { messages: [] });
+    }
     if (url.indexOf('/__no_ctx__') > -1)
-      return Promise.resolve({ ok:false, status:404, json:function(){ return Promise.resolve(null);} });
+      return jsonResp(null, 404);
     return realFetch.apply(window, arguments);
   };
 
-  // stub EventSource — emits a text msg then a cards msg shortly after "connecting"
-  window.EventSource = function(u){
+  // stub EventSource — welcome text + cards arrive on the NEW conversation only
+  window.__mjdEmit = function () {};
+  window.EventSource = function (u) {
     this.url = u; var self = this; this._l = {};
-    this.addEventListener = function(t,f){ self._l[t]=f; };
-    setTimeout(function(){
-      if(self._l.message){
-        self._l.message({ data: JSON.stringify({ id:1, content:'أهلاً 👋 أنا ماجد، اسألني عن دوراتك.', content_type:'text' }) });
-        self._l.message({ data: JSON.stringify({ id:2, content:'طرق التواصل:', content_type:'cards',
-          content_attributes:{ items:[{ title:'تواصل مع Engosoft', description:'اختر وسيلة',
-            actions:[{type:'link',text:'واتساب',uri:'https://wa.me/966920016295'},{type:'postback',text:'موظف',payload:'human_agent'}] }] } }) });
-      }
-    }, 150);
+    this.addEventListener = function (t, f) { self._l[t] = f; };
+    this.close = function () { if (window.__mjdES === self) window.__mjdEmit = function () {}; };
+    window.__mjdES = self;
+    window.__mjdEmit = function (obj) { if (self._l.message) self._l.message({ data: JSON.stringify(obj) }); };
+    if (u.indexOf('conversationId=123') > -1) setTimeout(function () {
+      window.__mjdEmit({ id: 1, content: 'أهلاً 👋 أنا ماجد، اسألني عن دوراتك.', content_type: 'text' });
+      window.__mjdEmit({ id: 2, content: 'طرق التواصل:', content_type: 'cards',
+        content_attributes: { items: [{ title: 'تواصل مع Engosoft', description: 'اختر وسيلة',
+          actions: [{ type: 'link', text: 'واتساب', uri: 'https://wa.me/966920016295' }, { type: 'postback', text: 'موظف', payload: 'human_agent' }] }] } });
+    }, 250);
   };
-  window.__esEmitted = true;
 </script>
 <script src="integration/bridge/public/majed-widget.js"></script>
 </body></html>
