@@ -339,7 +339,10 @@ app.post('/botpress/webhook', async (req, res) => {
   try {
     const body = req.body || {};
     const convId = extractConvId(body);
-    if (!convId) return res.status(400).json({ error: 'missing_conversation_id' });
+    // Botpress validates the Response Endpoint by hitting it (sometimes via POST with an
+    // empty/test body). Return 200 (not 400) so registration always passes; real replies
+    // always carry a conversationId and are processed below.
+    if (!convId) return res.status(200).json({ status: 'skipped', reason: 'no_conversation_id' });
 
     const items = [];
     if (Array.isArray(body.messages)) items.push(...body.messages);
