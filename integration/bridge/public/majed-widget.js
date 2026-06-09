@@ -193,7 +193,8 @@
       });
       var card = inject('div', { class: 'mjd-card' }, h);
       card.querySelectorAll('button[data-pb]').forEach(function (btn) {
-        btn.addEventListener('click', function () { sendMessage(btn.getAttribute('data-pb')); });
+        // send the postback value to the bot, but show the human label in the bubble
+        btn.addEventListener('click', function () { sendMessage(btn.getAttribute('data-pb'), btn.textContent); });
       });
       bd.appendChild(card); scrollDown();
     });
@@ -204,7 +205,8 @@
     var wrap = inject('div', { class: 'mjd-options' }, '');
     items.forEach(function (it) {
       var b = inject('button', { class: 'mjd-opt', type: 'button', 'data-val': it.value || it.title || '' }, esc(it.title || it.value || 'اختيار'));
-      b.addEventListener('click', function () { sendMessage(b.getAttribute('data-val')); });
+      // the customer sees the label they clicked; the bot receives the option value
+      b.addEventListener('click', function () { sendMessage(b.getAttribute('data-val'), b.textContent); });
       wrap.appendChild(b);
     });
     if (items.length) { bd.appendChild(wrap); scrollDown(); }
@@ -235,9 +237,12 @@
     return fetch(USER_CTX_URL, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (ctx) {
-        if (!ctx) return {};
+        if (!ctx) {
+          console.info('[Majed] user context: فارغ — زائر غير مسجّل أو /ai_webhook/user_context غير متاح');
+          return {};
+        }
         var u = ctx.user || {}, lp = ctx.learning_progress || {};
-        return {
+        var out = {
           name: u.name || '', email: u.email || '',
           odoo_user_id: String(u.user_id || ''),
           enrolled_courses: String(lp.total_courses_enrolled || 0),
@@ -245,8 +250,14 @@
           progress_percent: String(lp.average_progress || 0),
           courses_json: JSON.stringify(ctx.courses || [])
         };
+        if (!out.name && !out.email) console.info('[Majed] user context: بدون اسم/إيميل — هيتعامل كزائر');
+        else console.info('[Majed] user context: ' + out.name + ' · كورسات=' + out.enrolled_courses);
+        return out;
       })
-      .catch(function () { return {}; });
+      .catch(function () {
+        console.info('[Majed] user context fetch فشل — هيتعامل كزائر');
+        return {};
+      });
   }
 
   function storageKey() {
@@ -302,9 +313,11 @@
     }).catch(function () { addBot('تعذّر الاتصال، حاول تاني.'); started = false; });
   }
 
-  function sendMessage(text) {
+  // text = what is sent to the bridge/bot; display = what the customer sees in their bubble
+  // (for choice/postback clicks display is the button label, not the raw value).
+  function sendMessage(text, display) {
     text = (text || '').trim(); if (!text) return;
-    addMe(text);
+    addMe((display || text).trim() || text);
     if (!convId) { startSession().then(function () { if (convId) postMsg(text); }); return; }
     postMsg(text);
   }

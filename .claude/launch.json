@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 3000
+    },
+    {
+      "name": "majed-devstack",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["integration/bridge/test/dev-stack.js"],
+      "port": 4810
     }
   ]
 }

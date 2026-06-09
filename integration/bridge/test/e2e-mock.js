@@ -92,13 +92,15 @@ function mockApp() {
     const text = q.body?.payload?.text || '';
     state.bpMessages.push({ text });
     r.status(201).json({ message: { id: 'm' + state.bpMessages.length } });
-    // bot "thinks" then replies over SSE
+    // bot "thinks" then replies over SSE. Like a real LLM, it answers the customer's
+    // message (the last block) — the injected context preamble is background info.
+    const userText = text.split('\n\n').pop();
     setTimeout(() => {
       let payload;
-      if (text.includes('موظف')) payload = { type: 'text', text: '[[HANDOFF:3]] حوّلتك لزميل بشري' };
-      else if (text.includes('اختيارات')) payload = { type: 'choice', text: 'اختار اللي يناسبك:', options: [{ label: 'مسار هندسي', value: 'engineering' }, { label: 'مسار إداري', value: 'management' }] };
-      else if (text.includes('صورة')) payload = { type: 'image', imageUrl: 'https://example.com/majed.png', title: 'صورة توضيحية' };
-      else payload = { type: 'text', text: 'رد البوت: ' + text };
+      if (userText.includes('موظف')) payload = { type: 'text', text: '[[HANDOFF:3]] حوّلتك لزميل بشري' };
+      else if (userText.includes('اختيارات')) payload = { type: 'choice', text: 'اختار اللي يناسبك:', options: [{ label: 'مسار هندسي', value: 'engineering' }, { label: 'مسار إداري', value: 'management' }] };
+      else if (userText.includes('صورة')) payload = { type: 'image', imageUrl: 'https://example.com/majed.png', title: 'صورة توضيحية' };
+      else payload = { type: 'text', text: 'رد البوت: ' + userText };
       sseSend({ type: 'message_created', data: { id: 'bot-' + Date.now(), userId: 'bot-1', conversationId: 'bpconv-1', payload } });
     }, 120);
   });
@@ -188,15 +190,29 @@ function check(name, cond, extra) {
     await sleep(300);
 
     console.log('TEST 3 — customer message → Chatwoot + Botpress Chat API → bot reply round-trip');
-    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'مرحبا', userData: { name: 'إياد' } });
+    await axios.post(`${BRIDGE}/widget/message`, {
+      conversationId: '9001',
+      text: 'مرحبا',
+      userData: {
+        name: 'إياد',
+        email: 'eyad@example.com',
+        enrolled_courses: '2',
+        remaining_lessons: '7',
+        progress_percent: '64',
+        courses_json: JSON.stringify([{ course_name: 'التصميم الداخلي', progress_percentage: 64, remaining_lessons: 7 }]),
+      },
+    });
     await sleep(900);
     let st = (await axios.get(`${MOCK}/__state`)).data;
     check('incoming written to Chatwoot', st.cwMessages.some((m) => m.body.message_type === 'incoming' && m.body.content === 'مرحبا'));
     check('real Chat API used (user+conversation created)', st.bpUsers === 1 && st.bpConvs === 1, `users=${st.bpUsers} convs=${st.bpConvs}`);
-    check('message sent to Botpress once despite Chatwoot echo', st.bpMessages.length === 1 && st.bpMessages[0].text === 'مرحبا', `count=${st.bpMessages.length}`);
+    check('message sent to Botpress once despite Chatwoot echo', st.bpMessages.length === 1 && st.bpMessages[0].text.endsWith('مرحبا'), `count=${st.bpMessages.length}`);
+    check('trainee context (name+courses) injected into first bot message',
+      st.bpMessages[0].text.includes('معلومات المتدرب') && st.bpMessages[0].text.includes('إياد') && st.bpMessages[0].text.includes('التصميم الداخلي'));
+    check('context NOT written to Chatwoot transcript', !st.cwMessages.some((m) => (m.body.content || '').includes('معلومات المتدرب')));
     check('bot reply written to Chatwoot as outgoing', st.cwMessages.some((m) => m.body.message_type === 'outgoing' && m.body.content === 'رد البوت: مرحبا'));
     check('bot reply reached widget via SSE', ws.events.some((e) => e.content === 'رد البوت: مرحبا'));
-    check('mapping persisted in conversation attrs', st.cwAttrs.bp_conv_id === 'bpconv-1' && !!st.cwAttrs.bp_user_key);
+    check('mapping persisted in conversation attrs', st.cwAttrs.bp_conv_id === 'bpconv-1' && !!st.cwAttrs.bp_user_key && !!st.cwAttrs.bp_ctx_sig);
 
     console.log('TEST 4 — agent outgoing via Chatwoot webhook → widget (no re-forward to bot)');
     const bpCountBefore = st.bpMessages.length;

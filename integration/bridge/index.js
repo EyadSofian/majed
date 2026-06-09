@@ -27,6 +27,7 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -640,6 +641,7 @@ async function ensureBotpress(cwConvId, { name, userData }) {
         userId: attrs.bp_user_id || '',
         userKey: attrs.bp_user_key,
         bpConvId: attrs.bp_conv_id,
+        ctxSig: attrs.bp_ctx_sig || '',
         lastActivity: Date.now(),
         stream: null,
         seen: lruSet(500),
@@ -656,7 +658,7 @@ async function ensureBotpress(cwConvId, { name, userData }) {
   // fresh: create real Botpress user + conversation (Chat API)
   const { userId, userKey } = await bpCreateUser({ name, userData });
   const bpConvId = await bpCreateConversation(userKey);
-  mapping = { userId, userKey, bpConvId, lastActivity: Date.now(), stream: null, seen: lruSet(500) };
+  mapping = { userId, userKey, bpConvId, ctxSig: '', lastActivity: Date.now(), stream: null, seen: lruSet(500) };
   bpMap.set(cwConvId, mapping);
   bpStartListener(cwConvId, mapping);
   console.log(`BOTPRESS created user ${userId} + conv ${bpConvId} (cw ${cwConvId})`);
@@ -669,6 +671,39 @@ async function ensureBotpress(cwConvId, { name, userData }) {
   }).catch((e) => console.warn('mapping persist failed:', e.response?.status || e.message));
 
   return mapping;
+}
+
+// Rich-but-compact trainee context. Injected ONCE into the first message of a
+// Botpress conversation (and again only if the data changes) so the Autonomous
+// Node LLM actually sees the name/courses — the chat `profile` tag alone is NOT
+// read by the LLM. Sent to Botpress only: never written to Chatwoot or the widget.
+function contextSummary(userData) {
+  const d = userData || {};
+  const out = {};
+  const name = pickText(d.name, d.fullName, d.userFullName);
+  const email = pickText(d.email, d.userEmail);
+  if (name) out.name = name;
+  if (email) out.email = email;
+  if (d.enrolled_courses && String(d.enrolled_courses) !== '0') out.enrolled_courses = String(d.enrolled_courses);
+  if (d.remaining_lessons && String(d.remaining_lessons) !== '0') out.remaining_lessons = String(d.remaining_lessons);
+  if (d.progress_percent && String(d.progress_percent) !== '0') out.progress_percent = String(d.progress_percent);
+  try {
+    const courses = typeof d.courses_json === 'string' ? JSON.parse(d.courses_json) : d.courses_json;
+    if (Array.isArray(courses) && courses.length) {
+      out.courses = courses.slice(0, 3).map((c) => {
+        const item = {
+          name: pickText(c.course_name, c.name),
+          progress: c.progress_percentage != null ? c.progress_percentage : c.progress,
+        };
+        if (c.remaining_lessons != null) item.remaining_lessons = c.remaining_lessons;
+        const next = pickText(c.next_lesson && c.next_lesson.next_lesson_title, c.next_lesson_title);
+        if (next) item.next_lesson = next;
+        return item;
+      });
+    }
+  } catch (_) {}
+  if (!Object.keys(out).length) return '';
+  return JSON.stringify(out).slice(0, 700);
 }
 
 // Forward one customer message to Botpress (status-gated).
@@ -684,7 +719,27 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   }
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
-  await bpSendText(mapping, text);
+
+  // Inject trainee context once per conversation (re-sent only when the data changes).
+  let outText = text;
+  const ctx = contextSummary(userData);
+  if (ctx) {
+    const sig = crypto.createHash('md5').update(ctx).digest('hex').slice(0, 12);
+    if (mapping.ctxSig !== sig) {
+      outText =
+        'معلومات المتدرب (سياق داخلي من نظام Engosoft — استخدمه للترحيب بالاسم ومتابعة الكورسات، ولا تعرضه كنص خام):\n' +
+        ctx +
+        '\n\n' +
+        text;
+      mapping.ctxSig = sig;
+      cwSetConversationAttrs(cwConvId, { bp_ctx_sig: sig }).catch(() => {});
+      console.log(`CTX → bot (cw ${cwConvId}): ${ctx.slice(0, 100)}`);
+    }
+  } else if (!mapping.ctxSig) {
+    console.log(`CTX empty (cw ${cwConvId}) — guest, or Odoo /ai_webhook/user_context returned no data`);
+  }
+
+  await bpSendText(mapping, outText);
   console.log(`SEND Botpress (cw ${cwConvId} → bp ${mapping.bpConvId}): ${text.slice(0, 60)}`);
 }
 
