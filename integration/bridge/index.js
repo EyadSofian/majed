@@ -85,15 +85,31 @@ async function resolveInboxId() {
 }
 
 // Create a contact in the API inbox; returns { contactId, sourceId }.
+// Chatwoot enforces a UNIQUE email per account: posting an email that already
+// exists (e.g. a returning/known student) returns 422 and would break session
+// creation. So we attempt WITH email first, and on ANY failure retry WITHOUT the
+// unique email field (email is still kept in custom_attributes so the agent and
+// Botpress can see it). This guarantees /widget/session never 500s on duplicates.
 async function cwCreateContact({ name, email, customAttributes }) {
   const inboxId = await resolveInboxId();
-  const body = {
-    inbox_id: Number(inboxId),
-    name: name || 'زائر',
-    custom_attributes: customAttributes || {},
-  };
-  if (email) body.email = email;
-  const { data } = await axios.post(cwUrl('contacts'), body, { headers: cwHeaders(), timeout: 15000 });
+
+  async function create(withEmailField) {
+    const attrs = Object.assign({}, customAttributes || {});
+    if (email) attrs.email = email; // always visible in additional attributes
+    const body = { inbox_id: Number(inboxId), name: name || 'زائر', custom_attributes: attrs };
+    if (withEmailField && email) body.email = email;
+    const { data } = await axios.post(cwUrl('contacts'), body, { headers: cwHeaders(), timeout: 15000 });
+    return data;
+  }
+
+  let data;
+  try {
+    data = await create(true);
+  } catch (err) {
+    console.warn('contact create with email failed (', err.response?.status, ') — retry without email');
+    data = await create(false);
+  }
+
   const payload = data?.payload || data;
   const contact = payload?.contact || payload;
   const sourceId =
