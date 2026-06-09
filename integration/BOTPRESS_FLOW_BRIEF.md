@@ -1,4 +1,10 @@
-# فلو Botpress — عشان ماجد يرد (الطريق ب)
+# ⚠ متجاوز (Superseded) — لا تستخدم هذا الملف
+>
+> **هذا البريف كان مبنيًا على Webhook Integration trigger، وتم استبداله بالكامل
+> بمسار Botpress Chat API الحقيقي. اتبع:** [`BOTPRESS_CHAT_API_SETUP.md`](BOTPRESS_CHAT_API_SETUP.md)
+> — مفيش فلو خاص مطلوب جوه Botpress؛ أي Autonomous Node عادي بيرد تلقائيًا.
+
+# فلو Botpress — عشان ماجد يرد (الطريق ب) [قديم]
 
 > الناقص الوحيد دلوقتي. البريدج بيبعت رسالة العميل لـ Botpress، وبيستنى الرد على
 > `https://majed-production-dd41.up.railway.app/botpress/webhook`. لازم نبني فلو في Botpress
