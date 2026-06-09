@@ -1,5 +1,11 @@
 # ماجد «نور» — Handover كامل (Path B)
 
+> **⚠ تحديث (يونيو 2026):** جهة Botpress اتنقلت من Webhook Integration إلى **Botpress Chat API الحقيقي**
+> (users/conversations/SSE). تعليمات الربط والمتغيرات الحالية في:
+> [`integration/BOTPRESS_CHAT_API_SETUP.md`](integration/BOTPRESS_CHAT_API_SETUP.md) —
+> المتغير الأساسي بقى `BOTPRESS_CHAT_WEBHOOK_ID` (و`BOTPRESS_WEBHOOK_URL` اتشال).
+> باقي هذا الملف (الويدجت/Odoo/Chatwoot/Railway) ساري كما هو.
+
 > مساعد Engosoft التعليمي. **ويدجت مخصّص بالكامل** («نور») على موقع Odoo، متوصّل بـ **بريدج Node/Express** على Railway،
 > اللي بيربط الموقع ↔ **Chatwoot (API Channel)** ↔ **Botpress (مخ البوت)**. ردود فورية بـ **SSE**.
 > الريبو: https://github.com/EyadSofian/majed · آخر تحديث: يونيو 2026.
