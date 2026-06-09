@@ -316,6 +316,9 @@ app.post('/widget/message', async (req, res) => {
 
 // 4) Botpress reply → write to Chatwoot as outgoing (+ handoff actions). SSE push happens
 //    when Chatwoot fires the webhook (deduped), so bot + agent share one delivery path.
+// Botpress does a GET on this endpoint to verify it's reachable (must return 200).
+app.get('/botpress/webhook', (req, res) => res.status(200).json({ status: 'ok' }));
+
 app.post('/botpress/webhook', async (req, res) => {
   try {
     const body = req.body || {};
