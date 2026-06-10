@@ -358,6 +358,121 @@ function mapAttachments(list) {
   }));
 }
 
+function parseObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+function cleanUrl(raw) {
+  let url = String(raw || '').trim();
+  while (/[)\]}>.,;!?،؛]/.test(url.slice(-1))) url = url.slice(0, -1);
+  return url;
+}
+
+function mediaKindFromUrl(url) {
+  const base = String(url || '').split(/[?#]/)[0].toLowerCase();
+  if (/\.(png|jpe?g|webp|gif|svg)$/.test(base)) return 'image';
+  if (/\.(mp4|webm|mov|m4v)$/.test(base)) return 'video';
+  if (/\.(mp3|m4a|aac|ogg|oga|wav|webm)$/.test(base)) return 'audio';
+  if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip)$/.test(base)) return 'file';
+  return '';
+}
+
+function mediaTitleFromUrl(url, kind) {
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || '');
+    return name || (kind === 'image' ? 'image' : kind || 'file');
+  } catch (_) {
+    return kind === 'image' ? 'image' : kind || 'file';
+  }
+}
+
+function detectMediaInText(text) {
+  const body = String(text || '');
+  const urls = body.match(/https?:\/\/[^\s<>"']+/g) || [];
+  for (const raw of urls) {
+    const url = cleanUrl(raw);
+    const kind = mediaKindFromUrl(url);
+    if (!kind) continue;
+    let caption = body.replace(raw, '').replace(url, '').trim();
+    caption = caption
+      .replace(/!\[[^\]]*]\(\s*\)/g, '')
+      .replace(/\[[^\]]*]\(\s*\)/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const captionAsTitle = caption && caption.length <= 80 && !caption.includes('\n');
+    return {
+      kind,
+      url,
+      caption: captionAsTitle ? '' : caption,
+      title: captionAsTitle ? caption : mediaTitleFromUrl(url, kind),
+    };
+  }
+  return null;
+}
+
+function stripMediaUrlFromText(text, url) {
+  let body = String(text || '');
+  if (!url) return body.trim();
+  body = body.replace(url, '').trim();
+  body = body.replace(/\n{3,}/g, '\n\n').trim();
+  return body;
+}
+
+function shapeWidgetMessage(msg) {
+  const attrs = parseObject(msg.content_attributes);
+  let contentType = msg.content_type || 'text';
+  let content = msg.content || '';
+  let contentAttributes = attrs;
+
+  if (contentType === 'media' && attrs.url) {
+    content = stripMediaUrlFromText(content, attrs.url);
+    if (content === attrs.title) content = '';
+    contentAttributes = {
+      ...attrs,
+      media_type: attrs.media_type || mediaKindFromUrl(attrs.url) || 'file',
+      title: attrs.title || mediaTitleFromUrl(attrs.url, attrs.media_type || 'file'),
+    };
+  } else if (!contentType || contentType === 'text') {
+    const media = detectMediaInText(content);
+    if (media) {
+      contentType = 'media';
+      content = media.caption;
+      contentAttributes = {
+        media_type: media.kind,
+        url: media.url,
+        title: media.title,
+        mime_type: attrs.mime_type || '',
+      };
+    }
+  }
+
+  return {
+    id: msg.id,
+    content,
+    content_type: contentType || 'text',
+    content_attributes: contentAttributes || {},
+    sender: msg.sender?.type || (msg.message_type === 1 || msg.message_type === 'outgoing' ? 'agent' : 'contact'),
+    attachments: mapAttachments(msg.attachments),
+    created_at: msg.created_at || null,
+  };
+}
+
+function writeSseMessage(res, msg) {
+  const shaped = shapeWidgetMessage(msg);
+  const data = JSON.stringify(shaped);
+  res.write(`event: message\ndata: ${data}\n\n`);
+}
+
 function addClient(convId, res) {
   if (!sseClients.has(convId)) sseClients.set(convId, new Set());
   sseClients.get(convId).add(res);
@@ -371,25 +486,34 @@ function removeClient(convId, res) {
 }
 function pushToWidget(convId, msg) {
   if (!msg) return;
+  const set = sseClients.get(String(convId));
+  if (!set || !set.size) return;
   if (msg.id != null) {
     const key = `cw-${msg.id}`;
     if (pushedIds.has(key)) return;
     pushedIds.add(key);
   }
-  const set = sseClients.get(String(convId));
-  if (!set || !set.size) return;
-  const data = JSON.stringify({
-    id: msg.id,
-    content: msg.content || '',
-    content_type: msg.content_type || 'text',
-    content_attributes: msg.content_attributes || {},
-    sender: msg.sender?.type || (msg.message_type === 1 || msg.message_type === 'outgoing' ? 'agent' : 'contact'),
-    attachments: mapAttachments(msg.attachments),
-  });
   for (const res of set) {
     try {
-      res.write(`event: message\ndata: ${data}\n\n`);
+      writeSseMessage(res, msg);
     } catch (_) {}
+  }
+}
+
+async function sendRecentOutgoingToClient(convId, res) {
+  try {
+    const recent = (await cwListMessages(convId))
+      .filter((m) => !m.private && (m.message_type === 1 || m.message_type === 'outgoing'))
+      .slice(-12);
+    for (const msg of recent) {
+      try {
+        writeSseMessage(res, msg);
+      } catch (_) {
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn('stream catchup failed:', e.response?.status || e.message);
   }
 }
 
@@ -956,6 +1080,7 @@ app.get('/widget/stream', async (req, res) => {
   res.flushHeaders?.();
   res.write('retry: 3000\n\n');
   addClient(convId, res);
+  sendRecentOutgoingToClient(convId, res);
 
   const ping = setInterval(() => {
     try { res.write(': ping\n\n'); } catch (_) {}
@@ -1096,15 +1221,7 @@ app.get('/widget/messages', async (req, res) => {
         const t = m.message_type;
         return t === 0 || t === 1 || t === 'incoming' || t === 'outgoing';
       })
-      .map((m) => ({
-        id: m.id,
-        content: m.content || '',
-        content_type: m.content_type || 'text',
-        content_attributes: m.content_attributes || {},
-        sender: m.message_type === 1 || m.message_type === 'outgoing' ? 'agent' : 'contact',
-        created_at: m.created_at || null,
-        attachments: mapAttachments(m.attachments),
-      }));
+      .map((m) => shapeWidgetMessage(m));
 
     return res.json({ conversationId: convId, messages });
   } catch (err) {

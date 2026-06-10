@@ -319,6 +319,25 @@ function check(name, cond, extra) {
     await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'صورة', userData: {} });
     await sleep(900);
     check('media payload reached widget as media', ws.events.some((e) => e.content_type === 'media' && e.content_attributes?.media_type === 'image'));
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'message_created',
+      id: 888001,
+      message_type: 'outgoing',
+      content: 'image note\nhttps://files.bpcontent.cloud/2026/04/05/pic.png',
+      conversation: { id: 9001, status: 'pending' },
+    });
+    await sleep(200);
+    check('raw image URL outgoing webhook is rendered as media',
+      ws.events.some((e) => e.id === 888001 && e.content_type === 'media' && e.content_attributes?.url?.includes('pic.png')));
+
+    state.cwMessages.push({
+      convId: '9001',
+      id: 888002,
+      body: { message_type: 'outgoing', content: 'history image\nhttps://files.bpcontent.cloud/2026/04/05/history.png' },
+    });
+    const richHistory = (await axios.get(`${BRIDGE}/widget/messages?conversationId=9001`)).data;
+    check('transcript converts raw image URL to media',
+      richHistory.messages.some((m) => m.id === 888002 && m.content_type === 'media' && m.content_attributes?.url?.includes('history.png')));
 
     console.log('TEST 11 — legacy /botpress/webhook still works (flow compat)');
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'pending' });

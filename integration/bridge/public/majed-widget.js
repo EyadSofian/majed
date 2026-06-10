@@ -148,12 +148,12 @@
     '.mjd-cb.mjd-vo{opacity:.62}',
     '.mjd-cb .mjd-soon{font-size:9px;font-weight:800;background:#f59e0b;color:#fff;border-radius:999px;padding:1px 6px}',
     '/* body */',
-    '.mjd-bd{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:12px;transition:padding-top .25s ease}',
-    '.mjd-row{display:flex;gap:8px;align-items:flex-end;max-width:88%;animation:mjdRise .3s ease both}',
+    '.mjd-bd{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:12px;transition:padding-top .25s ease}',
+    '.mjd-row{display:flex;gap:8px;align-items:flex-end;max-width:88%;min-width:0;animation:mjdRise .3s ease both}',
     '.mjd-row.mjd-bot{align-self:flex-start}.mjd-row.mjd-me{align-self:flex-end}',
     '@keyframes mjdRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
     '.mjd-mini{width:27px;height:27px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line)}',
-    '.mjd-bub{font-size:14px;line-height:1.7;padding:11px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}',
+    '.mjd-bub{font-size:14px;line-height:1.7;padding:11px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;word-break:break-word;max-width:100%;min-width:0}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;border-bottom-left-radius:6px}',
     '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
@@ -164,7 +164,7 @@
     '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
     '.mjd-opt:hover{background:var(--surf2)}',
-    '.mjd-media{align-self:flex-start;max-width:88%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
+    '.mjd-media{align-self:flex-start;max-width:88%;min-width:0;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-media.mjd-mine{align-self:flex-end}',
     '.mjd-media img,.mjd-media video{max-width:100%;max-height:220px;display:block}.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
     '.mjd-media a{display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word;font-size:13px}',
@@ -322,6 +322,61 @@
     if (d < 7 * 86400e3) return 'من ' + Math.round(d / 86400e3) + ' يوم';
     try { return new Date(ms).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }); } catch (e) { return ''; }
   }
+  function cleanUrl(raw) {
+    var url = String(raw || '').trim();
+    while (/[)\]}>.,;!?،؛]/.test(url.slice(-1))) url = url.slice(0, -1);
+    return url;
+  }
+  function mediaKindFromUrl(url) {
+    var base = String(url || '').split(/[?#]/)[0].toLowerCase();
+    if (/\.(png|jpe?g|webp|gif|svg)$/.test(base)) return 'image';
+    if (/\.(mp4|webm|mov|m4v)$/.test(base)) return 'video';
+    if (/\.(mp3|m4a|aac|ogg|oga|wav|webm)$/.test(base)) return 'audio';
+    if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip)$/.test(base)) return 'file';
+    return '';
+  }
+  function mediaTitleFromUrl(url, kind) {
+    try {
+      var path = new URL(url).pathname.split('/').pop() || '';
+      return decodeURIComponent(path) || kind || 'file';
+    } catch (e) {
+      return kind || 'file';
+    }
+  }
+  function detectMediaInText(text) {
+    var body = String(text || '');
+    var urls = body.match(/https?:\/\/[^\s<>"']+/g) || [];
+    for (var i = 0; i < urls.length; i++) {
+      var raw = urls[i];
+      var url = cleanUrl(raw);
+      var kind = mediaKindFromUrl(url);
+      if (!kind) continue;
+      var caption = body.replace(raw, '').replace(url, '').trim()
+        .replace(/!\[[^\]]*]\(\s*\)/g, '')
+        .replace(/\[[^\]]*]\(\s*\)/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      var captionAsTitle = caption && caption.length <= 80 && caption.indexOf('\n') < 0;
+      return {
+        kind: kind,
+        url: url,
+        caption: captionAsTitle ? '' : caption,
+        title: captionAsTitle ? caption : mediaTitleFromUrl(url, kind)
+      };
+    }
+    return null;
+  }
+  function objectAttrs(value) {
+    if (!value) return {};
+    if (typeof value === 'object') return value;
+    if (typeof value === 'string') {
+      try {
+        var parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (e) {}
+    }
+    return {};
+  }
 
   // وضع المحادثة: أول ما العميل يبدأ يتكلم — الهيدر يبقى زجاجي مدمج والشات ياخد مساحة أكبر
   function setLive(on) {
@@ -388,7 +443,9 @@
     attrs = attrs || {};
     var url = attrs.url || '';
     var kind = attrs.media_type || 'file';
-    var title = attrs.title || content || url || 'ملف';
+    var title = attrs.title || mediaTitleFromUrl(url, kind) || url || 'ملف';
+    var caption = String(content || '').trim();
+    if (caption && caption !== title && caption !== url) addBot(esc(caption));
     var h = '';
     if (url && kind === 'image') h = '<img src="' + esc(url) + '" alt="' + esc(title) + '"/>';
     else if (url && kind === 'video') h = '<video src="' + esc(url) + '" controls></video>';
@@ -407,7 +464,13 @@
 
   // one agent/bot message (from SSE or transcript) → the right bubble type
   function renderAgentMessage(m) {
-    if (m.content_type === 'cards' && m.content_attributes && (m.content_attributes.items || []).length) {
+    m = m || {};
+    m.content_attributes = objectAttrs(m.content_attributes);
+    var inlineMedia = (!m.content_type || m.content_type === 'text') && m.content ? detectMediaInText(m.content) : null;
+    if (inlineMedia) {
+      if (inlineMedia.caption) addBot(esc(inlineMedia.caption));
+      addMedia({ media_type: inlineMedia.kind, url: inlineMedia.url, title: inlineMedia.title }, '');
+    } else if (m.content_type === 'cards' && m.content_attributes && (m.content_attributes.items || []).length) {
       if (m.content) addBot(esc(m.content));
       addCard(m.content_attributes);
     } else if (m.content_type === 'input_select' && m.content_attributes) {
