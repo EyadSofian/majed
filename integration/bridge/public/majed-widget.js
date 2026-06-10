@@ -29,14 +29,28 @@
   if (window.__majedWidgetLoaded) return;
   window.__majedWidgetLoaded = true;
 
+  // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
+  var WIDGET_VERSION = '4.0.0';
+  var AVATAR_VERSION = 'a73382e0227f2703';
+  var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
+
   var CFG = window.MajedConfig || {};
   var BRIDGE = (CFG.bridgeUrl || '').replace(/\/$/, '');
   if (!BRIDGE) { console.error('[Majed] MajedConfig.bridgeUrl is required'); return; }
   var USER_CTX_URL = CFG.userContextUrl || '/ai_webhook/user_context';
-  var AVATAR = CFG.avatarUrl || '/ai_user_context_webhook/static/src/img/majed-avatar.png';
-  // Fallback avatar served by the bridge itself — guarantees the image never breaks,
-  // even if the Odoo static path is unavailable (preview, module not upgraded, etc.).
-  var AVATAR_FB = BRIDGE + '/majed-avatar.png';
+
+  // Canonical avatar = the bridge copy (Railway) with a content-hash query → immutable
+  // cache, updates the moment a new image is deployed. The Odoo static path (legacy
+  // default) and empty values resolve to the canonical URL; a genuinely custom URL
+  // (e.g. company CDN) is respected. Whatever is primary, the other is the onerror
+  // fallback, so the picture can never break.
+  var AVATAR_CANON = BRIDGE + '/majed-avatar.png?v=' + AVATAR_VERSION;
+  var cfgAvatar = String(CFG.avatarUrl || '').trim();
+  var avatarIsCustom = cfgAvatar &&
+    cfgAvatar.indexOf(ODOO_AVATAR_PATH) === -1 &&
+    cfgAvatar.replace(/\?.*$/, '') !== BRIDGE + '/majed-avatar.png';
+  var AVATAR = avatarIsCustom ? cfgAvatar : AVATAR_CANON;
+  var AVATAR_FB = avatarIsCustom ? AVATAR_CANON : ODOO_AVATAR_PATH;
   var AVA_ERR = ' onerror="this.onerror=null;this.src=\'' + AVATAR_FB + '\'"';
   var WA = String(CFG.waNumber || '966920016295').replace(/[^\d]/g, '');
   var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
@@ -78,9 +92,9 @@
     '#mjd-root{position:fixed;bottom:22px;left:22px;z-index:2147483000;direction:rtl;font-family:"Tajawal",system-ui,sans-serif}',
     '#mjd-root[data-side="right"]{left:auto;right:22px}',
     '/* launcher */',
-    '#mjd-fab{width:64px;height:64px;border-radius:50%;cursor:pointer;border:0;padding:3px;position:relative;',
+    '#mjd-fab{width:64px;height:64px;border-radius:50%;cursor:pointer;border:0;padding:3px;position:relative;touch-action:none;',
     'background:linear-gradient(150deg,#fff,#e7e1ff);box-shadow:0 12px 30px rgba(124,92,255,.34),0 4px 16px rgba(6,182,212,.2);',
-    'transition:transform .2s cubic-bezier(.2,.9,.2,1)}',
+    'transition:transform .2s cubic-bezier(.2,.9,.2,1),opacity .25s ease}',
     '#mjd-fab:hover{transform:translateY(-3px) scale(1.05)}#mjd-fab:active{transform:scale(.96)}',
     '#mjd-fab img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}',
     '#mjd-fab .mjd-dot{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#16a34a;border:2.5px solid #fff}',
@@ -109,7 +123,7 @@
     'background:#171b2e;color:#fff;font-size:12px;line-height:1;display:grid;place-items:center;box-shadow:0 4px 10px rgba(15,30,66,.3)}',
     '#mjd-root[data-side="right"] #mjd-tz .mjd-tz-x{left:auto;right:-9px}',
     '/* panel */',
-    '#mjd-panel{position:absolute;bottom:80px;left:0;width:380px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 120px);',
+    '#mjd-panel{position:absolute;bottom:80px;left:0;width:380px;max-width:calc(100vw - 44px);height:600px;max-height:calc(100vh - 120px);',
     'border-radius:22px;overflow:hidden;display:none;flex-direction:column;box-shadow:0 28px 70px rgba(15,30,66,.28);',
     'opacity:0;transform:translateY(10px) scale(.98);transition:opacity .22s ease,transform .22s ease}',
     '#mjd-root[data-side="right"] #mjd-panel{left:auto;right:0}',
@@ -120,7 +134,8 @@
     '#mjd-panel{background:var(--bg);color:var(--text)}',
     '#mjd-panel[data-theme="dark"]{background:radial-gradient(560px 300px at 86% -8%,rgba(124,92,255,.35),transparent 60%),radial-gradient(520px 300px at 0% 102%,rgba(34,211,238,.2),transparent 60%),#0e1326}',
     '/* header */',
-    '.mjd-hd{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line);transition:padding .25s ease}',
+    '.mjd-hd{display:flex;align-items:center;gap:11px;padding:13px 15px;border-bottom:1px solid var(--line);transition:padding .25s ease;',
+    'cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}',
     '.mjd-hd img{width:40px;height:40px;border-radius:13px;object-fit:cover;border:1px solid var(--line);transition:width .25s ease,height .25s ease}',
     '.mjd-hd .mjd-nm b{font-size:15.5px;font-weight:800;display:block}',
     '.mjd-hd .mjd-nm s{text-decoration:none;font-size:11.5px;color:#16a34a}',
@@ -149,6 +164,8 @@
     '.mjd-cb .mjd-soon{font-size:9px;font-weight:800;background:#f59e0b;color:#fff;border-radius:999px;padding:1px 6px}',
     '/* body */',
     '.mjd-bd{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:12px;transition:padding-top .25s ease}',
+    '/* فقاعات الشات داخل column flex لازم flex-shrink:0 — غيره فقاعات الصور بتنهرس لارتفاع صفر أول ما المحادثة تطول */',
+    '.mjd-bd>*{flex-shrink:0}',
     '.mjd-row{display:flex;gap:8px;align-items:flex-end;max-width:88%;min-width:0;animation:mjdRise .3s ease both}',
     '.mjd-row.mjd-bot{align-self:flex-start}.mjd-row.mjd-me{align-self:flex-end}',
     '@keyframes mjdRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
@@ -166,8 +183,23 @@
     '.mjd-opt:hover{background:var(--surf2)}',
     '.mjd-media{align-self:flex-start;max-width:88%;min-width:0;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-media.mjd-mine{align-self:flex-end}',
-    '.mjd-media img,.mjd-media video{max-width:100%;max-height:220px;display:block}.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
-    '.mjd-media a{display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word;font-size:13px}',
+    '/* صورة الرسالة: بعرض الفقاعة وبنسبتها الأصلية كاملة — ممنوع القص أو السكرول الأفقي */',
+    '.mjd-media.mjd-haspic{width:88%}',
+    '.mjd-media .mjd-pic{display:block;position:relative;line-height:0;background:var(--surf2);cursor:zoom-in;-webkit-tap-highlight-color:transparent}',
+    '.mjd-media img{width:100%;height:auto;max-height:none;object-fit:contain;display:block;border:0}',
+    '.mjd-media.mjd-imgloading .mjd-pic{min-height:130px;background:linear-gradient(90deg,var(--surf2),var(--surf),var(--surf2));background-size:200% 100%;animation:mjdShimmer 1.2s linear infinite}',
+    '.mjd-media.mjd-imgloading img{opacity:0}',
+    '/* الصور الطويلة جدًا فقط: سقف ارتفاع + contain (إطار بدون قص) + زر الحجم الكامل */',
+    '.mjd-media.mjd-tall img{max-height:340px}',
+    '.mjd-media .mjd-full{position:absolute;bottom:8px;inset-inline-start:8px;display:none;align-items:center;gap:5px;border:0;cursor:pointer;',
+    'background:rgba(15,23,42,.72);color:#fff;font:inherit;font-size:11px;font-weight:800;border-radius:999px;padding:6px 11px;line-height:1}',
+    '.mjd-media.mjd-tall .mjd-full{display:inline-flex}',
+    '.mjd-media video{width:100%;max-height:300px;display:block;background:#000}',
+    '.mjd-media audio{width:260px;max-width:100%;display:block;margin:10px}',
+    '.mjd-media a:not(.mjd-pic){display:block;padding:11px 13px;color:#7c5cff;text-decoration:none;font-weight:800;word-break:break-word;font-size:13px}',
+    '.mjd-media .mjd-pic+a{padding-top:9px}',
+    '.mjd-media .mjd-imgerr{display:flex;align-items:center;gap:9px;padding:11px 13px;color:var(--muted);font-size:12.5px;line-height:1.6}',
+    '.mjd-media .mjd-imgerr a:not(.mjd-pic){display:inline;padding:0;font-size:12.5px}',
     '.mjd-file{display:flex;align-items:center;gap:9px;padding:10px 13px;text-decoration:none;color:inherit}',
     '.mjd-file .mjd-fi{width:36px;height:36px;border-radius:10px;background:rgba(124,92,255,.12);color:#7c5cff;display:grid;place-items:center;flex-shrink:0}',
     '.mjd-file .mjd-fi svg{width:18px;height:18px}',
@@ -222,6 +254,32 @@
     '.mjd-hist-new{margin:10px 14px 14px;height:44px;border-radius:13px;border:0;cursor:pointer;font:inherit;font-size:13.5px;font-weight:800;color:#fff;',
     'background:linear-gradient(135deg,#7c5cff,#06b6d4);box-shadow:0 10px 24px rgba(124,92,255,.35);display:flex;align-items:center;justify-content:center;gap:8px}',
     '.mjd-hist-new svg{width:16px;height:16px}',
+    '/* ===== Liquid Glass — fallback تلقائي: المتصفح غير الداعم يبقى على الخلفية الصلبة ===== */',
+    '@supports ((backdrop-filter:blur(20px)) or (-webkit-backdrop-filter:blur(20px))){',
+    '#mjd-panel{-webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%)}',
+    '#mjd-panel[data-theme="light"]{background:rgba(247,248,252,.78);box-shadow:0 28px 70px rgba(15,30,66,.3),inset 0 0 0 1px rgba(255,255,255,.55)}',
+    '#mjd-panel[data-theme="dark"]{background:radial-gradient(560px 300px at 86% -8%,rgba(124,92,255,.3),transparent 60%),radial-gradient(520px 300px at 0% 102%,rgba(34,211,238,.16),transparent 60%),rgba(14,19,38,.74);box-shadow:0 28px 70px rgba(2,6,23,.5),inset 0 0 0 1px rgba(255,255,255,.1)}',
+    '}',
+    '/* أثناء تمرير الصفحة تقل الوضوح بدرجة بسيطة فقط — وترجع بعد توقف التمرير (200ms) */',
+    '#mjd-tz{transition:opacity .25s ease}',
+    '#mjd-root.mjd-page-scrolling #mjd-panel.mjd-open{opacity:.86}',
+    '#mjd-root.mjd-page-scrolling #mjd-fab{opacity:.8}',
+    '#mjd-root.mjd-page-scrolling #mjd-tz.mjd-on{opacity:.82}',
+    '/* أثناء السحب */',
+    '#mjd-root.mjd-dragging .mjd-hd,#mjd-root.mjd-dragging #mjd-fab{cursor:grabbing}',
+    '#mjd-root.mjd-dragging,#mjd-root.mjd-dragging *{user-select:none!important;-webkit-user-select:none!important}',
+    '#mjd-root.mjd-dragging #mjd-panel,#mjd-root.mjd-dragging #mjd-tz{transition:none}',
+    '/* الإخفاء المؤقت + مقبض الحافة للاسترجاع */',
+    '#mjd-root.mjd-hidden #mjd-fab,#mjd-root.mjd-hidden #mjd-panel,#mjd-root.mjd-hidden #mjd-tz{display:none!important}',
+    '#mjd-edge{position:fixed;bottom:30px;width:34px;height:58px;z-index:2147483000;display:none;align-items:center;justify-content:center;',
+    'border:1px solid rgba(124,92,255,.3);background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(12px) saturate(1.4);backdrop-filter:blur(12px) saturate(1.4);',
+    'cursor:pointer;box-shadow:0 10px 26px rgba(15,30,66,.22);padding:0}',
+    '#mjd-edge.mjd-on{display:flex}',
+    '#mjd-edge[data-side="right"]{right:0;left:auto;border-radius:14px 0 0 14px;border-right:0}',
+    '#mjd-edge[data-side="left"]{left:0;right:auto;border-radius:0 14px 14px 0;border-left:0}',
+    '#mjd-edge img{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block}',
+    '/* وصولية: حلقة تركيز واضحة لعناصر التفاعل */',
+    '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible{outline:2px solid #7c5cff;outline-offset:2px}',
     '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
   ].join('');
 
@@ -244,7 +302,9 @@
     hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 3"/></svg>',
     file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
     pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
+    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+    hide: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></svg>',
+    expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'
   };
 
   // ---------- build DOM ----------
@@ -254,7 +314,7 @@
 
   root.appendChild(inject('div', {}, '' +
     '<div id="mjd-panel" data-theme="' + THEME + '" role="dialog" aria-label="محادثة ماجد">' +
-      '<div class="mjd-hd">' +
+      '<div class="mjd-hd" aria-label="اسحب لتحريك نافذة المحادثة" title="اسحب لتغيير المكان · دبل-كليك لإعادة الضبط">' +
         '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
         '<div class="mjd-nm"><b>ماجد</b><s>● متاح الآن</s></div>' +
         '<div class="mjd-tools">' +
@@ -262,7 +322,8 @@
           '<a class="mjd-ic mjd-live-ic" href="mailto:' + EMAIL + '" aria-label="إيميل">' + I.mail + '</a>' +
           '<button class="mjd-ic" id="mjd-hist-btn" aria-label="المحادثات السابقة">' + I.hist + '</button>' +
           '<button class="mjd-ic" id="mjd-theme" aria-label="تبديل الثيم">' + I.moon + '</button>' +
-          '<button class="mjd-ic" id="mjd-x" aria-label="إغلاق">' + I.close + '</button>' +
+          '<button class="mjd-ic" id="mjd-hide" aria-label="إخفاء مؤقتًا" title="إخفاء مؤقتًا — يرجع ماجد من مقبض على حافة الشاشة">' + I.hide + '</button>' +
+          '<button class="mjd-ic" id="mjd-x" aria-label="إغلاق المحادثة والرجوع للزر العائم" title="إغلاق">' + I.close + '</button>' +
         '</div>' +
       '</div>' +
       '<div class="mjd-cbar">' +
@@ -288,7 +349,8 @@
       '</div>' +
     '</div>' +
     '<div id="mjd-tz" role="button" aria-label="رسالة من ماجد"><button class="mjd-tz-x" aria-label="إخفاء">✕</button><div class="mjd-tz-in" id="mjd-tz-in"></div></div>' +
-    '<button id="mjd-fab" aria-label="تحدّث مع ماجد"><span class="mjd-ring"></span><img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/><span class="mjd-dot"></span></button>'
+    '<button id="mjd-fab" aria-label="تحدّث مع ماجد" title="اضغط للمحادثة · اسحب لتغيير المكان"><span class="mjd-ring"></span><img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/><span class="mjd-dot"></span></button>' +
+    '<button id="mjd-edge" data-side="right" aria-label="إظهار مساعد ماجد" title="إظهار ماجد"><img src="' + AVATAR + '"' + AVA_ERR + ' alt=""/></button>'
   ));
   document.body.appendChild(root);
 
@@ -327,12 +389,25 @@
     while (/[)\]}>.,;!?،؛]/.test(url.slice(-1))) url = url.slice(0, -1);
     return url;
   }
+  // «#mjd-media=image»: وسم البريدج المخزن في نص Chatwoot عشان نوع الميديا
+  // ميتحولش لرابط نصي بعد إعادة فتح المحادثة (الـ fragment مبيوصلش للسيرفر أصلًا)
+  var MJD_MEDIA_TAG = /#mjd-media=(image|video|audio|voice|file)\b/i;
+  function stripMediaTag(url) {
+    return String(url || '').replace(MJD_MEDIA_TAG, '').replace(/#$/, '');
+  }
   function mediaKindFromUrl(url) {
+    var tagged = String(url || '').match(MJD_MEDIA_TAG);
+    if (tagged) {
+      var k = tagged[1].toLowerCase();
+      return k === 'voice' ? 'audio' : k;
+    }
     var base = String(url || '').split(/[?#]/)[0].toLowerCase();
     if (/\.(png|jpe?g|webp|gif|svg)$/.test(base)) return 'image';
     if (/\.(mp4|webm|mov|m4v)$/.test(base)) return 'video';
     if (/\.(mp3|m4a|aac|ogg|oga|wav|webm)$/.test(base)) return 'audio';
     if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip)$/.test(base)) return 'file';
+    // روابط Botpress CDN غالبًا بدون امتداد — جرّبها كصورة (في fallback للخطأ)
+    if (/^https?:\/\/[^\/]*\bbpcontent\.cloud\//i.test(base) || /^https?:\/\/files\.botpress\.cloud\//i.test(base)) return 'image';
     return '';
   }
   function mediaTitleFromUrl(url, kind) {
@@ -357,11 +432,12 @@
         .replace(/\n{3,}/g, '\n\n')
         .trim();
       var captionAsTitle = caption && caption.length <= 80 && caption.indexOf('\n') < 0;
+      var cleanedUrl = stripMediaTag(url);
       return {
         kind: kind,
-        url: url,
+        url: cleanedUrl,
         caption: captionAsTitle ? '' : caption,
-        title: captionAsTitle ? caption : mediaTitleFromUrl(url, kind)
+        title: captionAsTitle ? caption : mediaTitleFromUrl(cleanedUrl, kind)
       };
     }
     return null;
@@ -398,16 +474,55 @@
       '<span class="mjd-fi">' + I.file + '</span>' +
       '<span><b>' + esc(name || 'ملف') + '</b><span>' + fmtSize(size) + '</span></span></a>';
   }
+  // فقاعة صورة موحّدة: skeleton أثناء التحميل، الصورة كاملة بنسبتها الأصلية (بدون قص)،
+  // سقف ارتفاع للصور الطويلة جدًا + زر «الحجم الكامل»، وfallback برابط لو فشل التحميل.
+  function buildImageMedia(el, url, title) {
+    var openUrl = stripMediaTag(url);
+    el.classList.add('mjd-haspic', 'mjd-imgloading');
+    var pic = inject('a', {
+      class: 'mjd-pic', href: openUrl, target: '_blank', rel: 'noopener',
+      'aria-label': 'افتح الصورة بالحجم الكامل'
+    }, '');
+    var img = new Image();
+    img.alt = title || 'صورة';
+    // eager عمدًا: lazy جوة panel مقفول (display:none) عمره ما يحمّل → skeleton للأبد
+    img.decoding = 'async';
+    img.onload = function () {
+      el.classList.remove('mjd-imgloading');
+      // بورتريه طويل (الارتفاع > 1.5× العرض): سقف 340px مع contain — إطار بدون قص
+      if (img.naturalHeight > img.naturalWidth * 1.5) {
+        el.classList.add('mjd-tall');
+        var full = inject('button', { class: 'mjd-full', type: 'button', 'aria-label': 'عرض الصورة بالحجم الكامل' },
+          I.expand + '<span>الحجم الكامل</span>');
+        full.addEventListener('click', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          window.open(openUrl, '_blank', 'noopener');
+        });
+        pic.appendChild(full);
+      }
+      scrollDown();
+    };
+    img.onerror = function () {
+      el.classList.remove('mjd-imgloading', 'mjd-haspic', 'mjd-tall');
+      pic.remove();
+      el.insertBefore(inject('div', { class: 'mjd-imgerr' },
+        '🖼️ تعذّر تحميل الصورة — <a href="' + esc(openUrl) + '" target="_blank" rel="noopener">افتحها من هنا</a>'),
+        el.firstChild);
+      scrollDown();
+    };
+    img.src = openUrl;
+    pic.appendChild(img);
+    el.appendChild(pic);
+  }
   // attachment bubble (image/video/audio preview, otherwise a file chip)
   function addAttachment(att, mine) {
     var kind = att.file_type || att.kind || 'file';
     var url = att.data_url || att.url || '';
-    var h = '';
-    if (kind === 'image' && url) h = '<img src="' + esc(url) + '" alt="صورة"/>';
-    else if (kind === 'video' && url) h = '<video src="' + esc(url) + '" controls></video>';
-    else if (kind === 'audio' && url) h = '<audio src="' + esc(url) + '" controls></audio>';
-    else h = fileChipHtml(att.name, att.file_size || att.size, url);
-    var el = inject('div', { class: 'mjd-media' + (mine ? ' mjd-mine' : '') }, h);
+    var el = inject('div', { class: 'mjd-media' + (mine ? ' mjd-mine' : '') }, '');
+    if (kind === 'image' && url) buildImageMedia(el, url, att.name || 'صورة');
+    else if (kind === 'video' && url) el.innerHTML = '<video src="' + esc(url) + '" controls></video>';
+    else if (kind === 'audio' && url) el.innerHTML = '<audio src="' + esc(url) + '" controls></audio>';
+    else el.innerHTML = fileChipHtml(att.name, att.file_size || att.size, url);
     bd.appendChild(el); scrollDown();
   }
   function addCard(attrs) {
@@ -441,18 +556,27 @@
   }
   function addMedia(attrs, content) {
     attrs = attrs || {};
-    var url = attrs.url || '';
+    var url = stripMediaTag(attrs.url || '');
     var kind = attrs.media_type || 'file';
     var title = attrs.title || mediaTitleFromUrl(url, kind) || url || 'ملف';
     var caption = String(content || '').trim();
     if (caption && caption !== title && caption !== url) addBot(esc(caption));
-    var h = '';
-    if (url && kind === 'image') h = '<img src="' + esc(url) + '" alt="' + esc(title) + '"/>';
-    else if (url && kind === 'video') h = '<video src="' + esc(url) + '" controls></video>';
-    else if (url && (kind === 'audio' || kind === 'voice')) h = '<audio src="' + esc(url) + '" controls></audio>';
-    if (url) h += '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>';
-    else h += '<a>' + esc(title) + '</a>';
-    bd.appendChild(inject('div', { class: 'mjd-media' }, h)); scrollDown();
+    var el = inject('div', { class: 'mjd-media' }, '');
+    if (url && kind === 'image') {
+      buildImageMedia(el, url, title);
+      el.appendChild(inject('a', { href: url, target: '_blank', rel: 'noopener' }, esc(title)));
+    } else if (url && kind === 'video') {
+      el.innerHTML = '<video src="' + esc(url) + '" controls></video>' +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>';
+    } else if (url && (kind === 'audio' || kind === 'voice')) {
+      el.innerHTML = '<audio src="' + esc(url) + '" controls></audio>' +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>';
+    } else if (url) {
+      el.innerHTML = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(title) + '</a>';
+    } else {
+      el.innerHTML = '<a>' + esc(title) + '</a>';
+    }
+    bd.appendChild(el); scrollDown();
   }
   var typingEl = null;
   function showTyping() {
@@ -846,18 +970,193 @@
 
   // ---------- interactions ----------
   var fab = document.getElementById('mjd-fab');
+  var edge = document.getElementById('mjd-edge');
+
+  // ===== مكان الويدجت: سحب + snap لليمين/اليسار + حفظ واسترجاع =====
+  var POS_KEY = 'majed:pos:' + BRIDGE;     // localStorage (مكان دائم لكل bridge)
+  var HIDE_KEY = 'majed:hidden:' + BRIDGE; // sessionStorage فقط — يرجع تلقائيًا في الزيارة الجاية
+  var EDGE_GAP = 22, VP_MARGIN = 8;
+  var side = CFG.position === 'left' ? 'left' : 'right';
+  var bottomPx = 22;
+  var suppressClick = false; // سحبة خلصت لسه — متعملش click
+
+  function loadPos() {
+    try {
+      var p = JSON.parse(localStorage.getItem(POS_KEY) || '');
+      if (p && (p.side === 'left' || p.side === 'right') && isFinite(Number(p.bottom))) {
+        side = p.side;
+        bottomPx = Number(p.bottom);
+      }
+    } catch (e) {}
+  }
+  function savePos() {
+    try { localStorage.setItem(POS_KEY, JSON.stringify({ side: side, bottom: Math.round(bottomPx) })); } catch (e) {}
+  }
+  // أقصى مسافة من تحت بحيث الويدجت كله (بما فيه النافذة المفتوحة فوق الزر) يفضل جوة الشاشة
+  function maxBottom() {
+    var limit = window.innerHeight - (fab.offsetHeight || 64) - VP_MARGIN;
+    if (panel.classList.contains('mjd-open')) {
+      var ph = panel.offsetHeight || 600;
+      limit = Math.min(limit, window.innerHeight - ph - 80 - VP_MARGIN); // النافذة مثبتة 80px فوق قاع الـ root
+    }
+    return Math.max(VP_MARGIN, limit);
+  }
+  function applyPos() {
+    bottomPx = Math.min(Math.max(VP_MARGIN, bottomPx), maxBottom());
+    root.setAttribute('data-side', side);
+    root.style.bottom = bottomPx + 'px';
+    if (side === 'left') { root.style.left = EDGE_GAP + 'px'; root.style.right = 'auto'; }
+    else { root.style.right = EDGE_GAP + 'px'; root.style.left = 'auto'; }
+    root.style.transform = '';
+  }
+  // FLIP خفيف: من نقطة الإفلات لمكان الـ snap بحركة قصيرة (transform بس — مفيش تقطيع)
+  function snapToEdge() {
+    var from = root.getBoundingClientRect();
+    applyPos();
+    var to = root.getBoundingClientRect();
+    var dx = from.left - to.left, dy = from.top - to.top;
+    if (dx || dy) {
+      root.style.transition = 'none';
+      root.style.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
+      requestAnimationFrame(function () {
+        root.style.transition = 'transform .18s ease';
+        root.style.transform = '';
+        setTimeout(function () { root.style.transition = ''; }, 240);
+      });
+    }
+    savePos();
+  }
+  function resetPos() {
+    side = CFG.position === 'left' ? 'left' : 'right';
+    bottomPx = 22;
+    snapToEdge();
+  }
+
+  // سحب بـ Pointer Events (ماوس + لمس + قلم): يبدأ بعد عتبة 6px عشان الضغطة العادية تفضل ضغطة
+  function makeDraggable(handle, enabled) {
+    var sx = 0, sy = 0, pid = null, dragging = false;
+    function onMove(e) {
+      if (pid == null || e.pointerId !== pid) return;
+      var dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!dragging) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return; // movement threshold
+        dragging = true;
+        root.classList.add('mjd-dragging');
+        hideTeaser();
+      }
+      if (e.cancelable) e.preventDefault();
+      root.style.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
+    }
+    function onEnd(e) {
+      if (pid == null || e.pointerId !== pid) return;
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onEnd);
+      handle.removeEventListener('pointercancel', onEnd);
+      try { handle.releasePointerCapture(pid); } catch (err) {}
+      pid = null;
+      if (!dragging) return;
+      dragging = false;
+      root.classList.remove('mjd-dragging');
+      suppressClick = true;
+      setTimeout(function () { suppressClick = false; }, 0);
+      var r = root.getBoundingClientRect();
+      side = (r.left + r.width / 2) < window.innerWidth / 2 ? 'left' : 'right';
+      bottomPx = Math.round(window.innerHeight - r.bottom);
+      snapToEdge();
+    }
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.button != null && e.button !== 0) return;       // الزر الأساسي بس
+      if (enabled && !enabled(e)) return;
+      sx = e.clientX; sy = e.clientY; pid = e.pointerId; dragging = false;
+      // الالتقاط فورًا = الأحداث تفضل واصلة حتى لو المؤشر خرج عن المقبض (مش بيمنع الـ click)
+      try { handle.setPointerCapture(pid); } catch (err) {}
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    });
+  }
+  root.addEventListener('dragstart', function (e) { e.preventDefault(); }); // منع سحب الصور الأصلي
+  var hd = panel.querySelector('.mjd-hd');
+  // النافذة المفتوحة: تتسحب من الهيدر بس (مش من الأزرار اللي جواه)
+  makeDraggable(hd, function (e) {
+    return panel.classList.contains('mjd-open') && !(e.target && e.target.closest && e.target.closest('button,a,input'));
+  });
+  // الزر العائم: يتسحب وهو مقفول
+  makeDraggable(fab, function () { return !panel.classList.contains('mjd-open'); });
+  hd.addEventListener('dblclick', function (e) {
+    if (e.target && e.target.closest && e.target.closest('button,a,input')) return;
+    resetPos(); // دبل-كليك على الهيدر = إعادة الضبط للمكان الافتراضي
+  });
+  // الشاشة اتغيّر مقاسها/اتجاهها؟ رجّع الويدجت جوة الحدود
+  var resizeRaf = 0;
+  function onViewportChange() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(function () { resizeRaf = 0; applyPos(); });
+  }
+  window.addEventListener('resize', onViewportChange);
+  window.addEventListener('orientationchange', onViewportChange);
+
+  // ===== شفافية أثناء تمرير الصفحة (Liquid Glass) =====
+  var scrollTimer = null;
+  window.addEventListener('scroll', function () {
+    // أثناء الكتابة/التركيز جوة الويدجت: مفيش تخفيف وضوح إطلاقًا
+    if (panel.contains(document.activeElement)) return;
+    root.classList.add('mjd-page-scrolling');
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () { root.classList.remove('mjd-page-scrolling'); }, 200);
+  }, { passive: true });
+  input.addEventListener('focus', function () {
+    clearTimeout(scrollTimer);
+    root.classList.remove('mjd-page-scrolling');
+  });
+
+  // ===== فتح/إغلاق/إخفاء =====
   function openPanel() {
     hideTeaser();
     panel.classList.add('mjd-open');
+    requestAnimationFrame(applyPos); // النافذة دلوقتي ليها ارتفاع حقيقي → نضمن إنها جوة الشاشة
     startSession();
     setTimeout(function () { input.focus(); }, 200);
   }
+  // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
   function closePanel() {
     panel.classList.remove('mjd-open');
     if (!live) showTeaser(1500); // لسه مبدأش يتكلم؟ فكّره تاني بعد شوية
   }
-  fab.addEventListener('click', function () { panel.classList.contains('mjd-open') ? closePanel() : openPanel(); });
+  fab.addEventListener('click', function () {
+    if (suppressClick) return; // دي نهاية سحبة مش ضغطة
+    panel.classList.contains('mjd-open') ? closePanel() : openPanel();
+  });
   document.getElementById('mjd-x').addEventListener('click', closePanel);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && panel.classList.contains('mjd-open')) closePanel();
+  });
+
+  // «إخفاء مؤقتًا»: يخفي الزر العائم ويسيب مقبض صغير على حافة الشاشة فيه صورة ماجد.
+  // الحالة في sessionStorage فقط — ماجد بيرجع طبيعي في الزيارة الجاية.
+  function setHidden(on) {
+    root.classList.toggle('mjd-hidden', on);
+    edge.classList.toggle('mjd-on', on);
+    if (on) {
+      edge.setAttribute('data-side', side);
+      edge.style.bottom = Math.max(VP_MARGIN, Math.min(bottomPx, window.innerHeight - 70)) + 'px';
+      hideTeaser();
+    }
+    try {
+      if (on) sessionStorage.setItem(HIDE_KEY, '1');
+      else sessionStorage.removeItem(HIDE_KEY);
+    } catch (e) {}
+  }
+  document.getElementById('mjd-hide').addEventListener('click', function () {
+    closePanel();
+    setHidden(true);
+  });
+  edge.addEventListener('click', function () { setHidden(false); });
+
+  // استرجاع المكان وحالة الإخفاء عند تحميل الصفحة (لو المكان المحفوظ بقى برة الشاشة → ينضبط تلقائي)
+  loadPos();
+  applyPos();
+  try { if (sessionStorage.getItem(HIDE_KEY) === '1') setHidden(true); } catch (e) {}
   sendBtn.addEventListener('click', function () { sendMessage(input.value); input.value = ''; });
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { sendMessage(input.value); input.value = ''; } });
   document.getElementById('mjd-voice').addEventListener('click', function () {

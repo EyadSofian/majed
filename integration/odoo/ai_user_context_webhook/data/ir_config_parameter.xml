@@ -6,42 +6,61 @@
 
         ⚠ REQUIRED: set ai_webhook.bridge_url to your deployed bridge URL (Railway),
         otherwise the widget will not load.
+
+        noupdate="1": القيم اللي بيظبطها الأدمن (bridge_url وغيرها) عمرها ما تتمسح
+        مع upgrade الموديول. بدونها كان كل upgrade بيرجّع bridge_url فاضي ويختفي الويدجت.
     -->
+    <data noupdate="1">
 
-    <!-- Bridge URL (Railway). MUST be set — e.g. https://majed-bridge.up.railway.app -->
-    <record id="param_bridge_url" model="ir.config_parameter">
-        <field name="key">ai_webhook.bridge_url</field>
-        <field name="value"></field>
-    </record>
+        <!-- Bridge URL (Railway). MUST be set — e.g. https://majed-bridge.up.railway.app -->
+        <record id="param_bridge_url" model="ir.config_parameter">
+            <field name="key">ai_webhook.bridge_url</field>
+            <field name="value"></field>
+        </record>
 
-    <!-- صورة ماجد (الزرار + الهيدر). سيبها للصورة المرفقة أو حط رابط أونلاين -->
-    <record id="param_majed_avatar_url" model="ir.config_parameter">
-        <field name="key">ai_webhook.majed_avatar_url</field>
-        <field name="value">/ai_user_context_webhook/static/src/img/majed-avatar.png</field>
-    </record>
+        <!-- صورة ماجد: سيبها فاضية = المصدر القانوني (نسخة البريدج/Railway بأحدث صورة + cache-busting).
+             حط رابط كامل هنا فقط لو عايز صورة مخصصة من CDN خارجي. -->
+        <record id="param_majed_avatar_url" model="ir.config_parameter">
+            <field name="key">ai_webhook.majed_avatar_url</field>
+            <field name="value"></field>
+        </record>
 
-    <!-- اسم/ترحيب ماجد في الهيدر -->
-    <record id="param_majed_greeting" model="ir.config_parameter">
-        <field name="key">ai_webhook.majed_greeting</field>
-        <field name="value">أهلاً، أنا ماجد</field>
-    </record>
+        <!-- اسم/ترحيب ماجد في الهيدر -->
+        <record id="param_majed_greeting" model="ir.config_parameter">
+            <field name="key">ai_webhook.majed_greeting</field>
+            <field name="value">أهلاً، أنا ماجد</field>
+        </record>
 
-    <!-- رقم واتساب لزر التواصل (أرقام فقط، بكود الدولة) -->
-    <record id="param_wa_number" model="ir.config_parameter">
-        <field name="key">ai_webhook.wa_number</field>
-        <field name="value">966920016295</field>
-    </record>
+        <!-- رقم واتساب لزر التواصل (أرقام فقط، بكود الدولة) -->
+        <record id="param_wa_number" model="ir.config_parameter">
+            <field name="key">ai_webhook.wa_number</field>
+            <field name="value">966920016295</field>
+        </record>
 
-    <!-- إيميل الدعم لزر التواصل -->
-    <record id="param_support_email" model="ir.config_parameter">
-        <field name="key">ai_webhook.support_email</field>
-        <field name="value">aibot@engosoft.com</field>
-    </record>
+        <!-- إيميل الدعم لزر التواصل -->
+        <record id="param_support_email" model="ir.config_parameter">
+            <field name="key">ai_webhook.support_email</field>
+            <field name="value">aibot@engosoft.com</field>
+        </record>
 
-    <!-- ثيم الويدجت الافتراضي: light أو dark -->
-    <record id="param_theme" model="ir.config_parameter">
-        <field name="key">ai_webhook.theme</field>
-        <field name="value">light</field>
-    </record>
+        <!-- ثيم الويدجت الافتراضي: light أو dark -->
+        <record id="param_theme" model="ir.config_parameter">
+            <field name="key">ai_webhook.theme</field>
+            <field name="value">light</field>
+        </record>
+
+    </data>
+
+    <!--
+        بدون noupdate: نسخة الويدجت بتتكتب من جديد مع كل upgrade للموديول،
+        فبتتغيّر ?v= في رابط majed-widget.js والمتصفح يحمّل أحدث نسخة فورًا.
+        (متعدلهاش يدويًا — بتتحدّث لوحدها مع كل إصدار.)
+    -->
+    <data>
+        <record id="param_widget_version" model="ir.config_parameter">
+            <field name="key">ai_webhook.widget_version</field>
+            <field name="value">17.0.4.0.0</field>
+        </record>
+    </data>
 
 </odoo>

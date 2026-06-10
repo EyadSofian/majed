@@ -27,6 +27,7 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 
@@ -150,7 +151,32 @@ app.use((req, res, next) => {
 });
 
 // «نور» widget static files: GET /majed-widget.js , /majed-avatar.png
-app.use(express.static(path.join(__dirname, 'public')));
+// Content hashes (computed once at boot) drive cache busting: the widget requests
+// /majed-avatar.png?v=<hash> which is safe to cache for a year, while the bare
+// URLs always revalidate so a redeploy is picked up immediately.
+const PUBLIC_DIR = path.join(__dirname, 'public');
+function fileSha256(file) {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  } catch (_) {
+    return '';
+  }
+}
+const AVATAR_SHA = fileSha256(path.join(PUBLIC_DIR, 'majed-avatar.png'));
+const WIDGET_SHA = fileSha256(path.join(PUBLIC_DIR, 'majed-widget.js'));
+
+app.get('/majed-avatar.png', (req, res) => {
+  // versioned URL → immutable; bare URL → always revalidate (304 when unchanged)
+  res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache');
+  if (AVATAR_SHA) res.setHeader('X-Majed-Avatar-Sha', AVATAR_SHA.slice(0, 16));
+  res.sendFile(path.join(PUBLIC_DIR, 'majed-avatar.png'));
+});
+app.get('/majed-widget.js', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache'); // ETag revalidation keeps clients on the latest widget
+  if (WIDGET_SHA) res.setHeader('X-Majed-Widget-Sha', WIDGET_SHA.slice(0, 16));
+  res.sendFile(path.join(PUBLIC_DIR, 'majed-widget.js'));
+});
+app.use(express.static(PUBLIC_DIR));
 
 // ── Chatwoot Application API ───────────────────────────────────────
 function cwHeaders() {
@@ -378,12 +404,28 @@ function cleanUrl(raw) {
   return url;
 }
 
+// «#mjd-media=image» is the bridge's own marker: appended to media URLs stored in
+// Chatwoot text so the kind survives transcript reloads (fragments never reach servers).
+const MJD_MEDIA_TAG = /#mjd-media=(image|video|audio|voice|file)\b/i;
+
+function stripMediaTag(url) {
+  return String(url || '').replace(MJD_MEDIA_TAG, '').replace(/#$/, '');
+}
+
 function mediaKindFromUrl(url) {
+  const tagged = String(url || '').match(MJD_MEDIA_TAG);
+  if (tagged) {
+    const kind = tagged[1].toLowerCase();
+    return kind === 'voice' ? 'audio' : kind;
+  }
   const base = String(url || '').split(/[?#]/)[0].toLowerCase();
   if (/\.(png|jpe?g|webp|gif|svg)$/.test(base)) return 'image';
   if (/\.(mp4|webm|mov|m4v)$/.test(base)) return 'video';
   if (/\.(mp3|m4a|aac|ogg|oga|wav|webm)$/.test(base)) return 'audio';
   if (/\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip)$/.test(base)) return 'file';
+  // Botpress CDN uploads are often extension-less — assume image (the widget
+  // degrades to a link chip on load error, so a wrong guess never breaks).
+  if (/^https?:\/\/[^/]*\bbpcontent\.cloud\//i.test(base) || /^https?:\/\/files\.botpress\.cloud\//i.test(base)) return 'image';
   return '';
 }
 
@@ -410,18 +452,19 @@ function detectMediaInText(text) {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     const captionAsTitle = caption && caption.length <= 80 && !caption.includes('\n');
+    const cleanedUrl = stripMediaTag(url);
     return {
       kind,
-      url,
+      url: cleanedUrl,
       caption: captionAsTitle ? '' : caption,
-      title: captionAsTitle ? caption : mediaTitleFromUrl(url, kind),
+      title: captionAsTitle ? caption : mediaTitleFromUrl(cleanedUrl, kind),
     };
   }
   return null;
 }
 
 function stripMediaUrlFromText(text, url) {
-  let body = String(text || '');
+  let body = String(text || '').replace(MJD_MEDIA_TAG, '');
   if (!url) return body.trim();
   body = body.replace(url, '').trim();
   body = body.replace(/\n{3,}/g, '\n\n').trim();
@@ -435,12 +478,14 @@ function shapeWidgetMessage(msg) {
   let contentAttributes = attrs;
 
   if (contentType === 'media' && attrs.url) {
-    content = stripMediaUrlFromText(content, attrs.url);
+    const cleanedUrl = stripMediaTag(attrs.url);
+    content = stripMediaUrlFromText(content, cleanedUrl);
     if (content === attrs.title) content = '';
     contentAttributes = {
       ...attrs,
+      url: cleanedUrl,
       media_type: attrs.media_type || mediaKindFromUrl(attrs.url) || 'file',
-      title: attrs.title || mediaTitleFromUrl(attrs.url, attrs.media_type || 'file'),
+      title: attrs.title || mediaTitleFromUrl(cleanedUrl, attrs.media_type || 'file'),
     };
   } else if (!contentType || contentType === 'text') {
     const media = detectMediaInText(content);
@@ -703,13 +748,16 @@ function normalizeBotMessages(payload) {
 
   const url = mediaUrl(p);
   if (url || ['image', 'audio', 'voice', 'video', 'file', 'document', 'attachment'].includes(type)) {
-    const mediaType = type === 'voice' ? 'audio' : type === 'document' || type === 'attachment' ? 'file' : type;
+    const mediaType = type === 'voice' ? 'audio' : type === 'document' || type === 'attachment' ? 'file' : type === 'text' ? mediaKindFromUrl(url) || 'file' : type;
     const title = pickText(p.title, p.name, p.fileName, p.text, p.caption, mediaType);
-    const content = [title, url].filter(Boolean).join('\n');
+    // Chatwoot keeps the URL as plain text — tag it so the kind survives transcript
+    // reloads even for extension-less CDN links (fragment is invisible to the server).
+    const storedUrl = url && !url.includes('#') ? `${url}#mjd-media=${mediaType}` : url;
+    const content = [title, storedUrl].filter(Boolean).join('\n');
     out.push({
       content,
       widgetContentType: 'media',
-      widgetContentAttributes: { media_type: mediaType, url, title, mime_type: p.mimeType || p.mime_type || '' },
+      widgetContentAttributes: { media_type: mediaType, url: stripMediaTag(url), title, mime_type: p.mimeType || p.mime_type || '' },
     });
     return out;
   }
@@ -1039,6 +1087,7 @@ app.get('/debug/config', (_req, res) => {
     },
     widgetOrigin: config.widgetOrigin,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
+    assets: { avatarSha: AVATAR_SHA.slice(0, 16) || null, widgetSha: WIDGET_SHA.slice(0, 16) || null },
   });
 });
 

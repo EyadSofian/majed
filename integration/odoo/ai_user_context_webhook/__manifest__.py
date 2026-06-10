@@ -1,6 +1,6 @@
 {
     'name': 'AI User Context Webhook',
-    'version': '17.0.3.0.0',
+    'version': '17.0.4.0.0',
     'category': 'Technical',
     'summary': 'Injects the custom Majed «نور» chat widget + trainee context into the Odoo website',
     'description': """

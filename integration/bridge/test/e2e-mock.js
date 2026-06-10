@@ -141,6 +141,7 @@ function mockApp() {
       let payload;
       if (userText.includes('موظف')) payload = { type: 'text', text: '[[HANDOFF:3]] حوّلتك لزميل بشري' };
       else if (userText.includes('اختيارات')) payload = { type: 'choice', text: 'اختار اللي يناسبك:', options: [{ label: 'مسار هندسي', value: 'engineering' }, { label: 'مسار إداري', value: 'management' }] };
+      else if (userText.includes('بدون امتداد')) payload = { type: 'image', imageUrl: 'https://files.bpcontent.cloud/2026/06/10/img-no-ext' };
       else if (userText.includes('صورة')) payload = { type: 'image', imageUrl: 'https://example.com/majed.png', title: 'صورة توضيحية' };
       else payload = { type: 'text', text: 'رد البوت: ' + userText };
       sseSend({ type: 'message_created', data: { id: 'bot-' + Date.now(), userId: 'bot-1', conversationId: 'bpconv-1', payload } });
@@ -393,6 +394,54 @@ function check(name, cond, extra) {
     st = (await axios.get(`${MOCK}/__state`)).data;
     check('status flipped back to pending', st.cwStatus === 'pending', `status=${st.cwStatus}`);
     check('bot received the message after revive', st.bpMessages.some((m) => m.text === 'رجعت تاني'));
+
+    console.log('TEST 16 — asset cache busting: headers + baked avatar hash');
+    const fsMod = require('fs');
+    const cryptoMod = require('crypto');
+    const avatarBuf = fsMod.readFileSync(path.join(__dirname, '..', 'public', 'majed-avatar.png'));
+    const avatarSha = cryptoMod.createHash('sha256').update(avatarBuf).digest('hex');
+    const av1 = await axios.get(`${BRIDGE}/majed-avatar.png`, { responseType: 'arraybuffer' });
+    check('bare avatar URL → 200 png + no-cache (revalidates after redeploy)',
+      av1.status === 200 && String(av1.headers['content-type']).includes('image/png') &&
+      av1.headers['cache-control'] === 'no-cache' && av1.data.length === avatarBuf.length);
+    const av2 = await axios.get(`${BRIDGE}/majed-avatar.png?v=${avatarSha.slice(0, 16)}`, { responseType: 'arraybuffer' });
+    check('versioned avatar URL → immutable long cache', String(av2.headers['cache-control']).includes('immutable'));
+    const wjs = await axios.get(`${BRIDGE}/majed-widget.js`);
+    check('majed-widget.js served with no-cache (clients always revalidate)',
+      wjs.status === 200 && wjs.headers['cache-control'] === 'no-cache');
+    const baked = String(wjs.data).match(/AVATAR_VERSION\s*=\s*'([0-9a-f]+)'/);
+    check('AVATAR_VERSION baked into the widget matches the real image sha256',
+      !!baked && avatarSha.startsWith(baked[1]), `baked=${baked && baked[1]} file=${avatarSha.slice(0, 16)}`);
+    const dbg16 = (await axios.get(`${BRIDGE}/debug/config`)).data;
+    check('debug/config exposes asset hashes', dbg16.assets && dbg16.assets.avatarSha === avatarSha.slice(0, 16));
+
+    console.log('TEST 17 — extension-less bpcontent.cloud image keeps its type end-to-end');
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'صورة بدون امتداد', userData: {} });
+    await sleep(900);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    const noExtUrl = 'https://files.bpcontent.cloud/2026/06/10/img-no-ext';
+    check('Chatwoot stored text carries the #mjd-media tag (type survives restarts)',
+      st.cwMessages.some((m) => (m.body.content || '').includes(`${noExtUrl}#mjd-media=image`)));
+    const evNoExt = ws.events.find((e) => e.content_type === 'media' && e.content_attributes?.url === noExtUrl);
+    check('SSE delivers media/image with a CLEAN url (marker stripped)',
+      !!evNoExt && evNoExt.content_attributes.media_type === 'image');
+    check('marker never leaks into widget-visible content',
+      ws.events.every((e) => !(e.content || '').includes('#mjd-media') && !((e.content_attributes || {}).url || '').includes('#mjd-media')));
+    const trNoExt = (await axios.get(`${BRIDGE}/widget/messages?conversationId=9001`)).data;
+    const trMsg = trNoExt.messages.find((m) => (m.content_attributes || {}).url === noExtUrl);
+    check('transcript restores it as media/image (not a text link)',
+      !!trMsg && trMsg.content_type === 'media' && trMsg.content_attributes.media_type === 'image');
+
+    console.log('TEST 18 — SSE reconnect: catchup re-delivers with stable ids for widget de-dup');
+    const ws2 = widgetStream('9001');
+    await sleep(700);
+    check('catchup sends recent outgoing messages on reconnect', ws2.events.length > 0, `events=${ws2.events.length}`);
+    check('catchup keeps media shape after reconnect',
+      ws2.events.some((e) => e.content_type === 'media' && (e.content_attributes || {}).media_type === 'image'));
+    check('every catchup event carries an id (the widget de-dup key)', ws2.events.every((e) => e.id != null));
+    const ids18 = ws2.events.map((e) => String(e.id));
+    check('no duplicate ids inside one catchup batch', new Set(ids18).size === ids18.length);
+    ws2.close();
 
     ws.close();
   } catch (e) {
