@@ -252,11 +252,52 @@ async function tryReuseConversation(convId) {
   try {
     const conv = await cwGetConversation(id);
     const status = conv?.status || conv?.payload?.status || 'pending';
-    if (status === 'resolved') return null;
+    if (status === 'resolved') {
+      // Reopen so the bot can respond again (user picked this from history)
+      await cwSetStatus(id, 'pending');
+      convStatus.set(id, 'pending');
+      return { conversationId: id, status: 'pending' };
+    }
     convStatus.set(id, status);
     return { conversationId: id, status };
   } catch (e) {
     console.warn('conversation reuse failed:', e.response?.status || e.message);
+    return null;
+  }
+}
+
+// Find the most-recent Chatwoot conversation for a contact identified by email.
+// Used by /widget/session to reuse the same Chatwoot thread when the user starts
+// a "new conversation" in the widget (so agents see one unified thread per trainee).
+async function findContactConversation(email) {
+  if (!email) return null;
+  try {
+    const inboxId = await resolveInboxId();
+    const { data } = await axios.get(
+      `${config.chatwootBaseUrl}/api/v1/accounts/${config.chatwootAccountId}/contacts/search`,
+      {
+        params: { q: email, include_contacts: true, page: 1 },
+        headers: cwHeaders(),
+        timeout: 10000
+      }
+    );
+    const contacts = data?.payload?.contacts || [];
+    const contact = contacts.find((c) => c.email === email) || contacts[0];
+    if (!contact) return null;
+
+    const { data: cd } = await axios.get(
+      cwUrl(`contacts/${contact.id}/conversations`),
+      { headers: cwHeaders(), timeout: 10000 }
+    );
+    const conversations = (cd?.payload || [])
+      .filter((c) => String(c.inbox_id) === String(inboxId))
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+    if (!conversations.length) return null;
+    const latest = conversations[0];
+    return { conversationId: String(latest.id), status: latest.status };
+  } catch (e) {
+    console.warn('findContactConversation failed:', e.response?.status || e.message);
     return null;
   }
 }
@@ -1099,15 +1140,44 @@ app.get('/debug/config', (_req, res) => {
 
 // 1) Widget opens → Chatwoot contact + conversation (Botpress side is created lazily
 //    on first message, so sessions stay fast and Botpress outages can't block opening).
+//
+// One Chatwoot thread per trainee: when the user taps "new conversation" in the widget,
+// we reuse their existing Chatwoot conversation (searching by email) so agents always
+// see a single continuous thread, while the bot context starts fresh in Botpress.
 app.post('/widget/session', async (req, res) => {
   try {
     const { name, email, userData, existingConversationId } = req.body || {};
+
+    // ── Case 1: widget supplied an existing Chatwoot conv ID (resume or history open)
     const reusable = await tryReuseConversation(existingConversationId);
     if (reusable) {
       console.log(`Widget session reuse: conv ${reusable.conversationId} (${reusable.status})`);
       return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status });
     }
 
+    // ── Case 2: no conv ID (new conversation button) — search for existing contact
+    //    by email so we keep one Chatwoot thread per trainee.
+    if (email) {
+      const existing = await findContactConversation(email);
+      if (existing) {
+        const cvId = existing.conversationId;
+        // Reopen if resolved so the bot can respond
+        if (existing.status === 'resolved') {
+          try { await cwSetStatus(cvId, 'pending'); } catch (_) {}
+          convStatus.set(cvId, 'pending');
+        }
+        // Clear the Botpress mapping so the AI starts a fresh context while the
+        // Chatwoot thread continues (new bot conversation, same agent thread).
+        bpMap.delete(cvId);
+        cwSetConversationAttrs(cvId, {
+          bp_user_id: '', bp_user_key: '', bp_conv_id: '', bp_ctx_sig: ''
+        }).catch(() => {});
+        console.log(`Widget session reuse-by-email (${email}): conv ${cvId} — bot context reset`);
+        return res.json({ conversationId: cvId, reused: true, status: 'pending' });
+      }
+    }
+
+    // ── Case 3: truly new user — create contact + conversation
     const { contactId, sourceId } = await cwCreateContact({ name, email, customAttributes: userData || {} });
     const convId = await cwCreateConversation(sourceId);
     try {
@@ -1116,7 +1186,7 @@ app.post('/widget/session', async (req, res) => {
       console.warn('set pending failed:', e.response?.status || e.message);
     }
     convStatus.set(convId, 'pending');
-    console.log(`Widget session: contact ${contactId} → conv ${convId}`);
+    console.log(`Widget session new: contact ${contactId} → conv ${convId}`);
     return res.json({ conversationId: convId, reused: false, status: 'pending' });
   } catch (err) {
     console.error('session error:', err.response?.data || err.message);
