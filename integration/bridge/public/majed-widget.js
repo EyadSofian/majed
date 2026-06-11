@@ -64,13 +64,9 @@
   var STORE_PREFIX = 'majed:conversation:' + BRIDGE + ':';
   var LIST_PREFIX = 'majed:convlist:' + BRIDGE + ':';
 
-  // الرسالة اللي بتلفت انتباه العميل — بتتبدل كل شوية (تعريف ماجد ↔ عرض الكورس المجاني)
+  // الرسالة اللي بتلفت انتباه العميل
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers : [
-    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
-    {
-      html: '🎁 كورس <b>The Freelance Masterclass</b> ببلاش!<br/>اطلبه واستخدم كود الخصم 👇',
-      link: COURSE_URL, linkText: 'افتح الكورس', code: PROMO_CODE
-    }
+    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' }
   ];
 
   // ---------- state ----------
