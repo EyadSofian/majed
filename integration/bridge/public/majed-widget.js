@@ -70,8 +70,8 @@
     {
       // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
       guestOnly: true,
-      html: '🎁 كورس <b>The Freelance Masterclass</b> ببلاش!<br/>اطلبه واستخدم كود الخصم 👇',
-      link: COURSE_URL, linkText: 'افتح الكورس', code: PROMO_CODE
+      html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
+      link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE
     }
   ];
 
