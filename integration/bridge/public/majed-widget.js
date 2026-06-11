@@ -640,6 +640,7 @@
   }
 
   function uid() { return userData.odoo_user_id || userData.email || 'anon'; }
+  function isLoggedIn() { return !!(userData && (userData.email || userData.odoo_user_id)); }
   function storageKey() { return STORE_PREFIX + uid(); }
   function listKey() { return LIST_PREFIX + uid(); }
 
@@ -1121,7 +1122,7 @@
   // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
   function closePanel() {
     panel.classList.remove('mjd-open');
-    if (!live) showTeaser(1500); // لسه مبدأش يتكلم؟ فكّره تاني بعد شوية
+    if (!live && !isLoggedIn()) showTeaser(1500); // زوار فقط
   }
   fab.addEventListener('click', function () {
     if (suppressClick) return; // دي نهاية سحبة مش ضغطة
@@ -1173,6 +1174,8 @@
   document.getElementById('mjd-hist-x').addEventListener('click', closeHistory);
   document.getElementById('mjd-new').addEventListener('click', newConversation);
 
-  // أول ظهور لرسالة لفت الانتباه
-  showTeaser();
+  // أول ظهور — للزوار فقط (المتدربين اللي عملوا login مش هيشوفوا الـ teaser)
+  ensureCtx().then(function () {
+    if (!isLoggedIn()) showTeaser();
+  });
 })();
