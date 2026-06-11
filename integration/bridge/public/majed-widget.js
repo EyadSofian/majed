@@ -68,6 +68,8 @@
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers : [
     { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
     {
+      // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
+      guestOnly: true,
       html: '🎁 كورس <b>The Freelance Masterclass</b> ببلاش!<br/>اطلبه واستخدم كود الخصم 👇',
       link: COURSE_URL, linkText: 'افتح الكورس', code: PROMO_CODE
     }
@@ -912,8 +914,17 @@
   function tzDismissed() { try { return sessionStorage.getItem('majed:tz:off') === '1'; } catch (e) { return false; } }
   function tzDismiss() { try { sessionStorage.setItem('majed:tz:off', '1'); } catch (e) {} }
 
+  // التيزرات المعروضة دلوقتي: للزوار = الكل، وبعد اللوجين = من غير عروض الزوار (promo)
+  function visibleTeasers() {
+    if (isLoggedIn()) {
+      var only = TEASERS.filter(function (t) { return !t.guestOnly; });
+      return only.length ? only : TEASERS;
+    }
+    return TEASERS;
+  }
   function renderTeaser() {
-    var t = TEASERS[tzIndex % TEASERS.length] || {};
+    var list = visibleTeasers();
+    var t = list[tzIndex % list.length] || {};
     var h = '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
       '<div><div class="mjd-tz-tx">' + (t.html || '') + '</div>';
     if (t.link || t.code) {
@@ -936,7 +947,7 @@
     if (go) go.addEventListener('click', function (ev) { ev.stopPropagation(); });
   }
   function rotateTeaser() {
-    if (!tzVisible || TEASERS.length < 2) return;
+    if (!tzVisible || visibleTeasers().length < 2) return;
     tz.classList.add('mjd-swap');
     setTimeout(function () {
       tzIndex++;
@@ -1122,7 +1133,7 @@
   // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
   function closePanel() {
     panel.classList.remove('mjd-open');
-    if (!live && !isLoggedIn()) showTeaser(1500); // زوار فقط
+    if (!live) showTeaser(1500); // رجّع التيزر بعد قفل النافذة
   }
   fab.addEventListener('click', function () {
     if (suppressClick) return; // دي نهاية سحبة مش ضغطة
@@ -1174,8 +1185,6 @@
   document.getElementById('mjd-hist-x').addEventListener('click', closeHistory);
   document.getElementById('mjd-new').addEventListener('click', newConversation);
 
-  // أول ظهور — للزوار فقط (المتدربين اللي عملوا login مش هيشوفوا الـ teaser)
-  ensureCtx().then(function () {
-    if (!isLoggedIn()) showTeaser();
-  });
+  // أول ظهور — التيزر بيظهر للكل (الترحيب)، وعرض الكورس بس للزوار قبل اللوجين
+  ensureCtx().then(function () { showTeaser(); });
 })();
