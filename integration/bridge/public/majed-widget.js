@@ -66,7 +66,11 @@
 
   // الرسالة اللي بتلفت انتباه العميل
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers : [
-    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' }
+    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
+    {
+      html: '🎁 كورس <b>The Freelance Masterclass</b> ببلاش!<br/>اطلبه واستخدم كود الخصم 👇',
+      link: COURSE_URL, linkText: 'افتح الكورس', code: PROMO_CODE
+    }
   ];
 
   // ---------- state ----------
