@@ -620,12 +620,18 @@ function compactProfile(userData) {
   return JSON.stringify(compact).slice(0, 450);
 }
 
-async function bpCreateUser({ name, userData }) {
+async function bpCreateUser({ name, userData, cwConvId }) {
   // Botpress stores this under tags.profile and currently enforces a 500-char cap.
+  // We embed _cw (chatwoot conversation id) so Execute Code cards can call Chatwoot API directly.
   let profile = '';
   try {
-    profile = compactProfile(userData);
-  } catch (_) {}
+    let compact = {};
+    try { compact = JSON.parse(compactProfile(userData) || '{}'); } catch (_) {}
+    if (cwConvId) compact._cw = String(cwConvId);
+    profile = JSON.stringify(compact).slice(0, 490);
+  } catch (_) {
+    if (cwConvId) profile = JSON.stringify({ _cw: String(cwConvId) });
+  }
   const { data } = await axios.post(
     bpUrl('/users'),
     { name: (name || 'زائر').slice(0, 100), profile },
@@ -924,7 +930,7 @@ async function ensureBotpress(cwConvId, { name, userData }) {
   }
 
   // fresh: create real Botpress user + conversation (Chat API)
-  const { userId, userKey } = await bpCreateUser({ name, userData });
+  const { userId, userKey } = await bpCreateUser({ name, userData, cwConvId });
   const bpConvId = await bpCreateConversation(userKey);
   mapping = { userId, userKey, bpConvId, ctxSig: '', lastActivity: Date.now(), stream: null, seen: lruSet(500) };
   bpMap.set(cwConvId, mapping);
