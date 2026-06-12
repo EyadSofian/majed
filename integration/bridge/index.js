@@ -102,7 +102,12 @@ const config = {
   welcomeCardEnabled: (process.env.WELCOME_CARD_ENABLED || 'false').toLowerCase() === 'true',
   welcomeText:
     process.env.WELCOME_TEXT ||
-    'أهلاً 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن دوراتك وتقدّمك، أو اختر وسيلة تواصل 👇',
+    'أهلاً 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن أي دورة أو عن تقدّمك في التعلّم.',
+  // choice buttons sent right after the welcome text (values go to the bot as the user's message)
+  welcomeChoicesText: process.env.WELCOME_CHOICES_TEXT || 'اختر ما يناسبك:',
+  welcomeChoices: (process.env.WELCOME_CHOICES ||
+    'أبحث عن كورس مناسب لي|أسعار الدورات|مجالات التدريب المتاحة|تواصل مع فريق المبيعات')
+    .split('|').map((s) => s.trim()).filter(Boolean),
   waNumber: (process.env.WA_NUMBER || '966920016295').replace(/[^\d]/g, ''),
   supportEmail: process.env.SUPPORT_EMAIL || 'aibot@engosoft.com',
   welcomeCardTitle: process.env.WELCOME_CARD_TITLE || 'تواصل مع Engosoft',
@@ -1220,6 +1225,21 @@ app.get('/widget/stream', async (req, res) => {
       if (!attrs.majed_welcome_sent) {
         const m1 = await cwSendMessage(convId, { content: config.welcomeText, messageType: 'outgoing' });
         pushToWidget(convId, m1);
+        if (config.welcomeChoices.length) {
+          const choiceAttrs = { items: config.welcomeChoices.map((t) => ({ title: t, value: t })) };
+          const m1b = await cwSendMessage(convId, {
+            content: config.welcomeChoicesText,
+            messageType: 'outgoing',
+            contentType: 'input_select',
+            contentAttributes: choiceAttrs,
+          });
+          pushToWidget(convId, {
+            ...m1b,
+            content: config.welcomeChoicesText,
+            content_type: 'input_select',
+            content_attributes: m1b.content_attributes || choiceAttrs,
+          });
+        }
         if (config.welcomeCardEnabled) {
           const c = welcomeCard();
           const m2 = await cwSendMessage(convId, {

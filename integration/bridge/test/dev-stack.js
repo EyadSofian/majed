@@ -175,6 +175,10 @@ page.get('/test.html', (q, r) => {
     : q.query.avatar === 'odoo'
       ? `avatarUrl: '/ai_user_context_webhook/static/src/img/majed-avatar.png',`
       : '';
+  // ?guest=1 → زائر بدون لوجين (يفعّل تيزر العرض المجاني guestOnly)
+  const ctxUrl = q.query.guest ? '/fake-user-context?guest=1' : '/fake-user-context';
+  // ?rotate=60000 → إبطاء تبديل التيزر (مفيد لفحص أزرار العرض بدون سباق مع الدوران)
+  const rotateMs = Number(q.query.rotate) || 9000;
   const blocks = Array.from({ length: 14 }, (_, i) =>
     `<section style="padding:42px 24px;background:${i % 2 ? '#dfe7f5' : '#eef2f9'}"><h2 style="font-family:sans-serif;margin:0 0 8px">قسم تجريبي ${i + 1}</h2><p style="font-family:sans-serif;color:#475569;max-width:680px;line-height:1.9">محتوى طويل لاختبار شفافية الويدجت أثناء تمرير الصفحة (Liquid Glass) — جرّب: «صورة عريضة» · «صورة طويلة» · «صورة بدون امتداد» · «صورة مكسورة» · «اختيارات»، واسحب الزر العائم أو الهيدر لتغيير المكان.</p></section>`
   ).join('');
@@ -188,7 +192,8 @@ ${blocks}
 <script>
   window.MajedConfig = {
     bridgeUrl: 'http://localhost:${BRIDGE_PORT}',
-    userContextUrl: '/fake-user-context',
+    userContextUrl: '${ctxUrl}',
+    teaserRotate: ${rotateMs},
     ${avatarLine}
     theme: 'light'
   };
@@ -197,10 +202,13 @@ ${blocks}
 </body></html>`);
 });
 // fake logged-in Odoo user context (same shape as /ai_webhook/user_context)
-page.get('/fake-user-context', (_q, r) =>
-  r.json({
+// ?guest=1 → زائر: لا يوجد user (يحاكي زيارة قبل تسجيل الدخول)
+page.get('/fake-user-context', (q, r) => {
+  if (q.query.guest) return r.json({});
+  return r.json({
     user: { name: 'إياد سفيان', email: 'eyad@example.com', user_id: 7 },
     learning_progress: { total_courses_enrolled: 2, total_remaining_lessons: 7, average_progress: 64 },
     courses: [{ course_name: 'التصميم الداخلي', progress_percentage: 64, remaining_lessons: 7 }],
-  }));
+  });
+});
 page.listen(PAGE_PORT, () => console.log(`test page on http://localhost:${PAGE_PORT}/test.html`));

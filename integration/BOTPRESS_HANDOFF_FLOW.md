@@ -1,117 +1,114 @@
-# Botpress Handoff Flow — Majed
+# Botpress Handoff — ماجد (النسخة النهائية الجاهزة للصق)
 
-> Complaint and sales handoff: Botpress calls Chatwoot API directly (private note + assign team + open).
-> No bridge involvement. No Railway env vars needed for this flow.
-
----
-
-## Flow Structure
-
-```
-Start Node
-    ↓ (once, first message only)
-Standard Node "init"
-    └── Execute Code "setCwConvId"
-    ↓
-Autonomous Node "Majed"
-    ├── Transition 1: handoffComplaint  ← most specific, TOP
-    ├── Transition 2: handoffSales
-    └── (stays here for all normal messages)
-         ↓ (on any transition)
-Standard Node "handoffToAgent"
-    ├── Execute Code "buildSummary"
-    ├── Execute Code "sendPrivateNote"
-    ├── Execute Code "openAndAssign"
-    └── Text Card (user-facing confirmation)
-         ↓
-    back to Autonomous Node (bot stays in standby, bridge blocks it while status=open)
-```
+> عند الـ handoff: يتبعت **برايفت نوت** في شاتووت + المحادثة **تتفتح** (status=open) وتتعيّن
+> على فريق الإشراف — وأثناء ما هي مفتوحة البوت **ما يردّش** (البريدج بيوقف التوجيه تلقائيًا).
+> لما الموظف يقفل/يرجّع المحادثة pending، البوت يرجع يرد تاني.
+>
+> ⚠ هذه النسخة تستبدل النسخة القديمة — فيها إصلاح باج `cwConvId not found`:
+> القراءة الصحيحة من `event.tags.user` (مش `user.tags`)، والمتغيرات بنطاق **conversation**.
 
 ---
 
-## Required Workflow Variables
+## خطوات التنفيذ في Botpress Studio (بالترتيب)
 
-Declare these in the workflow before using them (Botpress Studio → Variables):
-
-| Name | Type | Set by |
-|------|------|--------|
-| `cwConvId` | string | Execute Code (init) |
-| `handoffSummary` | string | Autonomous Node (LLM) |
-| `salesCourseName` | string | Autonomous Node (LLM) |
-| `chatwootPrivateNote` | string | Execute Code (buildSummary) |
-
----
-
-## 1. Standard Node "init" — Execute Code "setCwConvId"
-
-Runs once at conversation start. Reads `_cw` from the Botpress user profile
-(the bridge embeds it there at user-creation time).
-
-```typescript
-const u = user as any;
-const w = workflow as any;
-
-let cwConvId = '';
-try {
-  const profile = JSON.parse(u?.tags?.['chat:profile'] || '{}');
-  cwConvId = profile._cw || '';
-} catch (_) {}
-
-if (cwConvId) {
-  w.cwConvId = cwConvId;
-  console.log('cwConvId set:', cwConvId);
-} else {
-  console.log('cwConvId not in profile — Chatwoot calls will be skipped');
-}
-```
-
-Transition after this node: always → Autonomous Node "Majed".
+1. **Variables** → أنشئ 4 متغيرات بنطاق **conversation** (مش workflow):
+   `cwConvId` · `handoffSummary` · `salesCourseName` · `chatwootPrivateNote`
+2. **Autonomous Node «Majed»** → أضف الـ 2 transitions (القسم 2) — `complaintHandoff` الأول.
+3. أنشئ Standard Node باسم **complaintHandoff** → 6 كروت (القسم 3).
+4. أنشئ Standard Node باسم **salesHandoff** → 5 كروت (القسم 4).
+5. من كل node منهم: transition «always» راجع للـ Autonomous Node.
+6. في كارت `sendPrivateNote` وكارت `openAndAssign` (في النودين): حط التوكن بتاعك مكان
+   `REPLACE_WITH_CHATWOOT_API_TOKEN` — تجيبه من Chatwoot → Profile → Access Token.
+7. جرّب من الويدجت الحقيقي (مش الـ Emulator!) — راجع checklist آخر الملف.
 
 ---
 
-## 2. Autonomous Node "Majed" — Transitions
+## 1. المتغيرات (Studio → Variables)
 
-Add these two transitions. **Order matters — put handoffComplaint first.**
+كلها بنطاق **conversation** عشان تفضل موجودة بعد الانتقال بين النودات:
 
-### Transition 1 — `handoffComplaint` (TOP, most specific)
+| Name | Type | Scope | بيتكتب من |
+|------|------|-------|-----------|
+| `cwConvId` | String | conversation | Execute Code (setCwConvId) |
+| `handoffSummary` | String | conversation | الـ Autonomous Node (LLM) |
+| `salesCourseName` | String | conversation | الـ Autonomous Node (LLM) |
+| `chatwootPrivateNote` | String | conversation | Execute Code (buildSummary) |
 
-**Condition (natural language):**
+**في الـ Autonomous Node → Variables Access:**
+- `conversation.handoffSummary` → Allow Write Access ✅
+- `conversation.salesCourseName` → Allow Write Access ✅
+- `conversation.cwConvId` و `conversation.chatwootPrivateNote` → قراءة فقط.
+
+---
+
+## 2. Autonomous Node «Majed» — Transitions
+
+الترتيب مهم: الأكثر تحديدًا فوق.
+
+### Transition 1 — `complaintHandoff` (فوق)
 ```
-The user has a complaint, reports a technical problem, requests a refund,
-has a certificate issue, cannot log in, has a lecture or instructor problem,
-or any issue that requires human intervention.
-
+The user reports a complaint, technical issue, refund request, certificate problem,
+login failure, video playback issue, instructor problem, or any issue requiring
+human intervention.
 Before transitioning:
-- Store a one-sentence Arabic summary of the issue in {{workflow.handoffSummary}}.
+- Store a one-sentence Arabic summary of the issue in {{conversation.handoffSummary}}.
 - Do NOT send any message to the user before transitioning.
 - Transition IMMEDIATELY once handoffSummary is set.
 ```
 
-### Transition 2 — `handoffSales`
-
-**Condition (natural language):**
+### Transition 2 — `salesHandoff`
 ```
 The user explicitly wants to purchase a course, complete enrollment,
-or asks to speak with a sales advisor.
-
+or requests to speak with a sales advisor.
 Before transitioning:
-- Store the course name in {{workflow.salesCourseName}}.
-- Store a one-sentence Arabic summary in {{workflow.handoffSummary}}.
+- Store the course name in {{conversation.salesCourseName}}.
+- Store a one-sentence Arabic summary in {{conversation.handoffSummary}}.
 - Do NOT send any message before transitioning.
 - Transition IMMEDIATELY once both variables are set.
 ```
 
 ---
 
-## 3. Standard Node "handoffToAgent" — 4 Cards
+## 3. Standard Node «complaintHandoff» — 6 كروت
 
-### Card 1 — Execute Code "buildSummary"
+### Card 1 — Execute Code «setCwConvId»
 
-Builds the private note text from conversation history + LLM summary.
+> **الإصلاح المهم:** في Execute Code تاجات اليوزر بتيجي من `event.tags.user`
+> مش من `user.tags` — ده كان سبب `cwConvId not found`.
 
 ```typescript
-const u = user as any;
-const w = workflow as any;
+const c = conversation as any;
+
+let cwConvId = '';
+
+// PRIMARY: read from event.tags.user (correct path in Botpress Execute Code)
+try {
+  const profileStr = (event as any)?.tags?.user?.['chat:profile'] || '{}';
+  const profile = JSON.parse(profileStr);
+  cwConvId = String(profile._cw || '');
+} catch (_) {}
+
+// FALLBACK: try user object directly (in case API changes)
+if (!cwConvId) {
+  try {
+    const profileStr = (user as any)?.tags?.['chat:profile'] || '{}';
+    const profile = JSON.parse(profileStr);
+    cwConvId = String(profile._cw || '');
+  } catch (_) {}
+}
+
+if (cwConvId) {
+  c.cwConvId = cwConvId;
+  console.log('cwConvId set:', cwConvId);
+} else {
+  console.log('cwConvId not found — Chatwoot calls will be skipped');
+}
+```
+
+### Card 2 — Execute Code «buildSummary»
+
+```typescript
+const c = conversation as any;
 
 let transcript = '';
 try {
@@ -131,41 +128,35 @@ try {
   console.log('transcript error:', err.message);
 }
 
-const llmSummary = w.handoffSummary || '';
-const courseName  = w.salesCourseName || '';
+const llmSummary = c.handoffSummary || '';
+const courseName  = c.salesCourseName || '';
 
 const lines: string[] = ['📋 Majed Bot Summary:'];
 if (llmSummary) lines.push(`Issue: ${llmSummary}`);
 if (courseName)  lines.push(`Course Interest: ${courseName}`);
 if (transcript)  { lines.push(''); lines.push('📝 Last Messages:'); lines.push(transcript); }
 
-w.chatwootPrivateNote = lines.join('\n').slice(0, 2000);
-console.log('Summary built:', w.chatwootPrivateNote.length, 'chars');
+c.chatwootPrivateNote = lines.join('\n').slice(0, 2000);
+console.log('Summary built:', c.chatwootPrivateNote.length, 'chars');
 ```
 
----
-
-### Card 2 — Execute Code "sendPrivateNote"
-
-Posts the private note to the Chatwoot conversation (visible only to agents).
+### Card 3 — Execute Code «sendPrivateNote»
 
 ```typescript
-const u = user as any;
-const w = workflow as any;
+const c = conversation as any;
 
-const cwConvId = w.cwConvId || '';
+const cwConvId = c.cwConvId || '';
 if (!cwConvId) {
   console.log('No cwConvId — skipping private note');
 } else {
   const BASE  = 'https://chat.engosoft.com/api/v1/accounts/2';
-  // ⚠ Replace with your token (Profile → Access Token → Regenerate in Chatwoot)
-  const TOKEN = 'REPLACE_WITH_CHATWOOT_API_TOKEN';
+  const TOKEN = 'REPLACE_WITH_CHATWOOT_API_TOKEN';  // Chatwoot → Profile → Access Token
 
   try {
     await axios.post(
       `${BASE}/conversations/${cwConvId}/messages`,
       {
-        content:      w.chatwootPrivateNote || w.handoffSummary || 'Customer requested human agent.',
+        content:      c.chatwootPrivateNote || c.handoffSummary || 'Customer requested human agent.',
         private:      true,
         message_type: 'outgoing'
       },
@@ -181,27 +172,23 @@ if (!cwConvId) {
 }
 ```
 
----
+### Card 4 — Execute Code «openAndAssign»
 
-### Card 3 — Execute Code "openAndAssign"
-
-Assigns to Moderation Team (id=2) then opens the conversation.
-**Always assign first, then open** — so the team sees it as assigned from the start.
+التعيين الأول وبعدين الفتح — عشان الموظف يلاقيها معيّنة من أول لحظة.
 
 ```typescript
-const u = user as any;
-const w = workflow as any;
+const c = conversation as any;
 
-const cwConvId = w.cwConvId || '';
+const cwConvId = c.cwConvId || '';
 if (!cwConvId) {
   console.log('No cwConvId — skipping assign+open');
 } else {
   const BASE    = 'https://chat.engosoft.com/api/v1/accounts/2';
-  const TOKEN   = 'REPLACE_WITH_CHATWOOT_API_TOKEN'; // same token as Card 2
-  const TEAM_ID = 2;                                 // Moderation Team
+  const TOKEN   = 'REPLACE_WITH_CHATWOOT_API_TOKEN';  // same token as sendPrivateNote
+  const TEAM_ID = 2;                                   // Moderation Team
   const headers = { 'api_access_token': TOKEN, 'Content-Type': 'application/json' };
 
-  // Step 1 — assign to team
+  // Step 1: assign to team
   try {
     await axios.post(
       `${BASE}/conversations/${cwConvId}/assignments`,
@@ -213,7 +200,7 @@ if (!cwConvId) {
     console.log('Assign failed:', err.response?.data || err.message);
   }
 
-  // Step 2 — open conversation (bridge will stop forwarding to bot while status=open)
+  // Step 2: open conversation (bridge will stop forwarding to bot while status=open)
   try {
     await axios.post(
       `${BASE}/conversations/${cwConvId}/toggle_status`,
@@ -227,47 +214,99 @@ if (!cwConvId) {
 }
 ```
 
----
+### Card 5 — Send Email (كارت Botpress الجاهز)
 
-### Card 4 — Text Card (user-facing)
+| الحقل | القيمة |
+|-------|--------|
+| To | `mahfouz.mohamed@engosoft.com` |
+| Subject | `شكوى جديدة من {{workflow.userFullName}}` |
+| Reply To | `{{workflow.userEmail}}` |
+
+**Body:**
+```
+شكوى جديدة عبر ماجد
+
+المتدرب: {{workflow.userFullName}}
+الإيميل: {{workflow.userEmail}}
+الموبايل: {{workflow.userPhone}}
+
+ملخص المشكلة:
+{{conversation.handoffSummary}}
+
+---
+تم الإرسال تلقائياً من ماجد — إنجوسوفت
+```
+
+### Card 6 — Text
 
 ```
-تم تحويلك لفريق خدمة العملاء، سيتواصل معك أحد المختصين قريبًا. 🙌
+تم تحويلك لفريق خدمة العملاء، سيتواصل معك أحد المختصين قريباً. 🙌
 ```
 
----
-
-## 4. Transition from "handoffToAgent" back to Autonomous Node
-
-After Card 4 runs, add a transition (Standard Node → Autonomous Node).
-Condition: `true` (always).
-
-The bot stays in the Autonomous Node but receives no messages while the Chatwoot
-conversation is `open` — the bridge skips forwarding to Botpress when status=open.
-When an agent closes/resolves the conversation and it goes back to `pending`,
-the bridge resumes forwarding and the Autonomous Node responds normally.
+بعد الكارت الأخير: transition «always» → الـ Autonomous Node.
 
 ---
 
-## 5. What needs to be done in Railway / Repo
+## 4. Standard Node «salesHandoff» — 5 كروت
 
-| Location | Change | Status |
-|----------|--------|--------|
-| `integration/bridge/index.js` | `bpCreateUser` embeds `_cw` in user profile | ✅ Done (June 11) |
-| `integration/bridge/index.js` | `ensureBotpress` passes `cwConvId` to `bpCreateUser` | ✅ Done (June 11) |
-| Railway | Push → auto-redeploy (Root Dir = `integration/bridge`) | ⏳ Push needed |
-| Botpress Studio | Add init Standard Node + Autonomous Node transitions + handoffToAgent node | ⏳ Manual in Studio |
+نفس كروت complaintHandoff **1 → 4 بالظبط** (انسخهم زي ما هم)، من غير كارت الإيميل،
+وكارت النص الأخير:
 
-**No new Railway env vars needed for this flow.**
-The Chatwoot token is hardcoded in Execute Code (replace `REPLACE_WITH_CHATWOOT_API_TOKEN`).
+### Card 5 — Text
+```
+تم تحويلك لفريق المبيعات، سيتواصل معك مستشار قريباً. 🎯
+```
+
+بعده: transition «always» → الـ Autonomous Node.
 
 ---
 
-## 6. Debugging checklist
+## 5. ليه «المحادثة تتفتح» و«البوت ما يتدخلش» بعدها؟
 
-After deploying, test by triggering a complaint:
+- `openAndAssign` بيحوّل المحادثة في شاتووت لـ **open** → البريدج عنده قاعدة:
+  أي محادثة status=open **ما يبعتش** رسائل العميل للبوت (`SKIP bot (agent handling)`).
+  يعني الموظف بياخد المحادثة والبوت ساكت — من غير أي إعداد إضافي.
+- لما الموظف يخلّص ويرجّع الحالة **pending** (أو resolved والعميل يكتب تاني)،
+  البريدج يرجع يوجّه للبوت تلقائيًا.
+- في غير حالات الـ handoff المحادثة فاضلة **pending** → البوت هو اللي بيرد،
+  والمحادثة **ما تتفتحش** على الفريق من نفسها أبدًا.
 
-- [ ] Botpress Logs → see `cwConvId set: <number>` on first message.
-- [ ] Trigger handoff → see `Private note sent, conv: <number>` + `Assigned team: 2` + `Conversation opened: <number>`.
-- [ ] In Chatwoot → conversation should show the private note, assigned to Moderation Team, status=open.
-- [ ] If `cwConvId not in profile` appears in logs: push the bridge changes and redeploy Railway first.
+---
+
+## 6. حالة الريبو / Railway
+
+| المكان | التغيير | الحالة |
+|--------|---------|--------|
+| `integration/bridge/index.js` | `bpCreateUser` بيحقن `_cw` في بروفايل اليوزر | ✅ موجود |
+| `integration/bridge/index.js` | `ensureBotpress` بيمرر `cwConvId` | ✅ موجود |
+| Railway | push → redeploy تلقائي (Root Dir = `integration/bridge`) | بعد أي تعديل |
+| Botpress Studio | الخطوات أعلاه | يدوي في Studio |
+
+**مفيش env vars جديدة مطلوبة في Railway لفلو الـ handoff.**
+توكن شاتووت بيتحط جوّه كروت Execute Code نفسها.
+
+---
+
+## 7. Checklist الاختبار (من الويدجت الحقيقي — مش الـ Emulator)
+
+> الـ Emulator ما بيعدّيش على البريدج → مفيش محادثة شاتووت → `_cw` فاضي →
+> كل نداءات شاتووت هتتعمل skip. جرّب دايمًا من demo.engosoft.com.
+
+ابعت شكوى (مثلاً «الفيديو مش شغال عايز أقدم شكوى») وتابع Botpress Logs بالترتيب:
+
+- [ ] `cwConvId set: <رقم>` — setCwConvId اشتغل
+- [ ] `Summary built: <N> chars` — buildSummary اشتغل
+- [ ] `Private note sent, conv: <رقم>` — البرايفت نوت وصلت
+- [ ] `Assigned team: 2 conv: <رقم>` — التعيين تم
+- [ ] `Conversation opened: <رقم>` — المحادثة اتفتحت
+- [ ] في شاتووت: المحادثة Open + معيّنة على Moderation Team + فيها البرايفت نوت
+- [ ] ابعت رسالة تانية من الويدجت → في لوجز Railway تلاقي `SKIP bot (agent handling, status=open)` — البوت ساكت صح
+
+**لو ظهر `cwConvId not found`:**
+- اتأكد إن آخر نسخة bridge متنشرة على Railway (التغيير بتاع `_cw`).
+- في Botpress Logs دوّر على `"chat:profile"` في الـ EVENT — لازم يكون فيه `"_cw":"<رقم>"`.
+
+**لو البرايفت نوت رجعت 401:** التوكن غلط/منتهي → Chatwoot → Profile → Access Token →
+Regenerate وحدّثه في الكارتين (في النودين = 4 أماكن).
+
+**لو التعيين رجع 404:** يا إما `cwConvId` غلط يا إما بتجرّب من الـ Emulator.

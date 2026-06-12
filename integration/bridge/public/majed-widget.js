@@ -21,7 +21,7 @@
  *     promoCode:       'free100',
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
- *     teasers:         [{ html, link, linkText, code }]        // override the defaults
+ *     teasers:         [{ html, link, linkText, code, codeLabel }]   // override the defaults
  *   };
  */
 (function () {
@@ -71,7 +71,7 @@
       // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
       guestOnly: true,
       html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
-      link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE
+      link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
     }
   ];
 
@@ -930,7 +930,7 @@
     if (t.link || t.code) {
       h += '<div class="mjd-tz-act">';
       if (t.link) h += '<a class="mjd-tz-go" href="' + esc(t.link) + '" target="_blank" rel="noopener">' + esc(t.linkText || 'افتح الرابط') + ' ↗</a>';
-      if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '">🏷️ ' + esc(t.code) + '</button>';
+      if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '" data-label="' + esc(t.codeLabel || t.code) + '">🏷️ ' + esc(t.codeLabel || t.code) + '</button>';
       h += '</div>';
     }
     h += '</div>';
@@ -939,7 +939,9 @@
     if (codeBtn) codeBtn.addEventListener('click', function (ev) {
       ev.stopPropagation();
       var code = codeBtn.getAttribute('data-code') || '';
-      var ok = function () { codeBtn.textContent = '✓ اتنسخ'; setTimeout(function () { codeBtn.textContent = '🏷️ ' + code; }, 1600); };
+      var label = codeBtn.getAttribute('data-label') || code;
+      // after copying show the actual code briefly so the customer sees what landed in the clipboard
+      var ok = function () { codeBtn.textContent = '✓ اتنسخ: ' + code; setTimeout(function () { codeBtn.textContent = '🏷️ ' + label; }, 2200); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, ok);
       else ok();
     });
