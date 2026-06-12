@@ -122,7 +122,11 @@ mock.get('/api/v1/accounts/2/conversations/:id', (_q, r) => {
 mock.post('/api/v1/accounts/2/conversations/:id/custom_attributes', (_q, r) => r.json({ ok: true }));
 mock.post('/api/v1/accounts/2/conversations/:id/toggle_status', (_q, r) => r.json({ ok: true }));
 mock.post('/api/v1/accounts/2/conversations/:id/assignments', (_q, r) => r.json({ ok: true }));
-mock.post('/bp/wh1/users', (_q, r) => r.json({ user: { id: 'user-widget' }, key: 'key-1' }));
+mock.post('/bp/wh1/users', (q, r) => {
+  // أثبت إن _cw وصل: البروفايل اللي البريدج بيبعته عند إنشاء يوزر بوت بريس
+  console.log('MOCK BP user created — profile:', q.body && q.body.profile);
+  r.json({ user: { id: 'user-widget' }, key: 'key-1' });
+});
 mock.post('/bp/wh1/conversations', (_q, r) => r.json({ conversation: { id: 'bpconv-1' } }));
 mock.post('/bp/wh1/messages', (q, r) => {
   const text = q.body?.payload?.text || '';
