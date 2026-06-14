@@ -174,6 +174,8 @@
     '.mjd-mini{width:27px;height:27px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line)}',
     '.mjd-bub{font-size:14px;line-height:1.7;padding:11px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;word-break:break-word;max-width:100%;min-width:0}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
+    '.mjd-bub a{color:#7c5cff;text-decoration:underline;font-weight:500;word-break:break-all}',
+    '.mjd-me .mjd-bub a{color:#fff}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;border-bottom-left-radius:6px}',
     '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-card img{width:100%;max-height:160px;object-fit:cover;display:block;background:var(--surf2)}',
@@ -370,6 +372,15 @@
   // ---------- rendering ----------
   function scrollDown() { bd.scrollTop = bd.scrollHeight; }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  // escape first (XSS-safe), then turn bare http(s) URLs into clickable links
+  function linkify(s) {
+    return esc(s).replace(/https?:\/\/[^\s<>"']+/g, function (u) {
+      var tail = '';
+      var m = u.match(/[)\].,!?؟،;:]+$/);   // don't swallow trailing punctuation
+      if (m) { tail = m[0]; u = u.slice(0, u.length - tail.length); }
+      return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' + tail;
+    });
+  }
   function fmtSize(b) {
     b = Number(b) || 0;
     if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
@@ -594,17 +605,17 @@
     m.content_attributes = objectAttrs(m.content_attributes);
     var inlineMedia = (!m.content_type || m.content_type === 'text') && m.content ? detectMediaInText(m.content) : null;
     if (inlineMedia) {
-      if (inlineMedia.caption) addBot(esc(inlineMedia.caption));
+      if (inlineMedia.caption) addBot(linkify(inlineMedia.caption));
       addMedia({ media_type: inlineMedia.kind, url: inlineMedia.url, title: inlineMedia.title }, '');
     } else if (m.content_type === 'cards' && m.content_attributes && (m.content_attributes.items || []).length) {
-      if (m.content) addBot(esc(m.content));
+      if (m.content) addBot(linkify(m.content));
       addCard(m.content_attributes);
     } else if (m.content_type === 'input_select' && m.content_attributes) {
       addOptions(m.content_attributes, m.content);
     } else if (m.content_type === 'media' && m.content_attributes) {
       addMedia(m.content_attributes, m.content);
     } else if (m.content) {
-      addBot(esc(m.content));
+      addBot(linkify(m.content));
     }
     (m.attachments || []).forEach(function (a) { addAttachment(a, false); });
   }
