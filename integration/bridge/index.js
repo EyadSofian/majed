@@ -993,6 +993,20 @@ async function ensureBotpress(cwConvId, { name, userData }) {
   return mapping;
 }
 
+// Pre-warm the Botpress side for a freshly-established session, in the background.
+// Creating the BP user + conversation and opening the SSE listener is the bulk of the
+// FIRST customer message's latency; doing it now (right after /widget/session) means the
+// plumbing is ready by the time the trainee actually types. Fire-and-forget — a Botpress
+// outage must never delay or fail opening the widget. No message or context is sent here
+// (that still happens on the first real message via forwardToBot), so bot behaviour is
+// unchanged. Skipped while an agent is handling (status=open) since the bot is muted then.
+function prewarmBotpress(cwConvId, status, ctx) {
+  if (!bpConfigured() || status === 'open') return;
+  ensureBotpress(cwConvId, ctx).catch((e) =>
+    console.warn(`prewarm botpress failed (cw ${cwConvId}):`, e.response?.status || e.message)
+  );
+}
+
 // Rich-but-compact trainee context. Injected ONCE into the first message of a
 // Botpress conversation (and again only if the data changes) so the Autonomous
 // Node LLM actually sees the name/courses — the chat `profile` tag alone is NOT
@@ -1157,6 +1171,7 @@ app.post('/widget/session', async (req, res) => {
     const reusable = await tryReuseConversation(existingConversationId);
     if (reusable) {
       console.log(`Widget session reuse: conv ${reusable.conversationId} (${reusable.status})`);
+      prewarmBotpress(reusable.conversationId, reusable.status, { name, userData });
       return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status });
     }
 
@@ -1174,9 +1189,12 @@ app.post('/widget/session', async (req, res) => {
         // Clear the Botpress mapping so the AI starts a fresh context while the
         // Chatwoot thread continues (new bot conversation, same agent thread).
         bpMap.delete(cvId);
-        cwSetConversationAttrs(cvId, {
+        const cleared = cwSetConversationAttrs(cvId, {
           bp_user_id: '', bp_user_key: '', bp_conv_id: '', bp_ctx_sig: ''
         }).catch(() => {});
+        // Pre-warm a FRESH Botpress context, but only after the stale mapping is cleared,
+        // so ensureBotpress doesn't recover the bp_* attributes we just wiped.
+        cleared.then(() => prewarmBotpress(cvId, 'pending', { name, userData }));
         console.log(`Widget session reuse-by-email (${email}): conv ${cvId} — bot context reset`);
         return res.json({ conversationId: cvId, reused: true, status: 'pending' });
       }
@@ -1192,6 +1210,7 @@ app.post('/widget/session', async (req, res) => {
     }
     convStatus.set(convId, 'pending');
     console.log(`Widget session new: contact ${contactId} → conv ${convId}`);
+    prewarmBotpress(convId, 'pending', { name, userData });
     return res.json({ conversationId: convId, reused: false, status: 'pending' });
   } catch (err) {
     console.error('session error:', err.response?.data || err.message);
@@ -1267,10 +1286,15 @@ app.post('/widget/message', async (req, res) => {
 
     console.log(`IN widget conv ${convId}: ${text.slice(0, 60)}`);
 
-    // a) Chatwoot first (source of truth). Remember the id so the webhook echo is skipped.
+    // a) Record in Chatwoot (source of truth) and forward to the bot CONCURRENTLY, so the
+    //    bot starts thinking without waiting on the Chatwoot round-trip. The content-based
+    //    echo key (set before the write) already stops the webhook from re-forwarding this
+    //    same message, so the id registered in .then is just belt-and-suspenders.
     markBridgeIncoming(convId, null, text);
-    const created = await cwSendMessage(convId, { content: text, messageType: 'incoming' });
-    markBridgeIncoming(convId, created, text);
+    const cwWrite = cwSendMessage(convId, { content: text, messageType: 'incoming' })
+      .then((created) => { markBridgeIncoming(convId, created, text); })
+      .catch((e) => console.error('cw incoming write failed:', e.response?.data || e.message));
+
     await reviveIfResolved(convId);
 
     // b) Botpress Chat API (status-gated). Bot replies return via SSE listener.
@@ -1281,6 +1305,7 @@ app.post('/widget/message', async (req, res) => {
       console.error('forwardToBot failed:', e.response?.data || e.message);
     }
 
+    await cwWrite; // ensure the Chatwoot record settled before acking the widget
     return res.json({ status: 'ok' });
   } catch (err) {
     console.error('message error:', err.response?.data || err.message);
