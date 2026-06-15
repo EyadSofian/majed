@@ -962,6 +962,7 @@ async function ensureBotpress(cwConvId, { name, userData }) {
         userKey: attrs.bp_user_key,
         bpConvId: attrs.bp_conv_id,
         ctxSig: attrs.bp_ctx_sig || '',
+        welcomeNoted: true, // recovered mid-conversation → past the opening turn, don't re-note
         lastActivity: Date.now(),
         stream: null,
         seen: lruSet(500),
@@ -978,7 +979,7 @@ async function ensureBotpress(cwConvId, { name, userData }) {
   // fresh: create real Botpress user + conversation (Chat API)
   const { userId, userKey } = await bpCreateUser({ name, userData, cwConvId });
   const bpConvId = await bpCreateConversation(userKey);
-  mapping = { userId, userKey, bpConvId, ctxSig: '', lastActivity: Date.now(), stream: null, seen: lruSet(500) };
+  mapping = { userId, userKey, bpConvId, ctxSig: '', welcomeNoted: false, lastActivity: Date.now(), stream: null, seen: lruSet(500) };
   bpMap.set(cwConvId, mapping);
   bpStartListener(cwConvId, mapping);
   console.log(`BOTPRESS created user ${userId} + conv ${bpConvId} (cw ${cwConvId})`);
@@ -1057,6 +1058,23 @@ function ctxBlockIfChanged(mapping, cwConvId, userData) {
   );
 }
 
+// One-time hidden note: the WIDGET already greeted the customer and showed the quick-choices
+// menu (config.welcomeText + welcomeChoices in /widget/stream) — Botpress never saw that, so
+// without this note the Autonomous Node greets again and re-shows its own menu. We tell it the
+// opening already happened and the next message is the customer's actual choice. Sent to
+// Botpress only (never shown to the customer). Skipped when the bridge welcome is disabled, and
+// after a restart-recovery (welcomeNoted=true) since the conversation is past its opening turn.
+function welcomeNoteIfNeeded(mapping, cwConvId) {
+  if (!config.welcomeEnabled || mapping.welcomeNoted) return '';
+  mapping.welcomeNoted = true;
+  console.log(`WELCOME-NOTE → bot (cw ${cwConvId}): suppress duplicate greeting/menu`);
+  return (
+    'ملاحظة تنسيق داخلية (لا تعرضها للعميل ولا تشر إليها): واجهة المحادثة رحّبت بالعميل بالفعل ' +
+    'وعرضت له قائمة خيارات سريعة عند فتح المحادثة. لا تُرحّب من جديد ولا تُعِد عرض القائمة؛ ' +
+    'رسالة العميل التالية هي اختياره أو طلبه، فتعامل معها مباشرة.'
+  );
+}
+
 // Forward one customer message to Botpress (status-gated).
 async function forwardToBot(cwConvId, text, { name, userData }) {
   if (!bpConfigured()) {
@@ -1071,9 +1089,12 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
 
-  // Inject trainee context once per conversation (re-sent only when the data changes).
+  // Prepend, on the first forwarded message only: a note that the widget already greeted
+  // (so the bot doesn't re-greet) + the trainee context (re-sent only when the data changes).
+  const welcomeNote = welcomeNoteIfNeeded(mapping, cwConvId);
   const ctxBlock = ctxBlockIfChanged(mapping, cwConvId, userData);
-  const outText = ctxBlock ? ctxBlock + '\n\n' + text : text;
+  const prefix = [welcomeNote, ctxBlock].filter(Boolean).join('\n\n');
+  const outText = prefix ? prefix + '\n\n' + text : text;
 
   await bpSendText(mapping, outText);
   console.log(`SEND Botpress (cw ${cwConvId} → bp ${mapping.bpConvId}): ${text.slice(0, 60)}`);
@@ -1093,6 +1114,8 @@ async function forwardMediaToBot(cwConvId, media, { name, userData }) {
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
 
+  const welcomeNote = welcomeNoteIfNeeded(mapping, cwConvId);
+  if (welcomeNote) await bpSendText(mapping, welcomeNote);
   const ctxBlock = ctxBlockIfChanged(mapping, cwConvId, userData);
   if (ctxBlock) await bpSendText(mapping, ctxBlock);
 
