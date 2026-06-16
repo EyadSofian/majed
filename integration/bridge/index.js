@@ -170,6 +170,42 @@ function fileSha256(file) {
 const AVATAR_SHA = fileSha256(path.join(PUBLIC_DIR, 'majed-avatar.png'));
 const WIDGET_SHA = fileSha256(path.join(PUBLIC_DIR, 'majed-widget.js'));
 
+// ── «نور» widget server-side config (env-controlled) ───────────────
+// Injected as `window.MajedServerConfig = {...}` at the top of the served
+// majed-widget.js, so teaser text / promo code / targeting can be changed
+// from Railway env vars WITHOUT editing code or touching Odoo.
+// Priority in the widget: MajedConfig (Odoo page) > MajedServerConfig (here) > built-in defaults.
+function splitList(v) {
+  return String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+function buildWidgetServerConfig() {
+  const cfg = {};
+  // full teasers override (advanced): a JSON array, same shape as MajedConfig.teasers
+  if (process.env.MAJED_TEASERS_JSON) {
+    try {
+      const arr = JSON.parse(process.env.MAJED_TEASERS_JSON);
+      if (Array.isArray(arr) && arr.length) cfg.teasers = arr;
+    } catch (_) {
+      console.warn('⚠ MAJED_TEASERS_JSON is not valid JSON — ignored.');
+    }
+  }
+  if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
+  if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
+  // granular knobs for the course-page teaser (used when MAJED_TEASERS_JSON is not set)
+  const course = {};
+  if (process.env.MAJED_COURSE_TEASER_HTML) course.html = process.env.MAJED_COURSE_TEASER_HTML;
+  if (process.env.MAJED_COURSE_TEASER_MSG) course.botMessage = process.env.MAJED_COURSE_TEASER_MSG;
+  if (process.env.MAJED_COURSE_TEASER_LABEL) course.botMessageLabel = process.env.MAJED_COURSE_TEASER_LABEL;
+  if (process.env.MAJED_COURSE_CODE_LABEL) course.codeLabel = process.env.MAJED_COURSE_CODE_LABEL;
+  if (process.env.MAJED_COURSE_CODE) course.code = process.env.MAJED_COURSE_CODE;
+  if (process.env.MAJED_COURSE_SHOWON) course.showOn = splitList(process.env.MAJED_COURSE_SHOWON);
+  if (process.env.MAJED_COURSE_SHOWON_SELECTOR) course.showOnSelector = process.env.MAJED_COURSE_SHOWON_SELECTOR;
+  if (Object.keys(course).length) cfg.courseTeaser = course;
+  return cfg;
+}
+const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();
+const WIDGET_CONFIG_PREFIX = 'window.MajedServerConfig=' + JSON.stringify(WIDGET_SERVER_CONFIG) + ';\n';
+
 app.get('/majed-avatar.png', (req, res) => {
   // versioned URL → immutable; bare URL → always revalidate (304 when unchanged)
   res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache');
@@ -177,9 +213,12 @@ app.get('/majed-avatar.png', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'majed-avatar.png'));
 });
 app.get('/majed-widget.js', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache'); // ETag revalidation keeps clients on the latest widget
+  res.setHeader('Cache-Control', 'no-cache'); // always revalidate so a redeploy is picked up immediately
   if (WIDGET_SHA) res.setHeader('X-Majed-Widget-Sha', WIDGET_SHA.slice(0, 16));
-  res.sendFile(path.join(PUBLIC_DIR, 'majed-widget.js'));
+  res.type('application/javascript');
+  let src = '';
+  try { src = fs.readFileSync(path.join(PUBLIC_DIR, 'majed-widget.js'), 'utf8'); } catch (_) {}
+  res.send(WIDGET_CONFIG_PREFIX + src);
 });
 app.use(express.static(PUBLIC_DIR));
 

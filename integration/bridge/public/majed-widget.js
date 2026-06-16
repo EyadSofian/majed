@@ -21,13 +21,19 @@
  *     promoCode:       'free100',
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
- *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn }]
+ *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn, showOnSelector }]
  *       // showOn:   string | string[] — يظهر التيزر فقط لما يطابق الـ URL أحد الأنماط (substring),
  *       //           مثال: showOn:'/shop'  أو  showOn:['engosoft.com/shop','/course'] . بدونها يظهر في كل الصفحات.
+ *       // showOnSelector: CSS selector — يظهر التيزر لو العنصر ده موجود في الصفحة (بديل/إضافة لـ showOn).
+ *       // ملاحظة: لو في تيزر مستهدَف مطابق للصفحة، بيظهر لوحده وبتختفي التيزرات العامة (زي الترحيب).
  *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
  *       // {{course}} داخل html أو botMessage يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية.
  *     courseNameSelector: 'h1[itemprop="name"]',   // (اختياري) من فين يقرأ اسم الكورس — الافتراضي يغطي صفحات Odoo
  *   };
+ *
+ *   // بديل بدون تعديل الصفحة: التحكم من البريدج (Railway env vars) عبر window.MajedServerConfig
+ *   // اللي البريدج بيحقنها في أول الملف. الأولوية: MajedConfig > MajedServerConfig > الافتراضي المدمج.
+ *   // أمثلة env: MAJED_PROMO_CODE, MAJED_COURSE_TEASER_HTML/_MSG/_LABEL, MAJED_COURSE_SHOWON, MAJED_TEASERS_JSON.
  */
 (function () {
   'use strict';
@@ -35,11 +41,14 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.2.0';
+  var WIDGET_VERSION = '4.3.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
   var CFG = window.MajedConfig || {};
+  // إعدادات جاية من البريدج (Railway env vars) — أولوية أقل من MajedConfig وأعلى من الافتراضي المدمج.
+  // بتتحقن في أول الملف المقدَّم من /majed-widget.js (شوف integration/bridge/index.js).
+  var SCFG = window.MajedServerConfig || {};
   var BRIDGE = (CFG.bridgeUrl || '').replace(/\/$/, '');
   if (!BRIDGE) { console.error('[Majed] MajedConfig.bridgeUrl is required'); return; }
   var USER_CTX_URL = CFG.userContextUrl || '/ai_webhook/user_context';
@@ -61,32 +70,39 @@
   var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
-  var COURSE_URL = CFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
-  var PROMO_CODE = CFG.promoCode || 'free100';
+  var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
+  var PROMO_CODE = CFG.promoCode || SCFG.promoCode || 'free100';
   var TZ_DELAY = Number(CFG.teaserDelay) > 0 ? Number(CFG.teaserDelay) : 3500;
   var TZ_ROTATE = Number(CFG.teaserRotate) > 2000 ? Number(CFG.teaserRotate) : 9000;
   var MAX_FILE_MB = 10;
   var STORE_PREFIX = 'majed:conversation:' + BRIDGE + ':';
   var LIST_PREFIX = 'majed:convlist:' + BRIDGE + ':';
 
-  // الرسالة اللي بتلفت انتباه العميل
-  var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers : [
-    { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
-    {
-      // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
-      guestOnly: true,
-      html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
-      link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
-    },
-    {
-      // يظهر فقط على صفحات الكورسات/المتجر — مساعدة في الشراء + كود العرض
-      showOn: ['/shop', '/course'],
-      html: '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
-      botMessage: 'محتاج مساعدة في شراء كورس «{{course}}»، وممكن تقوللي لو في عرض؟',
-      botMessageLabel: '💬 ساعدني في الشراء',
-      code: PROMO_CODE, codeLabel: 'كود الخصم'
-    }
-  ];
+  // تيزر صفحة الكورس — قابل للتخصيص بالكامل من Railway env vars (عبر SCFG.courseTeaser)
+  var ct = SCFG.courseTeaser || {};
+  var COURSE_TEASER = {
+    showOn: ct.showOn || ['/shop', '/course'],
+    showOnSelector: ct.showOnSelector || null,
+    html: ct.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
+    botMessage: ct.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، وممكن تقوللي لو في عرض؟',
+    botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
+    code: ct.code || PROMO_CODE,
+    codeLabel: ct.codeLabel || 'كود الخصم'
+  };
+  // الرسالة اللي بتلفت انتباه العميل.
+  // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
+  var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
+    : (SCFG.teasers && SCFG.teasers.length) ? SCFG.teasers
+    : [
+      { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
+      {
+        // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
+        guestOnly: true,
+        html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
+        link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
+      },
+      COURSE_TEASER
+    ];
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
@@ -938,15 +954,27 @@
   function tzDismissed() { try { return sessionStorage.getItem('majed:tz:off') === '1'; } catch (e) { return false; } }
   function tzDismiss() { try { sessionStorage.setItem('majed:tz:off', '1'); } catch (e) {} }
 
-  // هل التيزر مسموح يظهر على الصفحة الحالية؟ (showOn = substring أو مصفوفة؛ بدونها يظهر في كل صفحة)
+  // تيزر «مستهدَف» = مربوط بصفحة معيّنة (showOn و/أو showOnSelector)
+  function tzIsTargeted(t) { return !!(t && (t.showOn != null || t.showOnSelector != null)); }
+
+  // هل التيزر مسموح يظهر على الصفحة الحالية؟
+  //  - showOn: substring أو مصفوفة في الـ URL (host+path+query)
+  //  - showOnSelector: يظهر لو عنصر بالـ selector ده موجود في الصفحة (مفيد لصفحات الكورس/المنتج)
+  //  - من غير أي منهم → يظهر في كل صفحة
   function tzMatchesPage(t) {
-    if (!t || t.showOn == null) return true;
-    var pats = Array.isArray(t.showOn) ? t.showOn : [t.showOn];
-    var here = '';
-    try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
-    for (var i = 0; i < pats.length; i++) {
-      var p = String(pats[i] || '').trim().toLowerCase();
-      if (p && here.indexOf(p) !== -1) return true;
+    if (!t) return false;
+    if (!tzIsTargeted(t)) return true;
+    if (t.showOnSelector) {
+      try { if (document.querySelector(t.showOnSelector)) return true; } catch (e) {}
+    }
+    if (t.showOn != null) {
+      var pats = Array.isArray(t.showOn) ? t.showOn : [t.showOn];
+      var here = '';
+      try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
+      for (var i = 0; i < pats.length; i++) {
+        var p = String(pats[i] || '').trim().toLowerCase();
+        if (p && here.indexOf(p) !== -1) return true;
+      }
     }
     return false;
   }
@@ -971,9 +999,14 @@
     return s.replace(/\{\{course\}\}/g, name);
   }
 
-  // التيزرات المعروضة دلوقتي: استهداف الصفحة أولاً (showOn)، وللزوار = الكل، وبعد اللوجين = من غير عروض الزوار (promo)
+  // التيزرات المعروضة دلوقتي:
+  //  1) فلترة حسب الصفحة (showOn / showOnSelector).
+  //  2) لو فيه تيزر مخصّص للصفحة دي → اعرض المخصّصة لوحدها وخفي العامة (عشان صفحة الكورس متطلعش الترحيب).
+  //  3) بعد اللوجين → من غير عروض الزوار (promo).
   function visibleTeasers() {
     var base = TEASERS.filter(tzMatchesPage);
+    var targeted = base.filter(tzIsTargeted);
+    if (targeted.length) base = targeted;
     if (isLoggedIn()) {
       var only = base.filter(function (t) { return !t.guestOnly; });
       return only.length ? only : base;

@@ -330,23 +330,39 @@ When user responds after sales pitch:
 | الخاصية | النوع | الوظيفة |
 |---------|-------|---------|
 | `showOn` | `string` أو `string[]` | يظهر التيزر فقط لو الـ URL (host+path+query) فيه أحد الأنماط (substring). بدونها → يظهر في كل الصفحات. مثال: `showOn:'/shop'` |
+| `showOnSelector` | `string` (CSS) | بديل/إضافة لـ `showOn` — يظهر التيزر لو العنصر ده موجود في الصفحة (مفيد لو روابط الكورسات مش ثابتة الشكل). مثال: `.oe_website_sale` |
 | `botMessage` | `string` | زرار يفتح الشات ويبعت الرسالة دي للبوت (يشغّل فلو المبيعات في قسم 9). |
 | `botMessageLabel` | `string` | نص الزرار (افتراضي «كلّمني 💬»). |
 | `{{course}}` | placeholder | جوّا `html` أو `botMessage` — يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية (Odoo product page). فالبوت يعرف العميل بيسأل عن أي كورس بالظبط. التخصيص عبر `courseNameSelector`. |
 | `code` / `codeLabel` | `string` | كود الخصم/العرض (موجود من قبل — زرار نسخ). |
 
+**🧠 منطق الأولوية (مهم):** لو في تيزر **مستهدَف** (عنده `showOn`/`showOnSelector`) ومطابق للصفحة الحالية، بيظهر **لوحده** وبتختفي التيزرات العامة (زي الترحيب). يعني على صفحة الكورس بتشوف تيزر الشراء بس — مش بيتبدّل مع الترحيب.
+
 **التيزر الافتراضي للمتجر** (مدمج في الويدجت، يظهر تلقائيًا على `/shop` و `/course`):
 ```js
 {
   showOn: ['/shop', '/course'],
-  html: '🛒 محتاج مساعدة في شراء الكورس ده؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
+  html: '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
   botMessage: 'محتاج مساعدة في شراء كورس «{{course}}»، وممكن تقوللي لو في عرض؟',
   botMessageLabel: '💬 ساعدني في الشراء',
   code: PROMO_CODE, codeLabel: 'كود الخصم'
 }
 ```
 
-**التحكم من غير ما تلمس الكود (من Odoo):** System Parameter اسمه `ai_webhook.teasers_json` يقبل JSON array بنفس الشكل ده. لو موجود وصالح → يستبدل التيزرات الافتراضية كلها. لو فاضي/غلط → يستخدم الافتراضي.
+**التحكم من Railway env vars (الأسهل — موصى به):** البريدج بيحقن `window.MajedServerConfig` في أول الملف المقدَّم من `/majed-widget.js`. الأولوية: `MajedConfig` (صفحة Odoo) > `MajedServerConfig` (Railway) > الافتراضي المدمج. غيّر القيمة → **Redeploy** على Railway → خلاص.
+
+| Env var | الوظيفة |
+|---------|---------|
+| `MAJED_PROMO_CODE` | كود الخصم المعروض على البوب-أب |
+| `MAJED_COURSE_TEASER_HTML` | نص التيزر (يدعم `{{course}}` و`<br/>`) |
+| `MAJED_COURSE_TEASER_MSG` | الرسالة اللي تتبعت للبوت عند الضغط (يدعم `{{course}}`) |
+| `MAJED_COURSE_TEASER_LABEL` | نص زرار «ساعدني في الشراء» |
+| `MAJED_COURSE_CODE_LABEL` / `MAJED_COURSE_CODE` | عنوان/قيمة كود التيزر |
+| `MAJED_COURSE_SHOWON` | الصفحات اللي يظهر فيها (substrings مفصولة بفاصلة)، مثال: `/shop,/course` |
+| `MAJED_COURSE_SHOWON_SELECTOR` | CSS selector بديل للاستهداف |
+| `MAJED_TEASERS_JSON` | (متقدّم) JSON array يتحكم في **كل** التيزرات ويتجاوز اللي فوق |
+
+**أو من Odoo (بديل):** System Parameter اسمه `ai_webhook.teasers_json` يقبل نفس الـ JSON array (يتطلب upgrade للموديول).
 
 > ⚠️ شرط: لازم الويدجت يكون محمّل على نفس دومين صفحة الكورس (`engosoft.com`). متحقق حاليًا — الموديول متركّب على الموقع و`bridge_url` مظبوط.
 
