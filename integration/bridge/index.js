@@ -191,6 +191,8 @@ function buildWidgetServerConfig() {
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
+  // from where to read the course name for {{course}} (CSS selector)
+  if (process.env.MAJED_COURSE_NAME_SELECTOR) cfg.courseNameSelector = process.env.MAJED_COURSE_NAME_SELECTOR;
   // granular knobs for the course-page teaser (used when MAJED_TEASERS_JSON is not set)
   const course = {};
   if (process.env.MAJED_COURSE_TEASER_HTML) course.html = process.env.MAJED_COURSE_TEASER_HTML;

@@ -360,6 +360,9 @@ When user responds after sales pitch:
 | `MAJED_COURSE_CODE_LABEL` / `MAJED_COURSE_CODE` | عنوان/قيمة كود التيزر |
 | `MAJED_COURSE_SHOWON` | الصفحات اللي يظهر فيها (substrings مفصولة بفاصلة)، مثال: `/shop,/course` |
 | `MAJED_COURSE_SHOWON_SELECTOR` | CSS selector بديل للاستهداف |
+| `MAJED_COURSE_NAME_SELECTOR` | CSS selector لعنصر **عنوان الدورة** اللي منه يتقري `{{course}}` (لو طلع اسم غلط) |
+
+**ترتيب قراءة `{{course}}`:** (1) `MAJED_COURSE_NAME_SELECTOR`/`courseNameSelector` لو محدّد → (2) عنوان الصفحة `document.title` من غير اسم الموقع → (3) عناصر شائعة (`h1[itemprop="name"]` ...). فلو الاسم طلع غلط، حدّد الـ selector الصح للعنوان.
 | `MAJED_TEASERS_JSON` | (متقدّم) JSON array يتحكم في **كل** التيزرات ويتجاوز اللي فوق |
 
 **أو من Odoo (بديل):** System Parameter اسمه `ai_webhook.teasers_json` يقبل نفس الـ JSON array (يتطلب upgrade للموديول).

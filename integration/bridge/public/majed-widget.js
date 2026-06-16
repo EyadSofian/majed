@@ -41,7 +41,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.3.0';
+  var WIDGET_VERSION = '4.4.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -980,16 +980,27 @@
   }
 
   // اسم الكورس من صفحة المتجر الحالية — عشان البوت يعرف العميل بيسأل عن أي كورس.
-  // selector قابل للتخصيص (CFG.courseNameSelector)، وبيرجع لعنوان الصفحة لو مفيش عنصر.
-  function pageCourseName() {
-    var sel = CFG.courseNameSelector || 'h1[itemprop="name"], #product_details h1, .oe_website_sale h1, #wrap h1';
+  // مصدر الاسم قابل للتخصيص: CFG.courseNameSelector (صفحة Odoo) أو SCFG.courseNameSelector
+  // (Railway: MAJED_COURSE_NAME_SELECTOR). لو محدّد → أعلى ثقة. غير كده: عنوان الصفحة، ثم عناصر شائعة.
+  var COURSE_NAME_SELECTOR = CFG.courseNameSelector || SCFG.courseNameSelector || '';
+  function pickText(sel) {
+    if (!sel) return '';
     try {
       var el = document.querySelector(sel);
       var name = el && (el.textContent || '').trim();
       if (name) return name.replace(/\s+/g, ' ').slice(0, 80);
     } catch (e) {}
-    var t = (document.title || '').split(/\s[|\-–—]\s/)[0].trim();   // العنوان من غير اسم الموقع
-    return t ? t.slice(0, 80) : '';
+    return '';
+  }
+  function pageCourseName() {
+    // 1) selector صريح من الإعداد (لو محدّد)
+    var explicit = pickText(COURSE_NAME_SELECTOR);
+    if (explicit) return explicit;
+    // 2) عنوان الصفحة من غير اسم الموقع — أوثق مصدر افتراضي على أغلب صفحات الدورات
+    var t = (document.title || '').split(/\s[|\-–—•·]\s/)[0].trim();
+    if (t && t.length > 2) return t.slice(0, 80);
+    // 3) عناصر شائعة كحل أخير (من غير #wrap h1 العام عشان ميمسكش بلوك غلط)
+    return pickText('h1[itemprop="name"], #product_details h1, .oe_website_sale h1, main h1');
   }
   // يستبدل {{course}} باسم الكورس الحالي (escapeName=true لما يتحقن في HTML)
   function resolveCourse(s, escapeName) {
