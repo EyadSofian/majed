@@ -30,7 +30,14 @@
             <t t-set="majed_email"    t-value="(icp.get_param('ai_webhook.support_email', default='aibot@engosoft.com') or '').strip()"/>
             <t t-set="majed_theme"    t-value="(icp.get_param('ai_webhook.theme', default='light') or '').strip()"/>
             <!-- نسخة الويدجت: بتتحدّث مع كل upgrade للموديول → المتصفح يجيب أحدث majed-widget.js فورًا -->
-            <t t-set="majed_ver"      t-value="(icp.get_param('ai_webhook.widget_version', default='') or '').strip() or '17.0.4.0.0'"/>
+            <t t-set="majed_ver"      t-value="(icp.get_param('ai_webhook.widget_version', default='') or '').strip() or '17.0.4.1.0'"/>
+            <!--
+                تيزرات مخصّصة (اختياري): حط JSON array في System Parameter باسم ai_webhook.teasers_json
+                مثال (تيزر يظهر على صفحات المتجر فقط + زرار يبعت للبوت + كود عرض):
+                [{"showOn":"/shop","html":"محتاج مساعدة في الشراء؟","botMessage":"محتاج مساعدة في الشراء","botMessageLabel":"💬 ساعدني","code":"free100","codeLabel":"كود الخصم"}]
+                سيبها فاضية لاستخدام التيزرات الافتراضية المدمجة في الويدجت.
+            -->
+            <t t-set="majed_teasers"  t-value="(icp.get_param('ai_webhook.teasers_json', default='') or '').strip()"/>
 
             <!-- Config carried via data-* attributes (QWeb escapes these safely, even Arabic). -->
             <t t-if="bridge_url">
@@ -41,7 +48,8 @@
                      t-att-data-wa="majed_wa"
                      t-att-data-email="majed_email"
                      t-att-data-theme="majed_theme"
-                     t-att-data-ver="majed_ver"/>
+                     t-att-data-ver="majed_ver"
+                     t-att-data-teasers="majed_teasers"/>
                 <script type="text/javascript">
                     (function(){
                         var c = document.getElementById('mjd-config');
@@ -56,6 +64,13 @@
                             theme:          c.dataset.theme || 'light',
                             position:       'right'
                         };
+                        // تيزرات مخصّصة من System Parameter (اختياري) — لو JSON غلط نتجاهلها ونستخدم الافتراضي
+                        if (c.dataset.teasers) {
+                            try {
+                                var tz = JSON.parse(c.dataset.teasers);
+                                if (Array.isArray(tz) &amp;&amp; tz.length) { window.MajedConfig.teasers = tz; }
+                            } catch (e) { /* JSON غير صالح — تجاهُل */ }
+                        }
                         var g = document.createElement('script');
                         // version query = cache-busting: كل upgrade للموديول يجبر تحميل نسخة جديدة
                         g.src = c.dataset.bridge.replace(/\/$/, '') + '/majed-widget.js?v=' + encodeURIComponent(c.dataset.ver || '0');

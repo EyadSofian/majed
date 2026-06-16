@@ -21,7 +21,10 @@
  *     promoCode:       'free100',
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
- *     teasers:         [{ html, link, linkText, code, codeLabel }]   // override the defaults
+ *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn }]
+ *       // showOn:   string | string[] — يظهر التيزر فقط لما يطابق الـ URL أحد الأنماط (substring),
+ *       //           مثال: showOn:'/shop'  أو  showOn:['engosoft.com/shop','/course'] . بدونها يظهر في كل الصفحات.
+ *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
  *   };
  */
 (function () {
@@ -30,7 +33,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.0.0';
+  var WIDGET_VERSION = '4.1.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -72,6 +75,14 @@
       guestOnly: true,
       html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
       link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
+    },
+    {
+      // يظهر فقط على صفحات الكورسات/المتجر — مساعدة في الشراء + كود العرض
+      showOn: ['/shop', '/course'],
+      html: '🛒 محتاج مساعدة في شراء الكورس ده؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
+      botMessage: 'محتاج مساعدة في شراء الكورس ده، وممكن تقوللي لو في عرض؟',
+      botMessageLabel: '💬 ساعدني في الشراء',
+      code: PROMO_CODE, codeLabel: 'كود الخصم'
     }
   ];
 
@@ -925,21 +936,36 @@
   function tzDismissed() { try { return sessionStorage.getItem('majed:tz:off') === '1'; } catch (e) { return false; } }
   function tzDismiss() { try { sessionStorage.setItem('majed:tz:off', '1'); } catch (e) {} }
 
-  // التيزرات المعروضة دلوقتي: للزوار = الكل، وبعد اللوجين = من غير عروض الزوار (promo)
-  function visibleTeasers() {
-    if (isLoggedIn()) {
-      var only = TEASERS.filter(function (t) { return !t.guestOnly; });
-      return only.length ? only : TEASERS;
+  // هل التيزر مسموح يظهر على الصفحة الحالية؟ (showOn = substring أو مصفوفة؛ بدونها يظهر في كل صفحة)
+  function tzMatchesPage(t) {
+    if (!t || t.showOn == null) return true;
+    var pats = Array.isArray(t.showOn) ? t.showOn : [t.showOn];
+    var here = '';
+    try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
+    for (var i = 0; i < pats.length; i++) {
+      var p = String(pats[i] || '').trim().toLowerCase();
+      if (p && here.indexOf(p) !== -1) return true;
     }
-    return TEASERS;
+    return false;
+  }
+
+  // التيزرات المعروضة دلوقتي: استهداف الصفحة أولاً (showOn)، وللزوار = الكل، وبعد اللوجين = من غير عروض الزوار (promo)
+  function visibleTeasers() {
+    var base = TEASERS.filter(tzMatchesPage);
+    if (isLoggedIn()) {
+      var only = base.filter(function (t) { return !t.guestOnly; });
+      return only.length ? only : base;
+    }
+    return base;
   }
   function renderTeaser() {
     var list = visibleTeasers();
     var t = list[tzIndex % list.length] || {};
     var h = '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
       '<div><div class="mjd-tz-tx">' + (t.html || '') + '</div>';
-    if (t.link || t.code) {
+    if (t.link || t.code || t.botMessage) {
       h += '<div class="mjd-tz-act">';
+      if (t.botMessage) h += '<button class="mjd-tz-go mjd-tz-ask" type="button" data-msg="' + esc(t.botMessage) + '">' + esc(t.botMessageLabel || 'كلّمني 💬') + '</button>';
       if (t.link) h += '<a class="mjd-tz-go" href="' + esc(t.link) + '" target="_blank" rel="noopener">' + esc(t.linkText || 'افتح الرابط') + ' ↗</a>';
       if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '" data-label="' + esc(t.codeLabel || t.code) + '">🏷️ ' + esc(t.codeLabel || t.code) + '</button>';
       h += '</div>';
@@ -956,7 +982,13 @@
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, ok);
       else ok();
     });
-    var go = tzIn.querySelector('.mjd-tz-go');
+    var ask = tzIn.querySelector('.mjd-tz-ask');
+    if (ask) ask.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var msg = ask.getAttribute('data-msg') || '';
+      if (msg) openPanelAndSend(msg);
+    });
+    var go = tzIn.querySelector('.mjd-tz-go:not(.mjd-tz-ask)');
     if (go) go.addEventListener('click', function (ev) { ev.stopPropagation(); });
   }
   function rotateTeaser() {
@@ -970,9 +1002,10 @@
   }
   function showTeaser(delay) {
     if (tzDismissed() || tzVisible || panel.classList.contains('mjd-open') || live) return;
+    if (!visibleTeasers().length) return; // مفيش تيزر مناسب للصفحة دي
     clearTimeout(tzTimer);
     tzTimer = setTimeout(function () {
-      if (panel.classList.contains('mjd-open') || tzDismissed() || live) return;
+      if (panel.classList.contains('mjd-open') || tzDismissed() || live || !visibleTeasers().length) return;
       renderTeaser();
       tz.classList.add('mjd-on');
       tzVisible = true;
@@ -1143,6 +1176,16 @@
     startSession();
     setTimeout(function () { input.focus(); }, 200);
   }
+  // يفتح الشات ويبعت رسالة جاهزة للبوت (مستخدَم من زرار التيزر «ساعدني في الشراء»).
+  // بنبدأ الجلسة الأول وننتظرها عشان convId يبقى جاهز قبل الإرسال (نتفادى سباق startSession).
+  function openPanelAndSend(text, label) {
+    hideTeaser();
+    panel.classList.add('mjd-open');
+    requestAnimationFrame(applyPos);
+    setTimeout(function () { input.focus(); }, 200);
+    startSession().then(function () { sendMessage(text, label || text); });
+  }
+
   // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
   function closePanel() {
     panel.classList.remove('mjd-open');
