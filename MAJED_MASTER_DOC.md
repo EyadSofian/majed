@@ -332,6 +332,7 @@ When user responds after sales pitch:
 | `showOn` | `string` أو `string[]` | يظهر التيزر فقط لو الـ URL (host+path+query) فيه أحد الأنماط (substring). بدونها → يظهر في كل الصفحات. مثال: `showOn:'/shop'` |
 | `botMessage` | `string` | زرار يفتح الشات ويبعت الرسالة دي للبوت (يشغّل فلو المبيعات في قسم 9). |
 | `botMessageLabel` | `string` | نص الزرار (افتراضي «كلّمني 💬»). |
+| `{{course}}` | placeholder | جوّا `html` أو `botMessage` — يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية (Odoo product page). فالبوت يعرف العميل بيسأل عن أي كورس بالظبط. التخصيص عبر `courseNameSelector`. |
 | `code` / `codeLabel` | `string` | كود الخصم/العرض (موجود من قبل — زرار نسخ). |
 
 **التيزر الافتراضي للمتجر** (مدمج في الويدجت، يظهر تلقائيًا على `/shop` و `/course`):
@@ -339,7 +340,7 @@ When user responds after sales pitch:
 {
   showOn: ['/shop', '/course'],
   html: '🛒 محتاج مساعدة في شراء الكورس ده؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
-  botMessage: 'محتاج مساعدة في شراء الكورس ده، وممكن تقوللي لو في عرض؟',
+  botMessage: 'محتاج مساعدة في شراء كورس «{{course}}»، وممكن تقوللي لو في عرض؟',
   botMessageLabel: '💬 ساعدني في الشراء',
   code: PROMO_CODE, codeLabel: 'كود الخصم'
 }

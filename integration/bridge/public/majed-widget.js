@@ -25,6 +25,8 @@
  *       // showOn:   string | string[] — يظهر التيزر فقط لما يطابق الـ URL أحد الأنماط (substring),
  *       //           مثال: showOn:'/shop'  أو  showOn:['engosoft.com/shop','/course'] . بدونها يظهر في كل الصفحات.
  *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
+ *       // {{course}} داخل html أو botMessage يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية.
+ *     courseNameSelector: 'h1[itemprop="name"]',   // (اختياري) من فين يقرأ اسم الكورس — الافتراضي يغطي صفحات Odoo
  *   };
  */
 (function () {
@@ -33,7 +35,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.1.0';
+  var WIDGET_VERSION = '4.2.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -79,8 +81,8 @@
     {
       // يظهر فقط على صفحات الكورسات/المتجر — مساعدة في الشراء + كود العرض
       showOn: ['/shop', '/course'],
-      html: '🛒 محتاج مساعدة في شراء الكورس ده؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
-      botMessage: 'محتاج مساعدة في شراء الكورس ده، وممكن تقوللي لو في عرض؟',
+      html: '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>أو عايز تعرف لو في عرض حاليًا؟',
+      botMessage: 'محتاج مساعدة في شراء كورس «{{course}}»، وممكن تقوللي لو في عرض؟',
       botMessageLabel: '💬 ساعدني في الشراء',
       code: PROMO_CODE, codeLabel: 'كود الخصم'
     }
@@ -949,6 +951,26 @@
     return false;
   }
 
+  // اسم الكورس من صفحة المتجر الحالية — عشان البوت يعرف العميل بيسأل عن أي كورس.
+  // selector قابل للتخصيص (CFG.courseNameSelector)، وبيرجع لعنوان الصفحة لو مفيش عنصر.
+  function pageCourseName() {
+    var sel = CFG.courseNameSelector || 'h1[itemprop="name"], #product_details h1, .oe_website_sale h1, #wrap h1';
+    try {
+      var el = document.querySelector(sel);
+      var name = el && (el.textContent || '').trim();
+      if (name) return name.replace(/\s+/g, ' ').slice(0, 80);
+    } catch (e) {}
+    var t = (document.title || '').split(/\s[|\-–—]\s/)[0].trim();   // العنوان من غير اسم الموقع
+    return t ? t.slice(0, 80) : '';
+  }
+  // يستبدل {{course}} باسم الكورس الحالي (escapeName=true لما يتحقن في HTML)
+  function resolveCourse(s, escapeName) {
+    if (!s || s.indexOf('{{course}}') === -1) return s;
+    var name = pageCourseName() || 'الكورس ده';
+    if (escapeName) name = esc(name);
+    return s.replace(/\{\{course\}\}/g, name);
+  }
+
   // التيزرات المعروضة دلوقتي: استهداف الصفحة أولاً (showOn)، وللزوار = الكل، وبعد اللوجين = من غير عروض الزوار (promo)
   function visibleTeasers() {
     var base = TEASERS.filter(tzMatchesPage);
@@ -962,7 +984,7 @@
     var list = visibleTeasers();
     var t = list[tzIndex % list.length] || {};
     var h = '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
-      '<div><div class="mjd-tz-tx">' + (t.html || '') + '</div>';
+      '<div><div class="mjd-tz-tx">' + resolveCourse(t.html || '', true) + '</div>';
     if (t.link || t.code || t.botMessage) {
       h += '<div class="mjd-tz-act">';
       if (t.botMessage) h += '<button class="mjd-tz-go mjd-tz-ask" type="button" data-msg="' + esc(t.botMessage) + '">' + esc(t.botMessageLabel || 'كلّمني 💬') + '</button>';
@@ -985,7 +1007,7 @@
     var ask = tzIn.querySelector('.mjd-tz-ask');
     if (ask) ask.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      var msg = ask.getAttribute('data-msg') || '';
+      var msg = resolveCourse(ask.getAttribute('data-msg') || '', false);
       if (msg) openPanelAndSend(msg);
     });
     var go = tzIn.querySelector('.mjd-tz-go:not(.mjd-tz-ask)');
