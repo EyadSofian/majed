@@ -191,6 +191,9 @@ function buildWidgetServerConfig() {
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
+  // contact buttons in the widget (WhatsApp + email) — Railway wins over the Odoo page values
+  if (process.env.WA_NUMBER) cfg.waNumber = process.env.WA_NUMBER;
+  if (process.env.SUPPORT_EMAIL) cfg.supportEmail = process.env.SUPPORT_EMAIL;
   // from where to read the course name for {{course}} (CSS selector)
   if (process.env.MAJED_COURSE_NAME_SELECTOR) cfg.courseNameSelector = process.env.MAJED_COURSE_NAME_SELECTOR;
   // granular knobs for the course-page teaser (used when MAJED_TEASERS_JSON is not set)

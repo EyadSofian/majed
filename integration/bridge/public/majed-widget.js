@@ -41,7 +41,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.4.0';
+  var WIDGET_VERSION = '4.5.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -66,8 +66,10 @@
   var AVATAR = avatarIsCustom ? cfgAvatar : AVATAR_CANON;
   var AVATAR_FB = avatarIsCustom ? AVATAR_CANON : ODOO_AVATAR_PATH;
   var AVA_ERR = ' onerror="this.onerror=null;this.src=\'' + AVATAR_FB + '\'"';
-  var WA = String(CFG.waNumber || '966920016295').replace(/[^\d]/g, '');
-  var EMAIL = CFG.supportEmail || 'aibot@engosoft.com';
+  // واتساب + إيميل: أولوية Railway (SCFG) لو متحطّة، وإلا إعداد صفحة Odoo (CFG)، وإلا الافتراضي.
+  // كده تقدر تتحكم فيهم من Railway env (WA_NUMBER / SUPPORT_EMAIL) من غير ما تلمس Odoo.
+  var WA = String(SCFG.waNumber || CFG.waNumber || '966920016295').replace(/[^\d]/g, '');
+  var EMAIL = SCFG.supportEmail || CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
