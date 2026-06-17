@@ -111,6 +111,19 @@ const config = {
   waNumber: (process.env.WA_NUMBER || '966920016295').replace(/[^\d]/g, ''),
   supportEmail: process.env.SUPPORT_EMAIL || 'aibot@engosoft.com',
   welcomeCardTitle: process.env.WELCOME_CARD_TITLE || 'تواصل مع Engosoft',
+
+  // Auto-return-to-bot: after a handoff to a human team, if NO human agent
+  // replies within autoReturnMs, the conversation is flipped back to "pending"
+  // so Majed resumes. The handoff time is persisted in Chatwoot
+  // custom_attributes, so a bridge restart never loses a pending return.
+  autoReturnEnabled: (process.env.HANDOFF_AUTO_RETURN || 'true').toLowerCase() !== 'false',
+  autoReturnMs: Math.max(1, Number(process.env.HANDOFF_TIMEOUT_MINUTES || 180)) * 60 * 1000,
+  // grace window that covers Majed's own handoff-confirmation message so it is
+  // never mistaken for a human agent reply.
+  autoReturnGraceMs: Math.max(0, Number(process.env.HANDOFF_REPLY_GRACE_SECONDS || 120)) * 1000,
+  autoReturnMessage:
+    process.env.HANDOFF_RETURN_MESSAGE ||
+    'آسفين على التأخير 🙏 خدمة العملاء مشغولة دلوقتي، وأنا ماجد رجعت معاك. تحب أساعدك في إيه؟',
 };
 
 // Legacy var: if someone still sets BOTPRESS_WEBHOOK_URL, try to salvage a chat id
@@ -759,6 +772,133 @@ async function performHandoff(cwConvId, teamId) {
   convStatus.set(cwConvId, 'open');
   if (teamId) await cwAssign(cwConvId, { team_id: Number(teamId) });
   console.log(`HANDOFF conv ${cwConvId}${teamId ? ` → team ${teamId}` : ''} (status: open)`);
+  armHandoffReturn(cwConvId, teamId);
+}
+
+// ── Auto-return-to-bot after an unanswered handoff ─────────────────
+// When a conversation is handed to a human team we record the moment in
+// Chatwoot custom_attributes (survives a bridge restart) and watch it in
+// memory. A periodic sweep flips it back to "pending" — so Majed resumes —
+// if no human agent has replied within config.autoReturnMs.
+const HANDOFF_AT_ATTR = 'mjd_handoff_at';     // epoch ms of the handoff
+const HANDOFF_TEAM_ATTR = 'mjd_handoff_team';  // team the conversation was handed to
+const handoffWatch = new Map(); // cwConvId -> handoffAtMs
+
+function armHandoffReturn(cwConvId, teamId) {
+  if (!config.autoReturnEnabled) return;
+  const id = String(cwConvId);
+  const at = Date.now();
+  handoffWatch.set(id, at);
+  // Persist so a restart can recover the pending return.
+  cwSetConversationAttrs(id, {
+    [HANDOFF_AT_ATTR]: at,
+    [HANDOFF_TEAM_ATTR]: teamId ? Number(teamId) : '',
+  }).catch((e) => console.warn(`handoff attr persist failed (conv ${id}):`, e.response?.status || e.message));
+}
+
+function disarmHandoffReturn(cwConvId) {
+  const id = String(cwConvId);
+  handoffWatch.delete(id);
+  cwSetConversationAttrs(id, { [HANDOFF_AT_ATTR]: '', [HANDOFF_TEAM_ATTR]: '' }).catch(() => {});
+}
+
+// Did a human agent reply after the handoff? The grace window excludes Majed's
+// own handoff-confirmation message (written ~instantly at handoff time).
+async function agentRepliedSince(cwConvId, handoffAtMs) {
+  const cutoffSec = (handoffAtMs + config.autoReturnGraceMs) / 1000;
+  let msgs;
+  try {
+    msgs = await cwListMessages(cwConvId);
+  } catch (_) {
+    return true; // can't verify → assume handled, never yank a live chat from an agent
+  }
+  return msgs.some(
+    (m) =>
+      !m.private &&
+      (m.message_type === 1 || m.message_type === 'outgoing') &&
+      Number(m.created_at || 0) > cutoffSec
+  );
+}
+
+async function returnConversationToBot(cwConvId) {
+  const id = String(cwConvId);
+  await cwSetStatus(id, 'pending');
+  convStatus.set(id, 'pending');
+  disarmHandoffReturn(id);
+  console.log(`AUTO-RETURN conv ${id}: no agent reply within ${Math.round(config.autoReturnMs / 60000)}m → pending (bot resumes)`);
+  if (config.autoReturnMessage) {
+    try {
+      const created = await cwSendMessage(id, { content: config.autoReturnMessage, messageType: 'outgoing' });
+      pushToWidget(id, { ...created, message_type: 'outgoing' });
+    } catch (e) {
+      console.warn(`auto-return message failed (conv ${id}):`, e.response?.status || e.message);
+    }
+  }
+}
+
+async function sweepHandoffReturns() {
+  if (!config.autoReturnEnabled || !handoffWatch.size) return;
+  const now = Date.now();
+  for (const [id, at] of [...handoffWatch]) {
+    if (now - at < config.autoReturnMs) continue;
+    try {
+      const conv = await cwGetConversation(id);
+      const status = conv?.status || conv?.payload?.status;
+      const attrs = conv?.custom_attributes || conv?.payload?.custom_attributes || {};
+      // Agent moved it off "open" (resolved/snoozed) → they handled it; stop watching.
+      if (status && status !== 'open') {
+        disarmHandoffReturn(id);
+        continue;
+      }
+      // Trust the persisted time (survives restart); re-check the window against it.
+      const persistedAt = Number(attrs[HANDOFF_AT_ATTR]) || at;
+      if (!persistedAt) {
+        disarmHandoffReturn(id);
+        continue;
+      }
+      handoffWatch.set(id, persistedAt);
+      if (now - persistedAt < config.autoReturnMs) continue;
+      if (await agentRepliedSince(id, persistedAt)) {
+        disarmHandoffReturn(id);
+        continue;
+      }
+      await returnConversationToBot(id);
+    } catch (e) {
+      console.warn(`handoff sweep failed (conv ${id}):`, e.response?.status || e.message);
+    }
+  }
+}
+
+// On startup, re-seed the watch from Chatwoot so a redeploy in the middle of a
+// 3h window still returns the conversation to the bot on time.
+async function recoverHandoffWatches() {
+  if (!config.autoReturnEnabled) return;
+  try {
+    const inboxId = await resolveInboxId();
+    let page = 1;
+    let seeded = 0;
+    while (page <= 8) {
+      const { data } = await axios.get(cwUrl('conversations'), {
+        params: { status: 'open', inbox_id: Number(inboxId), page },
+        headers: cwHeaders(),
+        timeout: 15000,
+      });
+      const list = data?.data?.payload || data?.payload || [];
+      if (!list.length) break;
+      for (const c of list) {
+        const at = Number((c.custom_attributes || {})[HANDOFF_AT_ATTR]) || 0;
+        if (at > 0) {
+          handoffWatch.set(String(c.id), at);
+          seeded++;
+        }
+      }
+      if (list.length < 25) break;
+      page++;
+    }
+    if (seeded) console.log(`Recovered ${seeded} handoff watch(es) from Chatwoot`);
+  } catch (e) {
+    console.warn('handoff watch recovery failed:', e.response?.status || e.message);
+  }
 }
 
 function pickText(...values) {
@@ -1190,6 +1330,11 @@ setInterval(() => {
       console.log(`BOTPRESS listen idle-closed (cw ${cwConvId})`);
     }
   }
+}, 5 * 60 * 1000).unref();
+
+// Flip unanswered handoffs back to the bot once their window elapses.
+setInterval(() => {
+  sweepHandoffReturns().catch((e) => console.error('handoff sweep error:', e.message));
 }, 5 * 60 * 1000).unref();
 
 // ════════════════════════════ ROUTES ════════════════════════════
@@ -1648,6 +1793,7 @@ app.listen(PORT, async () => {
   } else {
     try {
       await resolveInboxId();
+      await recoverHandoffWatches();
     } catch (e) {
       console.warn('⚠ Inbox not resolved yet:', e.message);
     }
