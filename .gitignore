@@ -12,6 +12,9 @@ node_modules/
 chrome-profile/
 chrome-profile-2/
 
+# newsletter subscribers (PII — kept local / forwarded to your own store)
+integration/bridge/data/
+
 # os / editor
 .DS_Store
 Thumbs.db

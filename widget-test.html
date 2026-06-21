@@ -60,8 +60,16 @@ h1{color:#fff;padding:24px;font-size:18px}</style></head>
     url = String(url);
     if (url.indexOf('/widget/session') > -1)
       return jsonResp({ conversationId: '123', reused: false, status: 'pending' });
-    if (url.indexOf('/widget/message') > -1)
+    if (url.indexOf('/widget/subscribe') > -1) {
+      try { console.log('SUBSCRIBE (mock):', JSON.parse(opts.body)); } catch (e) {}
       return jsonResp({ status: 'ok' });
+    }
+    if (url.indexOf('/widget/message') > -1) {
+      // mock a bot reply shortly after the customer sends → exercises the «after first reply»
+      // subscribe card (the widget only shows it once the customer has engaged)
+      setTimeout(function () { window.__mjdEmit({ id: Date.now(), content: 'تمام، وصلتني رسالتك ✅ هساعدك حالًا.', content_type: 'text' }); }, 700);
+      return jsonResp({ status: 'ok' });
+    }
     if (url.indexOf('/widget/upload') > -1) {
       // bot "answers" the attachment shortly after, over the stubbed SSE
       setTimeout(function () { window.__mjdEmit({ id: Date.now(), content: 'وصلتني 👌 هبص عليها وأرد عليك حالًا.', content_type: 'text' }); }, 900);

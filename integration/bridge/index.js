@@ -231,6 +231,15 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_SHOP_SHOWON) shop.showOn = splitList(process.env.MAJED_SHOP_SHOWON);
   if (process.env.MAJED_SHOP_EXCLUDE_SELECTOR) shop.excludeOnSelector = process.env.MAJED_SHOP_EXCLUDE_SELECTOR;
   if (Object.keys(shop).length) cfg.shopTeaser = shop;
+  // newsletter opt-in UI knobs (full JSON object; all keys optional)
+  if (process.env.MAJED_SUBSCRIBE_JSON) {
+    try {
+      const subCfg = JSON.parse(process.env.MAJED_SUBSCRIBE_JSON);
+      if (subCfg && typeof subCfg === 'object') cfg.subscribe = subCfg;
+    } catch (_) {
+      console.warn('⚠ MAJED_SUBSCRIBE_JSON is not valid JSON — ignored.');
+    }
+  }
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();
@@ -1652,6 +1661,43 @@ app.get('/widget/conversations', async (req, res) => {
   } catch (err) {
     console.error('conversations error:', err.message);
     return res.status(500).json({ error: 'conversations_failed' });
+  }
+});
+
+// 3e) Newsletter opt-in from the widget («اشترك ليوصلك جديد ماجد»).
+//     Captured here so YOU control where the list lives — instead of an Odoo mailing
+//     list. Each subscriber is appended to data/subscribers.jsonl (one JSON per line)
+//     AND, if SUBSCRIBE_WEBHOOK_URL is set, POSTed to that URL so you can pipe it into
+//     your own dashboard / Botpress / a sheet, and broadcast news from there later.
+const SUBSCRIBERS_FILE = path.join(__dirname, 'data', 'subscribers.jsonl');
+const SUBSCRIBE_WEBHOOK = process.env.SUBSCRIBE_WEBHOOK_URL || '';
+function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
+app.post('/widget/subscribe', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const source = String(req.body?.source || 'widget').slice(0, 40);
+    const name = String(req.body?.userData?.name || req.body?.name || '').slice(0, 120);
+    if (!isEmail(email)) return res.status(400).json({ error: 'invalid_email' });
+
+    const record = { email, name, source, ts: new Date().toISOString() };
+    console.log(`SUBSCRIBE ${email} (${source})`);
+
+    // a) best-effort local store (one JSON object per line — easy to read into a dashboard)
+    try {
+      fs.mkdirSync(path.dirname(SUBSCRIBERS_FILE), { recursive: true });
+      fs.appendFileSync(SUBSCRIBERS_FILE, JSON.stringify(record) + '\n');
+    } catch (e) { console.error('subscribers file write failed:', e.message); }
+
+    // b) optional forward to your own destination (dashboard / Botpress / sheet / CRM)
+    if (SUBSCRIBE_WEBHOOK) {
+      axios.post(SUBSCRIBE_WEBHOOK, record, { timeout: 8000 })
+        .catch((e) => console.error('subscribe webhook failed:', e.response?.data || e.message));
+    }
+
+    return res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('subscribe error:', err.message);
+    return res.status(500).json({ error: 'subscribe_failed' });
   }
 });
 

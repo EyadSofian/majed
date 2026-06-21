@@ -141,6 +141,27 @@
       CATALOG_TEASER
     ];
 
+  // اشتراك النشرة (إيميل) — قابل للتخصيص/الإطفاء من Railway env عبر SCFG.subscribe.
+  // بيظهر للزوّار بس (المسجّل إيميله عندنا أصلاً) وبشكل غير حاجز:
+  //  - نسخة 1 «بعد أول رد»: بطاقة ناعمة جوّه الشات بعد ما العميل يبعت ويرد عليه ماجد.
+  //  - نسخة 3 «عند القفل»: عرض أخير وقت إغلاق الشات.
+  var sub = SCFG.subscribe || {};
+  var SUBSCRIBE = {
+    enabled: sub.enabled !== false,
+    afterReply: sub.afterReply !== false,   // نسخة 1
+    onExit: sub.onExit !== false,           // نسخة 3
+    title: sub.title || 'عايز يوصلك جديد ماجد؟ ✨',
+    text: sub.text || 'سجّل إيميلك ونبعتلك أحدث الدورات والعروض والتحديثات أول بأول.',
+    okLabel: sub.okLabel || '✅ اشترك',
+    skipLabel: sub.skipLabel || 'دلوقتي لأ',
+    exitTitle: sub.exitTitle || 'قبل ما تمشي…',
+    exitText: sub.exitText || 'عايز يوصلك جديد ماجد؟ أحدث الدورات والعروض على إيميلك.',
+    exitOkLabel: sub.exitOkLabel || '✅ اشترك وقفل',
+    exitSkipLabel: sub.exitSkipLabel || 'لأ شكراً',
+    micro: sub.micro || 'من غير سبام — تقدر تلغي الاشتراك أي وقت.',
+    doneMsg: sub.doneMsg || 'تمام! ✅ سجّلنا إيميلك، هيوصلك كل جديد من ماجد.'
+  };
+
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
   var ctxPromise = null;          // user-context fetch (once)
@@ -153,6 +174,10 @@
   var forceNew = false;           // «محادثة جديدة»: skip the stored conversation id
   var live = false;               // customer actually chatting → glass header
   var tzTimer = null, tzRotateTimer = null, tzIndex = 0, tzVisible = false;
+  var engaged = false;            // العميل بعت رسالة واحدة على الأقل (شرط بطاقة الاشتراك)
+  var subInlineEl = null;         // بطاقة الاشتراك الجوّانية المعروضة حاليًا (إن وُجدت)
+  var exitEl = null;              // عرض الخروج المعروض حاليًا (إن وُجد)
+  var exitShownLoad = false;      // عرض الخروج اتعرض مرة في تحميل الصفحة ده
 
   // ---------- styles ----------
   var CSS = [
@@ -350,7 +375,29 @@
     '#mjd-edge img{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block}',
     '/* وصولية: حلقة تركيز واضحة لعناصر التفاعل */',
     '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible{outline:2px solid #7c5cff;outline-offset:2px}',
-    '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
+    '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}',
+    '/* ===== اشتراك النشرة (بطاقة جوّه الشات + عرض الخروج) ===== */',
+    '.mjd-sub{flex:1;background:var(--surf);border:1.5px solid rgba(124,92,255,.22);border-radius:16px;padding:13px 13px 11px;position:relative;box-shadow:0 8px 24px rgba(124,92,255,.1)}',
+    '.mjd-sub-x{position:absolute;top:8px;left:9px;width:23px;height:23px;border-radius:7px;border:0;cursor:pointer;background:var(--surf2);color:var(--soft);font-size:13px;line-height:1;display:grid;place-items:center}',
+    '.mjd-sub-h b{display:block;font-size:13.5px;font-weight:800;color:var(--text);margin-bottom:3px;padding-inline-end:20px}',
+    '.mjd-sub-h span{display:block;font-size:12px;line-height:1.6;color:var(--muted)}',
+    '.mjd-sub-f{display:flex;align-items:center;gap:8px;margin-top:11px;background:var(--pill);border:1px solid var(--pillbd);border-radius:11px;padding:0 12px;height:42px;transition:border-color .15s}',
+    '.mjd-sub-f input{flex:1;border:0;background:transparent;outline:0;font:inherit;font-size:13px;color:var(--text)}',
+    '.mjd-sub-f input::placeholder{color:var(--soft)}',
+    '.mjd-sub-f input.mjd-sub-err::placeholder{color:#ef4444}.mjd-sub-f:has(.mjd-sub-err){border-color:#ef4444}',
+    '.mjd-sub-a{display:flex;gap:8px;margin-top:9px}',
+    '.mjd-sub-go{flex:1;height:40px;border-radius:11px;border:0;cursor:pointer;font:inherit;font-size:13px;font-weight:800;color:#fff;background:linear-gradient(135deg,#7c5cff,#06b6d4);box-shadow:0 7px 16px rgba(124,92,255,.28)}',
+    '.mjd-sub-go[disabled]{opacity:.6;cursor:default}',
+    '.mjd-sub-skip{flex:0 0 auto;padding:0 15px;height:40px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:700;cursor:pointer}',
+    '.mjd-sub-m{text-align:center;font-size:10px;color:var(--soft);margin-top:8px}',
+    '/* عرض الخروج فوق الشات */',
+    '.mjd-exit{position:absolute;inset:0;z-index:9;background:rgba(23,27,46,.42);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;padding:14px;animation:mjdTzIn .25s ease both}',
+    '.mjd-exit-card{width:100%;background:var(--surf);border-radius:18px;padding:17px 15px 14px;box-shadow:0 20px 50px rgba(15,30,66,.32);animation:mjdExitUp .34s cubic-bezier(.2,.9,.3,1.2) both}',
+    '@keyframes mjdExitUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}',
+    '.mjd-exit-emo{display:block;text-align:center;font-size:28px;margin-bottom:3px}',
+    '.mjd-exit-card>b{display:block;text-align:center;font-size:15.5px;font-weight:800;color:var(--text);margin-bottom:4px}',
+    '.mjd-exit-card>p{margin:0 auto;text-align:center;font-size:12.5px;line-height:1.6;color:var(--muted);max-width:280px}',
+    '@media (prefers-reduced-motion:reduce){.mjd-exit-card{animation:none}}'
   ].join('');
 
   function inject(tag, attrs, html) {
@@ -767,6 +814,83 @@
     });
     es.onerror = function () { /* EventSource auto-reconnects */ };
   }
+  // ---------- اشتراك النشرة (إيميل) ----------
+  // sessionStorage:  majed:sub:done = اشترك أو رفض نهائيًا (يوقف الاتنين)
+  //                  majed:sub:inline = خفى/تخطّى البطاقة الجوّانية (مايمنعش عرض الخروج)
+  function subDone() { try { return sessionStorage.getItem('majed:sub:done') === '1'; } catch (e) { return false; } }
+  function markSubDone() { try { sessionStorage.setItem('majed:sub:done', '1'); } catch (e) {} }
+  function subInlineDone() { try { return sessionStorage.getItem('majed:sub:inline') === '1'; } catch (e) { return false; } }
+  function markSubInlineDone() { try { sessionStorage.setItem('majed:sub:inline', '1'); } catch (e) {} }
+  function subEligible() { return SUBSCRIBE.enabled && !isLoggedIn() && !subDone(); }
+  function validEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
+  function postSubscribe(email, source) {
+    return fetch(BRIDGE + '/widget/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, source: source, name: userData.name || '', userData: userData })
+    }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+  // نسخة 1 — بطاقة ناعمة جوّه الشات بعد أول رد
+  function showInlineSubscribe() {
+    if (!SUBSCRIBE.afterReply || !subEligible() || subInlineDone() || subInlineEl) return;
+    var row = inject('div', { class: 'mjd-row mjd-bot' },
+      '<img class="mjd-mini" src="' + AVATAR + '"' + AVA_ERR + '/>' +
+      '<div class="mjd-sub">' +
+        '<button class="mjd-sub-x" type="button" aria-label="تخطّي">✕</button>' +
+        '<div class="mjd-sub-h"><b>' + esc(SUBSCRIBE.title) + '</b><span>' + esc(SUBSCRIBE.text) + '</span></div>' +
+        '<div class="mjd-sub-f"><input type="email" inputmode="email" autocomplete="email" placeholder="بريدك الإلكتروني" aria-label="بريدك الإلكتروني"/></div>' +
+        '<div class="mjd-sub-a"><button class="mjd-sub-go" type="button">' + esc(SUBSCRIBE.okLabel) + '</button>' +
+        '<button class="mjd-sub-skip" type="button">' + esc(SUBSCRIBE.skipLabel) + '</button></div>' +
+        '<div class="mjd-sub-m">' + esc(SUBSCRIBE.micro) + '</div>' +
+      '</div>');
+    bd.appendChild(row); scrollDown();
+    subInlineEl = row;
+    var inp = row.querySelector('input'), go = row.querySelector('.mjd-sub-go');
+    function dismiss() { markSubInlineDone(); if (subInlineEl) { subInlineEl.remove(); subInlineEl = null; } }
+    function submit() {
+      var v = (inp.value || '').trim();
+      if (!validEmail(v)) { inp.classList.add('mjd-sub-err'); inp.focus(); return; }
+      go.setAttribute('disabled', '');
+      postSubscribe(v, 'inline').then(function () {
+        markSubDone();
+        if (subInlineEl) { subInlineEl.remove(); subInlineEl = null; }
+        addBot(esc(SUBSCRIBE.doneMsg));
+      });
+    }
+    go.addEventListener('click', submit);
+    inp.addEventListener('input', function () { inp.classList.remove('mjd-sub-err'); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    row.querySelector('.mjd-sub-skip').addEventListener('click', dismiss);
+    row.querySelector('.mjd-sub-x').addEventListener('click', dismiss);
+  }
+  // نسخة 3 — عرض الخروج وقت قفل الشات. بيرجّع true لو اتعرض (عشان نأجّل القفل).
+  function showExitSubscribe() {
+    if (!SUBSCRIBE.onExit || !subEligible() || exitShownLoad || exitEl) return false;
+    exitShownLoad = true;
+    exitEl = inject('div', { class: 'mjd-exit', role: 'dialog', 'aria-label': 'اشتراك النشرة' },
+      '<div class="mjd-exit-card">' +
+        '<span class="mjd-exit-emo">📬</span>' +
+        '<b>' + esc(SUBSCRIBE.exitTitle) + '</b><p>' + esc(SUBSCRIBE.exitText) + '</p>' +
+        '<div class="mjd-sub-f"><input type="email" inputmode="email" autocomplete="email" placeholder="بريدك الإلكتروني" aria-label="بريدك الإلكتروني"/></div>' +
+        '<div class="mjd-sub-a"><button class="mjd-sub-go" type="button">' + esc(SUBSCRIBE.exitOkLabel) + '</button>' +
+        '<button class="mjd-sub-skip" type="button">' + esc(SUBSCRIBE.exitSkipLabel) + '</button></div>' +
+        '<div class="mjd-sub-m">' + esc(SUBSCRIBE.micro) + '</div>' +
+      '</div>');
+    panel.appendChild(exitEl);
+    var inp = exitEl.querySelector('input');
+    setTimeout(function () { try { inp.focus(); } catch (e) {} }, 60);
+    function finish() { if (exitEl) { exitEl.remove(); exitEl = null; } finishClose(); }
+    exitEl.querySelector('.mjd-sub-go').addEventListener('click', function () {
+      var v = (inp.value || '').trim();
+      if (!validEmail(v)) { inp.classList.add('mjd-sub-err'); inp.focus(); return; }
+      markSubDone(); postSubscribe(v, 'exit'); finish();
+    });
+    inp.addEventListener('input', function () { inp.classList.remove('mjd-sub-err'); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') exitEl.querySelector('.mjd-sub-go').click(); });
+    exitEl.querySelector('.mjd-sub-skip').addEventListener('click', function () { markSubDone(); finish(); });
+    exitEl.addEventListener('click', function (e) { if (e.target === exitEl) finish(); }); // ضغط الخلفية = قفل من غير إزعاج
+    return true;
+  }
+
   function renderStreamMessage(m) {
     if (m.id != null) {
       if (seenIds[m.id]) return;
@@ -774,6 +898,8 @@
     }
     hideTyping();
     renderAgentMessage(m);
+    // «بعد أول رد»: العميل بعت رسالة وماجد ردّ → نعرض بطاقة الاشتراك مرة واحدة (للزوّار)
+    if (engaged) showInlineSubscribe();
   }
 
   // transcript restore (reopen / switch from history)
@@ -834,8 +960,9 @@
   function sendMessage(text, display) {
     text = (text || '').trim();
     // a picked file goes out with the typed text as caption (button clicks don't consume it)
-    if (pendingFile && display == null) { sendAttachment(text); return; }
+    if (pendingFile && display == null) { engaged = true; sendAttachment(text); return; }
     if (!text) return;
+    engaged = true;  // العميل تفاعل → بطاقة الاشتراك تقدر تظهر بعد رد ماجد
     addMe((display || text).trim() || text);
     setLive(true);
     if (!convId) { startSession().then(function () { if (convId) postMsg(text); }); return; }
@@ -1281,6 +1408,7 @@
   // ===== فتح/إغلاق/إخفاء =====
   function openPanel() {
     hideTeaser();
+    if (exitEl) { exitEl.remove(); exitEl = null; } // شيل أي عرض خروج عالق قبل ما نفتح
     panel.classList.add('mjd-open');
     requestAnimationFrame(applyPos); // النافذة دلوقتي ليها ارتفاع حقيقي → نضمن إنها جوة الشاشة
     startSession();
@@ -1297,9 +1425,15 @@
   }
 
   // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
-  function closePanel() {
+  function finishClose() {
     panel.classList.remove('mjd-open');
     if (!live) showTeaser(1500); // رجّع التيزر بعد قفل النافذة
+  }
+  // عند القفل: نعرض عرض اشتراك الخروج مرة واحدة (نسخة 3) ونأجّل القفل لحد ما العميل يتصرّف.
+  // skipSub=true يتخطّى ده (مستخدَم مع «إخفاء مؤقتًا»).
+  function closePanel(opts) {
+    if (!(opts && opts.skipSub) && showExitSubscribe()) return;
+    finishClose();
   }
   fab.addEventListener('click', function () {
     if (suppressClick) return; // دي نهاية سحبة مش ضغطة
@@ -1326,7 +1460,7 @@
     } catch (e) {}
   }
   document.getElementById('mjd-hide').addEventListener('click', function () {
-    closePanel();
+    closePanel({ skipSub: true });  // الإخفاء المؤقت ميطلعش عرض الاشتراك
     setHidden(true);
   });
   edge.addEventListener('click', function () { setHidden(false); });
