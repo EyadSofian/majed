@@ -88,11 +88,17 @@
   var LIST_PREFIX = 'majed:convlist:' + BRIDGE + ':';
 
   // تيزر صفحة الكورس — قابل للتخصيص بالكامل من Railway env vars (عبر SCFG.courseTeaser)
-  // بيظهر لأي زائر على صفحة كورس (مسجّل أو لا) بفكرة «مساعدة الشراء» + خصم 20% بكود engo20.
+  // بيظهر لأي زائر على صفحة كورس مفردة (مسجّل أو لا) بفكرة «مساعدة الشراء» + خصم 20% بكود engo20.
+  // مهم: المقصود صفحة الدورة الواحدة (مثال: /shop/the-freelance-masterclass-2056)،
+  // مش قائمة المتجر العامة (/shop). عشان كده بنعتمد على علامتين معًا:
+  //  1) showOnSelector على عنصر صفحة المنتج المفردة في Odoo (تفاصيل المنتج/الفورم الرئيسي)
+  //     — العنصر ده مش موجود في صفحة القائمة، فالتيزر مايظهرش هناك.
+  //  2) showOn على '/shop/' و '/course/' بشَرطة في الآخر كشرط احتياطي يضمن الظهور على
+  //     صفحة الدورة حتى لو القالب مختلف، ومع كده القائمة العامة '/shop' (من غير شرطة) متطلعش.
   var ct = SCFG.courseTeaser || {};
   var COURSE_TEASER = {
-    showOn: ct.showOn || ['/shop', '/course'],
-    showOnSelector: ct.showOnSelector || null,
+    showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/'],
+    showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
     html: ct.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>معاك خصم <b>20%</b> على الدورة دي بالكود 👇',
     botMessage: ct.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، ومعايا كود خصم ' + DISCOUNT_CODE + '.',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
