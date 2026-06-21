@@ -203,6 +203,7 @@ function buildWidgetServerConfig() {
     }
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
+  if (process.env.MAJED_DISCOUNT_CODE) cfg.discountCode = process.env.MAJED_DISCOUNT_CODE;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
   // contact buttons in the widget (WhatsApp + email) — Railway wins over the Odoo page values
   if (process.env.WA_NUMBER) cfg.waNumber = process.env.WA_NUMBER;

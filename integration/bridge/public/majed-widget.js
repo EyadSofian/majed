@@ -18,10 +18,13 @@
  *     theme:           'light',                                // 'light' | 'dark'
  *     greeting:        'أهلاً، أنا ماجد',
  *     courseUrl:       'https://engosoft.com/shop/the-freelance-masterclass-2056',
- *     promoCode:       'free100',
+ *     promoCode:       'free100',    // كود عرض الزوار (دورة مجانية)
+ *     discountCode:    'engo20',     // كود خصم المسجّلين (20% على أي دورة)
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
- *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn, showOnSelector }]
+ *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn, showOnSelector, guestOnly, loggedInOnly }]
+ *       // guestOnly:     يظهر للزوار قبل اللوجين فقط.
+ *       // loggedInOnly:  يظهر للعملاء المسجّلين (بعد اللوجين) فقط.
  *       // showOn:   string | string[] — يظهر التيزر فقط لما يطابق الـ URL أحد الأنماط (substring),
  *       //           مثال: showOn:'/shop'  أو  showOn:['engosoft.com/shop','/course'] . بدونها يظهر في كل الصفحات.
  *       // showOnSelector: CSS selector — يظهر التيزر لو العنصر ده موجود في الصفحة (بديل/إضافة لـ showOn).
@@ -41,7 +44,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.5.0';
+  var WIDGET_VERSION = '4.6.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -74,6 +77,8 @@
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
   var PROMO_CODE = CFG.promoCode || SCFG.promoCode || 'free100';
+  // كود خصم العملاء المسجّلين (20% على أي دورة) — قابل للتخصيص من الصفحة أو Railway env
+  var DISCOUNT_CODE = CFG.discountCode || SCFG.discountCode || 'engo20';
   var TZ_DELAY = Number(CFG.teaserDelay) > 0 ? Number(CFG.teaserDelay) : 3500;
   var TZ_ROTATE = Number(CFG.teaserRotate) > 2000 ? Number(CFG.teaserRotate) : 9000;
   var MAX_FILE_MB = 10;
@@ -102,6 +107,12 @@
         guestOnly: true,
         html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
         link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
+      },
+      {
+        // خصم 20% على أي دورة — يظهر بعد اللوجين فقط (للعملاء المسجّلين)
+        loggedInOnly: true,
+        html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
+        link: COURSE_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
       COURSE_TEASER
     ];
@@ -1015,16 +1026,18 @@
   // التيزرات المعروضة دلوقتي:
   //  1) فلترة حسب الصفحة (showOn / showOnSelector).
   //  2) لو فيه تيزر مخصّص للصفحة دي → اعرض المخصّصة لوحدها وخفي العامة (عشان صفحة الكورس متطلعش الترحيب).
-  //  3) بعد اللوجين → من غير عروض الزوار (promo).
+  //  3) حسب حالة اللوجين: guestOnly للزوار فقط، loggedInOnly للمسجّلين فقط، والباقي للكل.
   function visibleTeasers() {
     var base = TEASERS.filter(tzMatchesPage);
     var targeted = base.filter(tzIsTargeted);
     if (targeted.length) base = targeted;
-    if (isLoggedIn()) {
-      var only = base.filter(function (t) { return !t.guestOnly; });
-      return only.length ? only : base;
-    }
-    return base;
+    var logged = isLoggedIn();
+    var only = base.filter(function (t) {
+      if (t.guestOnly) return !logged;      // عروض الزوار — تختفي بعد اللوجين
+      if (t.loggedInOnly) return logged;    // عروض المسجّلين — تظهر بعد اللوجين فقط
+      return true;
+    });
+    return only.length ? only : base;
   }
   function renderTeaser() {
     var list = visibleTeasers();
