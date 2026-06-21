@@ -96,6 +96,19 @@
     code: ct.code || PROMO_CODE,
     codeLabel: ct.codeLabel || 'كود الخصم'
   };
+  // تيزر صفحة الكورس للعملاء المسجّلين — نفس فكرة «مساعدة الشراء» + خصم 20% بكود engo20.
+  // بيظهر بعد اللوجين فقط وعلى صفحات الكورس فقط (نفس استهداف COURSE_TEASER).
+  var cti = SCFG.courseTeaserLoggedIn || {};
+  var COURSE_TEASER_IN = {
+    loggedInOnly: true,
+    showOn: cti.showOn || COURSE_TEASER.showOn,
+    showOnSelector: cti.showOnSelector || COURSE_TEASER.showOnSelector,
+    html: cti.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>معاك خصم <b>20%</b> على الدورة دي بالكود 👇',
+    botMessage: cti.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، ومعايا كود خصم ' + DISCOUNT_CODE + '.',
+    botMessageLabel: cti.botMessageLabel || '💬 ساعدني في الشراء',
+    code: cti.code || DISCOUNT_CODE,
+    codeLabel: cti.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+  };
   // الرسالة اللي بتلفت انتباه العميل.
   // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
@@ -114,7 +127,8 @@
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
         link: COURSE_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
-      COURSE_TEASER
+      COURSE_TEASER,
+      COURSE_TEASER_IN
     ];
 
   // ---------- state ----------
