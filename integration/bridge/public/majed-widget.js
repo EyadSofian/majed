@@ -76,6 +76,8 @@
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
+  // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر خصم 20%
+  var SHOP_URL = CFG.shopUrl || SCFG.shopUrl || 'https://engosoft.com/shop';
   var PROMO_CODE = CFG.promoCode || SCFG.promoCode || 'free100';
   // كود خصم العملاء المسجّلين (20% على أي دورة) — قابل للتخصيص من الصفحة أو Railway env
   var DISCOUNT_CODE = CFG.discountCode || SCFG.discountCode || 'engo20';
@@ -113,7 +115,7 @@
         // خصم 20% على أي دورة — يظهر بعد اللوجين فقط (للعملاء المسجّلين)
         loggedInOnly: true,
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
-        link: COURSE_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
+        link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
       COURSE_TEASER
     ];
