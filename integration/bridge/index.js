@@ -221,6 +221,16 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_COURSE_SHOWON) course.showOn = splitList(process.env.MAJED_COURSE_SHOWON);
   if (process.env.MAJED_COURSE_SHOWON_SELECTOR) course.showOnSelector = process.env.MAJED_COURSE_SHOWON_SELECTOR;
   if (Object.keys(course).length) cfg.courseTeaser = course;
+  // granular knobs for the catalog (/shop listing) teaser — the general «help me choose» message
+  const shop = {};
+  if (process.env.MAJED_SHOP_TEASER_HTML) shop.html = process.env.MAJED_SHOP_TEASER_HTML;
+  if (process.env.MAJED_SHOP_TEASER_MSG) shop.botMessage = process.env.MAJED_SHOP_TEASER_MSG;
+  if (process.env.MAJED_SHOP_TEASER_LABEL) shop.botMessageLabel = process.env.MAJED_SHOP_TEASER_LABEL;
+  if (process.env.MAJED_SHOP_CODE_LABEL) shop.codeLabel = process.env.MAJED_SHOP_CODE_LABEL;
+  if (process.env.MAJED_SHOP_CODE) shop.code = process.env.MAJED_SHOP_CODE;
+  if (process.env.MAJED_SHOP_SHOWON) shop.showOn = splitList(process.env.MAJED_SHOP_SHOWON);
+  if (process.env.MAJED_SHOP_EXCLUDE_SELECTOR) shop.excludeOnSelector = process.env.MAJED_SHOP_EXCLUDE_SELECTOR;
+  if (Object.keys(shop).length) cfg.shopTeaser = shop;
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();

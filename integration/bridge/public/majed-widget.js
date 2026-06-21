@@ -105,6 +105,20 @@
     code: ct.code || DISCOUNT_CODE,
     codeLabel: ct.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
+
+  // تيزر قائمة الدورات (صفحة المتجر العامة /shop) — رسالة عامة «تحب أساعدك تختار الدورة المناسبة؟»
+  // بيظهر على صفحة القائمة بس، ويتستثنى تلقائيًا على صفحة الدورة المفردة (اللي فيها تفاصيل المنتج)
+  // عشان COURSE_TEASER هو اللي يظهر هناك. قابل للتخصيص من Railway env عبر SCFG.shopTeaser.
+  var st = SCFG.shopTeaser || {};
+  var CATALOG_TEASER = {
+    showOn: st.showOn != null ? st.showOn : ['/shop', '/course'],
+    excludeOnSelector: st.excludeOnSelector != null ? st.excludeOnSelector : '#product_details, #product_detail, .js_main_product',
+    html: st.html || 'تحب أساعدك تختار الدورة المناسبة ليك؟ 🎯<br/>وفيه <b>خصم</b> على الدورات 👇',
+    botMessage: st.botMessage || 'تحب تساعدني أختار الدورة المناسبة ليا من دوراتكم؟ وسمعت إن فيه خصم على الدورات.',
+    botMessageLabel: st.botMessageLabel || '🎯 ساعدني أختار',
+    code: st.code || DISCOUNT_CODE,
+    codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+  };
   // الرسالة اللي بتلفت انتباه العميل.
   // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
@@ -123,7 +137,8 @@
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
         link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
-      COURSE_TEASER
+      COURSE_TEASER,
+      CATALOG_TEASER
     ];
 
   // ---------- state ----------
@@ -980,11 +995,16 @@
   function tzIsTargeted(t) { return !!(t && (t.showOn != null || t.showOnSelector != null)); }
 
   // هل التيزر مسموح يظهر على الصفحة الحالية؟
+  //  - excludeOnSelector: لو العنصر ده موجود في الصفحة → التيزر مايظهرش (مثلاً قائمة الدورات
+  //    تستثني صفحة الدورة المفردة اللي فيها تفاصيل المنتج)
   //  - showOn: substring أو مصفوفة في الـ URL (host+path+query)
   //  - showOnSelector: يظهر لو عنصر بالـ selector ده موجود في الصفحة (مفيد لصفحات الكورس/المنتج)
   //  - من غير أي منهم → يظهر في كل صفحة
   function tzMatchesPage(t) {
     if (!t) return false;
+    if (t.excludeOnSelector) {
+      try { if (document.querySelector(t.excludeOnSelector)) return false; } catch (e) {}
+    }
     if (!tzIsTargeted(t)) return true;
     if (t.showOnSelector) {
       try { if (document.querySelector(t.showOnSelector)) return true; } catch (e) {}
