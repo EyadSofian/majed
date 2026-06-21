@@ -124,6 +124,14 @@ const config = {
   autoReturnMessage:
     process.env.HANDOFF_RETURN_MESSAGE ||
     'آسفين على التأخير 🙏 خدمة العملاء مشغولة دلوقتي، وأنا ماجد رجعت معاك. تحب أساعدك في إيه؟',
+
+  // Optional newsletter capture for the custom widget. The bridge stores a small
+  // append-only JSONL file for phase 1, and can also forward each signup to Odoo,
+  // Botpress, Zapier, or any automation endpoint later.
+  subscribeEnabled: (process.env.SUBSCRIBE_ENABLED || 'true').toLowerCase() !== 'false',
+  subscribeStoreFile: process.env.SUBSCRIBE_STORE_FILE || path.join(__dirname, 'data', 'subscribers.jsonl'),
+  subscribeWebhookUrl: process.env.SUBSCRIBE_WEBHOOK_URL || '',
+  subscribeAdminToken: process.env.SUBSCRIBE_ADMIN_TOKEN || '',
 };
 
 // Legacy var: if someone still sets BOTPRESS_WEBHOOK_URL, try to salvage a chat id
@@ -461,6 +469,128 @@ function welcomeCard() {
   };
 }
 
+// ── Newsletter subscribers (soft opt-in from the widget) ─────────────────────
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(email || '').trim());
+}
+
+function subscriberStoreReady() {
+  const dir = path.dirname(config.subscribeStoreFile);
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function normalizeSubscriber(row) {
+  const email = String(row.email || '').trim().toLowerCase();
+  return {
+    email,
+    name: String(row.name || '').trim(),
+    source: String(row.source || 'widget').trim(),
+    conversationId: cleanId(row.conversationId),
+    createdAt: row.createdAt || new Date().toISOString(),
+    userAgent: String(row.userAgent || '').slice(0, 200),
+    ip: String(row.ip || '').slice(0, 80),
+  };
+}
+
+function readSubscribers() {
+  try {
+    if (!fs.existsSync(config.subscribeStoreFile)) return [];
+    const latest = new Map();
+    const lines = fs.readFileSync(config.subscribeStoreFile, 'utf8').split(/\r?\n/).filter(Boolean);
+    for (const line of lines) {
+      try {
+        const row = normalizeSubscriber(JSON.parse(line));
+        if (row.email) latest.set(row.email, row);
+      } catch (_) {}
+    }
+    return [...latest.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  } catch (e) {
+    console.warn('readSubscribers failed:', e.message);
+    return [];
+  }
+}
+
+function saveSubscriber(row) {
+  const normalized = normalizeSubscriber(row);
+  subscriberStoreReady();
+  fs.appendFileSync(config.subscribeStoreFile, JSON.stringify(normalized) + '\n', 'utf8');
+  return normalized;
+}
+
+async function forwardSubscriber(row) {
+  if (!config.subscribeWebhookUrl) return;
+  try {
+    await axios.post(config.subscribeWebhookUrl, row, { timeout: 10000 });
+  } catch (e) {
+    console.warn('subscriber webhook failed:', e.response?.status || e.message);
+  }
+}
+
+function subscriberAdminAllowed(req) {
+  if (!config.subscribeAdminToken) return false;
+  const token = req.get('x-admin-token') || req.query.token;
+  if (!token) return false;
+  const a = Buffer.from(String(token));
+  const b = Buffer.from(String(config.subscribeAdminToken));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function csvCell(value) {
+  const s = String(value == null ? '' : value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function subscribersCsv(rows) {
+  const head = ['email', 'name', 'source', 'conversationId', 'createdAt'];
+  return [head.join(',')]
+    .concat(rows.map((r) => head.map((k) => csvCell(r[k])).join(',')))
+    .join('\n');
+}
+
+function widgetSubscribeConfig() {
+  return { enabled: config.subscribeEnabled };
+}
+
+function subscribersHtml(rows, token) {
+  const escHtml = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const trs = rows.map((r) => `
+    <tr>
+      <td>${escHtml(r.email)}</td>
+      <td>${escHtml(r.name || 'زائر')}</td>
+      <td>${escHtml(r.source)}</td>
+      <td>${escHtml(r.conversationId)}</td>
+      <td>${escHtml(r.createdAt)}</td>
+    </tr>`).join('');
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>مشتركو ماجد</title>
+  <style>
+    body{font-family:system-ui,"Segoe UI",Tahoma,sans-serif;margin:0;background:#f7f8fc;color:#171b2e}
+    main{max-width:1040px;margin:40px auto;padding:0 18px}
+    h1{font-size:24px;margin:0 0 8px}
+    p{color:#667085;margin:0 0 22px;line-height:1.6}
+    a{color:#6847ff;font-weight:700}
+    table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e6e8f0;border-radius:12px;overflow:hidden}
+    th,td{padding:12px 14px;border-bottom:1px solid #edf0f5;text-align:right;font-size:14px}
+    th{background:#f1f3f8;color:#344054}
+    tr:last-child td{border-bottom:0}
+    .empty{background:#fff;border:1px solid #e6e8f0;border-radius:12px;padding:28px;text-align:center;color:#667085}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>مشتركو تحديثات ماجد</h1>
+    <p>${rows.length} مشترك. للتصدير افتح <a href="./subscribers.csv?token=${encodeURIComponent(token || '')}">CSV</a>.</p>
+    ${rows.length ? `<table><thead><tr><th>الإيميل</th><th>الاسم</th><th>المصدر</th><th>المحادثة</th><th>وقت الاشتراك</th></tr></thead><tbody>${trs}</tbody></table>` : '<div class="empty">لا توجد اشتراكات بعد.</div>'}
+  </main>
+</body>
+</html>`;
+}
+
 // ── widget SSE registry + de-dup ───────────────────────────────────
 const sseClients = new Map(); // cwConvId -> Set<res>
 const pushedIds = lruSet(5000); // chatwoot message ids already delivered to widget
@@ -710,6 +840,7 @@ async function reviveIfResolved(convId) {
 // ── Botpress Chat API ──────────────────────────────────────────────
 const BP_IDLE_MS = 30 * 60 * 1000; // stop SSE listeners after 30 min inactivity
 const bpMap = new Map(); // cwConvId -> { userId, userKey, bpConvId, lastActivity, stream, seen }
+const bpEnsureInFlight = new Map(); // cwConvId -> Promise<mapping>; prevents duplicate prewarm races
 
 function bpConfigured() {
   return Boolean(config.botpressChatWebhookId);
@@ -1148,6 +1279,23 @@ async function ensureBotpress(cwConvId, { name, userData }) {
     return mapping;
   }
 
+  const pending = bpEnsureInFlight.get(cwConvId);
+  if (pending) return pending;
+
+  const created = ensureBotpressUncached(cwConvId, { name, userData })
+    .finally(() => bpEnsureInFlight.delete(cwConvId));
+  bpEnsureInFlight.set(cwConvId, created);
+  return created;
+}
+
+async function ensureBotpressUncached(cwConvId, { name, userData }) {
+  let mapping = bpMap.get(cwConvId);
+  if (mapping) {
+    mapping.lastActivity = Date.now();
+    if (!mapping.stream) bpStartListener(cwConvId, mapping);
+    return mapping;
+  }
+
   // recovery after restart: read mapping back from Chatwoot
   try {
     const conv = await cwGetConversation(cwConvId);
@@ -1377,8 +1525,60 @@ app.get('/debug/config', (_req, res) => {
     },
     widgetOrigin: config.widgetOrigin,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
+    subscribe: {
+      enabled: config.subscribeEnabled,
+      webhook: Boolean(config.subscribeWebhookUrl),
+      dashboard: Boolean(config.subscribeAdminToken),
+    },
     assets: { avatarSha: AVATAR_SHA.slice(0, 16) || null, widgetSha: WIDGET_SHA.slice(0, 16) || null },
   });
+});
+
+// Soft newsletter opt-in from the widget. This is intentionally not tied to the
+// chat flow: failure to subscribe never blocks the conversation.
+app.post('/widget/subscribe', async (req, res) => {
+  try {
+    if (!config.subscribeEnabled) return res.status(404).json({ error: 'subscribe_disabled' });
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'invalid_email' });
+
+    const userData = req.body?.userData || {};
+    const row = saveSubscriber({
+      email,
+      name: req.body?.name || userData.name || userData.fullName || '',
+      source: req.body?.source || 'widget',
+      conversationId: req.body?.conversationId,
+      userAgent: req.get('user-agent') || '',
+      ip: req.ip || req.socket?.remoteAddress || '',
+    });
+
+    if (row.conversationId) {
+      cwSendMessage(row.conversationId, {
+        content: `📬 اشترك العميل في تحديثات ماجد\nالإيميل: ${row.email}\nالمصدر: ${row.source}`,
+        messageType: 'outgoing',
+        isPrivate: true,
+      }).catch((e) => console.warn('subscriber private note failed:', e.response?.status || e.message));
+    }
+
+    forwardSubscriber(row);
+    return res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('subscribe error:', err.message);
+    return res.status(500).json({ error: 'subscribe_failed' });
+  }
+});
+
+app.get('/admin/subscribers', (req, res) => {
+  if (!subscriberAdminAllowed(req)) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(subscribersHtml(readSubscribers(), req.query.token || ''));
+});
+
+app.get('/admin/subscribers.csv', (req, res) => {
+  if (!subscriberAdminAllowed(req)) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="majed-subscribers.csv"');
+  res.send(subscribersCsv(readSubscribers()));
 });
 
 // 1) Widget opens → Chatwoot contact + conversation (Botpress side is created lazily
@@ -1396,7 +1596,7 @@ app.post('/widget/session', async (req, res) => {
     if (reusable) {
       console.log(`Widget session reuse: conv ${reusable.conversationId} (${reusable.status})`);
       prewarmBotpress(reusable.conversationId, reusable.status, { name, userData });
-      return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status });
+      return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status, subscribe: widgetSubscribeConfig() });
     }
 
     // ── Case 2: no conv ID (new conversation button) — search for existing contact
@@ -1420,7 +1620,7 @@ app.post('/widget/session', async (req, res) => {
         // so ensureBotpress doesn't recover the bp_* attributes we just wiped.
         cleared.then(() => prewarmBotpress(cvId, 'pending', { name, userData }));
         console.log(`Widget session reuse-by-email (${email}): conv ${cvId} — bot context reset`);
-        return res.json({ conversationId: cvId, reused: true, status: 'pending' });
+        return res.json({ conversationId: cvId, reused: true, status: 'pending', subscribe: widgetSubscribeConfig() });
       }
     }
 
@@ -1435,7 +1635,7 @@ app.post('/widget/session', async (req, res) => {
     convStatus.set(convId, 'pending');
     console.log(`Widget session new: contact ${contactId} → conv ${convId}`);
     prewarmBotpress(convId, 'pending', { name, userData });
-    return res.json({ conversationId: convId, reused: false, status: 'pending' });
+    return res.json({ conversationId: convId, reused: false, status: 'pending', subscribe: widgetSubscribeConfig() });
   } catch (err) {
     console.error('session error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'session_failed' });

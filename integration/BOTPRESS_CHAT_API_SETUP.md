@@ -86,6 +86,19 @@
 | ~~`BOTPRESS_WEBHOOK_URL`~~ | **احذفه** | كان بيودّي للـ Webhook integration الغلط |
 | ~~`BOTPRESS_PAT`~~ | احذفه | الـ Chat API مش محتاجه |
 
+### اشتراك تحديثات ماجد (اختياري)
+
+| المتغير | القيمة | ملاحظة |
+|---------|--------|--------|
+| `SUBSCRIBE_ENABLED` | `true` | يظهر كارت اشتراك ناعم للزائر فقط، بعد أول رد من البوت أو عند قفل الشات. |
+| `SUBSCRIBE_ADMIN_TOKEN` | توكن طويل عشوائي | مطلوب لفتح `/admin/subscribers` و`/admin/subscribers.csv`. |
+| `SUBSCRIBE_WEBHOOK_URL` | endpoint اختياري | يرسل كل اشتراك جديد إلى Odoo Newsletter أو n8n أو Zapier أو أي نظام بريد خارجي. |
+| `SUBSCRIBE_STORE_FILE` | اختياري | التخزين المحلي JSONL مناسب للمرحلة الأولى والتصدير، لكن على Railway الأفضل ربط webhook بوجهة دائمة. |
+
+روابط المتابعة بعد النشر:
+- الداشبورد: `https://<bridge>/admin/subscribers?token=<SUBSCRIBE_ADMIN_TOKEN>`
+- CSV: `https://<bridge>/admin/subscribers.csv?token=<SUBSCRIBE_ADMIN_TOKEN>`
+
 ## 5) إعداد Chatwoot (زي ما هو — للتأكيد)
 - Inbox 29 (API Channel) → **Webhook URL** = `https://majed-production-dd41.up.railway.app/chatwoot/webhook` ✅ (موجود).
 - **مفيش Agent Bot** ومفيش Webhooks integration إضافية.
@@ -114,7 +127,7 @@
 9. اقفل الشات وافتحه تاني → الـ transcript يرجع كامل والهيدر يبقى زجاجي تلقائي.
    جرّب زرار 🕘 (الهيستوري) → القائمة تظهر + «محادثة جديدة» تبدأ نظيفة.
 
-## 8) ضمانات مدمجة (متغطية باختبارات mock — 43 check)
+## 8) ضمانات مدمجة (متغطية باختبارات mock — 63 check)
 - ✅ outgoing/private عمرها ما تتبعت للبوت أو للعميل بالغلط.
 - ✅ dedup بالـ message id (ويدجت) + bp message id (SSE reconnect) + echo الرسائل اللي البريدج كتبها، حتى لو Chatwoot webhook وصل قبل رد API.
 - ✅ إعادة استخدام محادثة Chatwoot الموجودة بدل فتح محادثة جديدة كل مرة.
@@ -126,6 +139,7 @@
 - ✅ مرفقات العميل: multipart → Chatwoot، وmedia payload حقيقي → Botpress، ورفض الأنواع غير المدعومة (415) والحجم الزائد (413). أسماء الملفات العربية بتتصلّح encoding تلقائي.
 - ✅ transcript + ملخصات المحادثات للهيستوري، وإحياء المحادثة الـ resolved لـ pending عند رسالة جديدة.
 - ✅ اللوجينج: `IN widget` / `IN Chatwoot(external)` / `SEND Botpress` / `BOTPRESS reply` / `OUT Chatwoot` / `HANDOFF` / `STATUS` / `SKIP`.
+- ✅ اشتراك تحديثات ماجد: endpoint لا يوقف الشات عند الفشل، private note في Chatwoot، وتصدير CSV محمي بتوكن.
 
 ## 9) 🔐 تنبيه أمني (إلزامي)
 - `CHATWOOT_API_TOKEN` اللي اتكتب في الشات/الريبو القديم = **مكشوف** → **Regenerate فورًا** وحدّثه في Railway فقط.

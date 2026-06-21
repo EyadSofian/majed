@@ -86,6 +86,15 @@
   var MAX_FILE_MB = 10;
   var STORE_PREFIX = 'majed:conversation:' + BRIDGE + ':';
   var LIST_PREFIX = 'majed:convlist:' + BRIDGE + ':';
+  var SUBSCRIBE_KEY = 'majed:subscribe:' + BRIDGE;
+  var SUBSCRIBE_DONE_KEY = 'majed:subscribe:done:' + BRIDGE;
+  var SUBSCRIBE_CFG = {
+    enabled: CFG.subscribeEnabled !== false,
+    title: CFG.subscribeTitle || '📬 ابقَ قريبًا من تحديثات ماجد',
+    text: CFG.subscribeText || 'اكتب بريدك الإلكتروني لتصلك أهم أخبار الدورات والعروض التعليمية. يمكنك تجاهلها ومتابعة المحادثة عاديًا.',
+    exitTitle: CFG.subscribeExitTitle || 'قبل أن تغادر…',
+    exitText: CFG.subscribeExitText || 'هل تريد أن نرسل لك تحديثات ماجد وأخبار الدورات الجديدة على بريدك؟'
+  };
 
   // تيزر صفحة الكورس — قابل للتخصيص بالكامل من Railway env vars (عبر SCFG.courseTeaser)
   // بيظهر لأي زائر على صفحة كورس مفردة (مسجّل أو لا) بفكرة «مساعدة الشراء» + خصم 20% بكود engo20.
@@ -152,6 +161,8 @@
   var uploading = false;
   var forceNew = false;           // «محادثة جديدة»: skip the stored conversation id
   var live = false;               // customer actually chatting → glass header
+  var sessionConfig = {};
+  var subCard = null, subAfterReplyShown = false, subExitShown = false;
   var tzTimer = null, tzRotateTimer = null, tzIndex = 0, tzVisible = false;
 
   // ---------- styles ----------
@@ -251,6 +262,20 @@
     '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
     '.mjd-opt:hover{background:var(--surf2)}',
+    '.mjd-sub{align-self:stretch;background:linear-gradient(135deg,rgba(124,92,255,.1),rgba(6,182,212,.1));border:1px solid rgba(124,92,255,.22);border-radius:16px;padding:13px;animation:mjdRise .3s ease both;box-shadow:0 12px 26px rgba(15,30,66,.08)}',
+    '.mjd-sub-hd{display:flex;align-items:flex-start;gap:9px;margin-bottom:8px}',
+    '.mjd-sub-hd b{font-size:14px;font-weight:800;line-height:1.35;color:var(--text)}',
+    '.mjd-sub-hd span{display:block;font-size:12.5px;line-height:1.55;color:var(--muted);margin-top:3px}',
+    '.mjd-sub-x{margin-inline-start:auto;width:28px;height:28px;border:0;border-radius:9px;background:rgba(255,255,255,.58);color:var(--muted);cursor:pointer;font:inherit;font-weight:800}',
+    '#mjd-panel[data-theme="dark"] .mjd-sub-x{background:rgba(255,255,255,.08)}',
+    '.mjd-sub-form{display:flex;gap:8px;align-items:center}',
+    '.mjd-sub-form input{flex:1;min-width:0;height:38px;border:1px solid var(--pillbd);background:var(--surf);color:var(--text);border-radius:12px;padding:0 12px;font:inherit;font-size:13px;outline:0;direction:ltr;text-align:left}',
+    '.mjd-sub-form input::placeholder{text-align:right;direction:rtl;color:var(--soft)}',
+    '.mjd-sub-btn{height:38px;border:0;border-radius:12px;padding:0 13px;background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}',
+    '.mjd-sub-skip{height:34px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;margin-top:7px;padding:0 4px}',
+    '.mjd-sub-msg{font-size:12px;color:var(--muted);line-height:1.5;margin-top:7px;min-height:18px}',
+    '.mjd-sub.mjd-ok{border-color:rgba(34,197,94,.32);background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(6,182,212,.08))}',
+    '.mjd-sub.mjd-err{border-color:rgba(239,68,68,.34)}',
     '.mjd-media{align-self:flex-start;max-width:88%;min-width:0;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-media.mjd-mine{align-self:flex-end}',
     '/* صورة الرسالة: بعرض الفقاعة وبنسبتها الأصلية كاملة — ممنوع القص أو السكرول الأفقي */',
@@ -349,7 +374,7 @@
     '#mjd-edge[data-side="left"]{left:0;right:auto;border-radius:0 14px 14px 0;border-left:0}',
     '#mjd-edge img{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block}',
     '/* وصولية: حلقة تركيز واضحة لعناصر التفاعل */',
-    '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible{outline:2px solid #7c5cff;outline-offset:2px}',
+    '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible,.mjd-sub input:focus-visible,.mjd-sub button:focus-visible{outline:2px solid #7c5cff;outline-offset:2px}',
     '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
   ].join('');
 
@@ -547,6 +572,110 @@
   function addMe(text) {
     var row = inject('div', { class: 'mjd-row mjd-me' }, '<div class="mjd-bub">' + esc(text) + '</div>');
     bd.appendChild(row); scrollDown();
+  }
+  function subscribeBackendEnabled() {
+    return SUBSCRIBE_CFG.enabled && (!sessionConfig.subscribe || sessionConfig.subscribe.enabled !== false);
+  }
+  function subscribeState() {
+    try {
+      if (localStorage.getItem(SUBSCRIBE_DONE_KEY) === '1') return 'subscribed';
+      return sessionStorage.getItem(SUBSCRIBE_KEY) || '';
+    } catch (e) { return ''; }
+  }
+  function markSubscribeState(state) {
+    try {
+      sessionStorage.setItem(SUBSCRIBE_KEY, state);
+      if (state === 'subscribed') localStorage.setItem(SUBSCRIBE_DONE_KEY, '1');
+    } catch (e) {}
+  }
+  function canShowSubscribe(kind) {
+    if (!subscribeBackendEnabled() || isLoggedIn()) return false;
+    var st = subscribeState();
+    if (st === 'subscribed' || st === 'dismissed') return false;
+    if (kind === 'after_reply' && (subAfterReplyShown || st === 'after_seen')) return false;
+    if (kind === 'exit' && subExitShown) return false;
+    return true;
+  }
+  function removeSubscribeCard() {
+    if (subCard && subCard.parentNode) subCard.parentNode.removeChild(subCard);
+    subCard = null;
+  }
+  function setSubscribeMsg(el, text, bad) {
+    el.textContent = text || '';
+    if (subCard) subCard.classList.toggle('mjd-err', !!bad);
+  }
+  function submitSubscribe(email, source, msg, btn) {
+    email = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      setSubscribeMsg(msg, 'اكتب بريدًا إلكترونيًا صحيحًا.', true);
+      return;
+    }
+    btn.disabled = true;
+    setSubscribeMsg(msg, 'جاري الاشتراك…');
+    fetch(BRIDGE + '/widget/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        name: userData.name || '',
+        conversationId: convId,
+        source: source,
+        userData: userData
+      })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('bad_status');
+      markSubscribeState('subscribed');
+      if (subCard) {
+        subCard.classList.add('mjd-ok');
+        subCard.innerHTML = '<div class="mjd-sub-hd"><div><b>تم الاشتراك بنجاح.</b><span>ستصلك تحديثات ماجد على بريدك الإلكتروني عند توفر أخبار مهمة.</span></div></div>';
+      }
+      if (source === 'exit') setTimeout(function () { closePanel(true); }, 900);
+    }).catch(function () {
+      btn.disabled = false;
+      setSubscribeMsg(msg, 'تعذّر الاشتراك الآن. جرّب مرة أخرى لاحقًا.', true);
+    });
+  }
+  function showSubscribeCard(kind) {
+    if (!canShowSubscribe(kind)) return false;
+    removeSubscribeCard();
+    var isExit = kind === 'exit';
+    if (isExit) subExitShown = true;
+    else {
+      subAfterReplyShown = true;
+      try { sessionStorage.setItem(SUBSCRIBE_KEY, 'after_seen'); } catch (e) {}
+    }
+    var title = isExit ? SUBSCRIBE_CFG.exitTitle : SUBSCRIBE_CFG.title;
+    var text = isExit ? SUBSCRIBE_CFG.exitText : SUBSCRIBE_CFG.text;
+    subCard = inject('div', { class: 'mjd-sub', role: 'group', 'aria-label': title },
+      '<div class="mjd-sub-hd">' +
+        '<div><b>' + esc(title) + '</b><span>' + esc(text) + '</span></div>' +
+        '<button class="mjd-sub-x" type="button" aria-label="إغلاق">×</button>' +
+      '</div>' +
+      '<div class="mjd-sub-form">' +
+        '<input type="email" inputmode="email" autocomplete="email" placeholder="بريدك الإلكتروني"/>' +
+        '<button class="mjd-sub-btn" type="button">' + (isExit ? 'اشترك وأغلق' : 'اشترك') + '</button>' +
+      '</div>' +
+      '<button class="mjd-sub-skip" type="button">' + (isExit ? 'لا، شكرًا' : 'ليس الآن') + '</button>' +
+      '<div class="mjd-sub-msg" aria-live="polite"></div>');
+    var mail = subCard.querySelector('input');
+    var btn = subCard.querySelector('.mjd-sub-btn');
+    var skip = subCard.querySelector('.mjd-sub-skip');
+    var close = subCard.querySelector('.mjd-sub-x');
+    var msg = subCard.querySelector('.mjd-sub-msg');
+    btn.addEventListener('click', function () { submitSubscribe(mail.value, kind, msg, btn); });
+    mail.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitSubscribe(mail.value, kind, msg, btn); });
+    skip.addEventListener('click', function () {
+      markSubscribeState('dismissed');
+      removeSubscribeCard();
+      if (isExit) closePanel(true);
+    });
+    close.addEventListener('click', function () {
+      removeSubscribeCard();
+      if (isExit) closePanel(true);
+    });
+    bd.appendChild(subCard);
+    scrollDown();
+    return true;
   }
   function fileChipHtml(name, size, url) {
     return '<a class="mjd-file"' + (url ? ' href="' + esc(url) + '" target="_blank" rel="noopener"' : '') + '>' +
@@ -774,6 +903,7 @@
     }
     hideTyping();
     renderAgentMessage(m);
+    if (live) showSubscribeCard('after_reply');
   }
 
   // transcript restore (reopen / switch from history)
@@ -817,6 +947,7 @@
         body: JSON.stringify({ name: userData.name, email: userData.email, userData: userData, existingConversationId: existingConversationId })
       });
     }).then(function (r) { return r.json(); }).then(function (d) {
+      sessionConfig = d || {};
       if (d && d.conversationId) {
         convId = d.conversationId;
         forceNew = false;
@@ -836,6 +967,7 @@
     // a picked file goes out with the typed text as caption (button clicks don't consume it)
     if (pendingFile && display == null) { sendAttachment(text); return; }
     if (!text) return;
+    removeSubscribeCard();
     addMe((display || text).trim() || text);
     setLive(true);
     if (!convId) { startSession().then(function () { if (convId) postMsg(text); }); return; }
@@ -969,6 +1101,7 @@
     saveStoredConv(convId);
     rememberConv(convId);
     seenIds = {};
+    removeSubscribeCard();
     bd.innerHTML = ''; typingEl = null;
     setLive(false);
     loadMessages(convId).then(function () { openStream(); input.focus(); });
@@ -981,6 +1114,7 @@
     started = false;
     forceNew = true;
     seenIds = {};
+    removeSubscribeCard();
     bd.innerHTML = ''; typingEl = null;
     clearPendingFile();
     setLive(false);
@@ -1297,7 +1431,10 @@
   }
 
   // X = قفل النافذة ورجوع الزر العائم فقط — المحادثة وSSE فاضلين شغالين بالظبط
-  function closePanel() {
+  function closePanel(force) {
+    var forced = force === true;
+    if (!forced && panel.classList.contains('mjd-open') && live && showSubscribeCard('exit')) return;
+    removeSubscribeCard();
     panel.classList.remove('mjd-open');
     if (!live) showTeaser(1500); // رجّع التيزر بعد قفل النافذة
   }
@@ -1326,7 +1463,7 @@
     } catch (e) {}
   }
   document.getElementById('mjd-hide').addEventListener('click', function () {
-    closePanel();
+    closePanel(true);
     setHidden(true);
   });
   edge.addEventListener('click', function () { setHidden(false); });

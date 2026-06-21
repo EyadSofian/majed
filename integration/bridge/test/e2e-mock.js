@@ -11,6 +11,7 @@ const axios = require('axios');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const fs = require('fs');
 
 const MOCK_PORT = 4801;
 const BRIDGE_PORT = 4802;
@@ -193,6 +194,8 @@ function check(name, cond, extra) {
 // ─────────────────────────── run ───────────────────────────
 (async () => {
   const mock = mockApp().listen(MOCK_PORT);
+  const subscribeStore = path.join(__dirname, 'tmp-subscribers.jsonl');
+  try { fs.unlinkSync(subscribeStore); } catch (_) {}
 
   const bridge = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')], {
     env: {
@@ -206,6 +209,8 @@ function check(name, cond, extra) {
       BOTPRESS_CHAT_WEBHOOK_ID: 'wh1',
       WIDGET_ORIGIN: 'https://demo.engosoft.com',
       WELCOME_ENABLED: 'false',
+      SUBSCRIBE_ADMIN_TOKEN: 'admin-token',
+      SUBSCRIBE_STORE_FILE: subscribeStore,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -443,6 +448,24 @@ function check(name, cond, extra) {
     check('no duplicate ids inside one catchup batch', new Set(ids18).size === ids18.length);
     ws2.close();
 
+    console.log('TEST 19 — newsletter subscribe endpoint + protected export');
+    const sub = await axios.post(`${BRIDGE}/widget/subscribe`, {
+      conversationId: '9001',
+      email: 'Lead@Example.com',
+      name: 'Lead User',
+      source: 'after_reply',
+    });
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('subscribe returns ok', sub.data.status === 'ok');
+    check('subscriber saved in JSONL', fs.existsSync(subscribeStore) && fs.readFileSync(subscribeStore, 'utf8').includes('lead@example.com'));
+    check('subscriber creates private Chatwoot note',
+      st.cwMessages.some((m) => m.body.private === true && String(m.body.content || '').includes('lead@example.com')));
+    const csv = await axios.get(`${BRIDGE}/admin/subscribers.csv?token=admin-token`);
+    check('subscriber CSV protected export works', csv.data.includes('lead@example.com') && csv.data.includes('after_reply'));
+    let blocked = false;
+    try { await axios.get(`${BRIDGE}/admin/subscribers.csv`); } catch (e) { blocked = e.response?.status === 404; }
+    check('subscriber CSV without token is hidden', blocked);
+
     ws.close();
   } catch (e) {
     fail++;
@@ -450,6 +473,7 @@ function check(name, cond, extra) {
   } finally {
     bridge.kill();
     mock.close();
+    try { fs.unlinkSync(subscribeStore); } catch (_) {}
     console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
     process.exit(fail ? 1 : 0);
   }
