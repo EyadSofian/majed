@@ -26,7 +26,29 @@ BOTPRESS_PAT=optional_botpress_pat
 
 - `POST /chatwoot/webhook` - Receives messages from Chatwoot
 - `POST /botpress/webhook` - Receives responses from Botpress
+- `POST /widget/subscribe` - Newsletter opt-in from the widget
+- `GET /admin` - Subscribers dashboard (Basic auth, password = `ADMIN_PASSWORD`)
+- `GET /unsubscribe?token=…` - Public one-click unsubscribe link (used in emails)
 - `GET /` - Health check
+
+## Newsletter (subscribers + broadcast)
+
+Email opt-ins captured by the widget are stored and managed by the bridge itself:
+
+- **Storage** — PostgreSQL when `DATABASE_URL` is set (add a PostgreSQL plugin in
+  Railway; it injects the var). Without it the bridge falls back to a local
+  `data/subscribers.jsonl` file — fine for dev, but Railway's disk is ephemeral, so
+  use Postgres in production.
+- **Dashboard** — open `/admin` (HTTP Basic auth: any username, password =
+  `ADMIN_PASSWORD`). View/search subscribers, export CSV, send a test email, and
+  broadcast an update to all active subscribers.
+- **Sending** — over Engosoft SMTP (`SMTP_*` vars). If `SMTP_HOST` is unset the
+  dashboard runs in **dry-run** mode (logs instead of sending) so you can try it
+  safely. Every email includes an unsubscribe link built from `PUBLIC_BASE_URL`, so
+  set that for broadcasts to work.
+
+See `.env.example` for the full list (`DATABASE_URL`, `PGSSL`, `ADMIN_PASSWORD`,
+`SMTP_HOST/PORT/SECURE/USER/PASS`, `MAIL_FROM`, `PUBLIC_BASE_URL`).
 
 ## Configuration
 

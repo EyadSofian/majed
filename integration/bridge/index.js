@@ -30,9 +30,16 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const newsletter = require('./newsletter');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
+
+// newsletter store: create tables on boot (no-op without DATABASE_URL → file fallback)
+newsletter.initDb().catch((e) => console.error('[newsletter] initDb failed:', e.message));
+// password-protected dashboard + public unsubscribe link
+app.use('/admin', newsletter.adminRouter);
+app.use(newsletter.publicRouter);
 
 // ── Uploads (widget attachments) ───────────────────────────────────
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 10);
@@ -1665,37 +1672,24 @@ app.get('/widget/conversations', async (req, res) => {
 });
 
 // 3e) Newsletter opt-in from the widget («اشترك ليوصلك جديد ماجد»).
-//     Captured here so YOU control where the list lives — instead of an Odoo mailing
-//     list. Each subscriber is appended to data/subscribers.jsonl (one JSON per line)
-//     AND, if SUBSCRIBE_WEBHOOK_URL is set, POSTed to that URL so you can pipe it into
-//     your own dashboard / Botpress / a sheet, and broadcast news from there later.
-const SUBSCRIBERS_FILE = path.join(__dirname, 'data', 'subscribers.jsonl');
+//     Stored in the persistent newsletter store (PostgreSQL when DATABASE_URL is set,
+//     else a local file in dev) and managed from the /admin dashboard. Optionally also
+//     forwarded to SUBSCRIBE_WEBHOOK_URL if you want a parallel destination.
 const SUBSCRIBE_WEBHOOK = process.env.SUBSCRIBE_WEBHOOK_URL || '';
-function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
 app.post('/widget/subscribe', async (req, res) => {
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
     const source = String(req.body?.source || 'widget').slice(0, 40);
     const name = String(req.body?.userData?.name || req.body?.name || '').slice(0, 120);
-    if (!isEmail(email)) return res.status(400).json({ error: 'invalid_email' });
+    const rec = await newsletter.addSubscriber({ email: req.body?.email, name, source });
+    console.log(`SUBSCRIBE ${rec.email} (${source})`);
 
-    const record = { email, name, source, ts: new Date().toISOString() };
-    console.log(`SUBSCRIBE ${email} (${source})`);
-
-    // a) best-effort local store (one JSON object per line — easy to read into a dashboard)
-    try {
-      fs.mkdirSync(path.dirname(SUBSCRIBERS_FILE), { recursive: true });
-      fs.appendFileSync(SUBSCRIBERS_FILE, JSON.stringify(record) + '\n');
-    } catch (e) { console.error('subscribers file write failed:', e.message); }
-
-    // b) optional forward to your own destination (dashboard / Botpress / sheet / CRM)
     if (SUBSCRIBE_WEBHOOK) {
-      axios.post(SUBSCRIBE_WEBHOOK, record, { timeout: 8000 })
+      axios.post(SUBSCRIBE_WEBHOOK, { email: rec.email, name, source, ts: new Date().toISOString() }, { timeout: 8000 })
         .catch((e) => console.error('subscribe webhook failed:', e.response?.data || e.message));
     }
-
     return res.json({ status: 'ok' });
   } catch (err) {
+    if (err && err.code === 'invalid_email') return res.status(400).json({ error: 'invalid_email' });
     console.error('subscribe error:', err.message);
     return res.status(500).json({ error: 'subscribe_failed' });
   }
