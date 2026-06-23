@@ -102,11 +102,12 @@
   // مش قائمة المتجر العامة (/shop). عشان كده بنعتمد على علامتين معًا:
   //  1) showOnSelector على عنصر صفحة المنتج المفردة في Odoo (تفاصيل المنتج/الفورم الرئيسي)
   //     — العنصر ده مش موجود في صفحة القائمة، فالتيزر مايظهرش هناك.
-  //  2) showOn على '/shop/' و '/course/' بشَرطة في الآخر كشرط احتياطي يضمن الظهور على
-  //     صفحة الدورة حتى لو القالب مختلف، ومع كده القائمة العامة '/shop' (من غير شرطة) متطلعش.
+  //  2) showOn على '/shop/' و '/course/' و '/training_package/' بشَرطة في الآخر كشرط
+  //     احتياطي يضمن الظهور على صفحة الدورة/الباقة حتى لو القالب مختلف، ومع كده القائمة
+  //     العامة '/shop' (من غير شرطة) متطلعش.
   var ct = SCFG.courseTeaser || {};
   var COURSE_TEASER = {
-    showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/'],
+    showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
     html: ct.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>معاك خصم <b>20%</b> على الدورة دي بالكود 👇',
     botMessage: ct.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، ومعايا كود خصم ' + DISCOUNT_CODE + '.',
