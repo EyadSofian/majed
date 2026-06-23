@@ -254,6 +254,19 @@
     '.mjd-bub a{color:#7c5cff;text-decoration:underline;font-weight:500;word-break:break-all}',
     '.mjd-me .mjd-bub a{color:#fff}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;border-bottom-left-radius:6px}',
+    '/* rich (markdown) bot message */',
+    '.mjd-bub.mjd-md{white-space:normal}',
+    '.mjd-md>:first-child{margin-top:0}.mjd-md>:last-child{margin-bottom:0}',
+    '.mjd-md p{margin:0 0 9px}',
+    '.mjd-md strong{font-weight:800;color:var(--text)}',
+    '.mjd-md em{font-style:italic}',
+    '.mjd-md code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;background:var(--surf2);border:1px solid var(--botbd);border-radius:5px;padding:1px 5px}',
+    '.mjd-md ul,.mjd-md ol{margin:7px 0;padding-inline-start:22px}',
+    '.mjd-md li{margin:4px 0;line-height:1.65}',
+    '.mjd-md li::marker{color:#7c5cff}',
+    '.mjd-md .mjd-h{font-weight:800;line-height:1.45;margin:10px 0 5px}',
+    '.mjd-md .mjd-h1{font-size:15.5px}.mjd-md .mjd-h2{font-size:14.5px}.mjd-md .mjd-h3{font-size:13.5px}',
+    '.mjd-md hr{border:0;border-top:1px solid var(--botbd);margin:10px 0}',
     '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-card img{width:100%;max-height:160px;object-fit:cover;display:block;background:var(--surf2)}',
     '.mjd-card .mjd-ct{padding:11px 13px}.mjd-card .mjd-ct b{font-size:14px;display:block}.mjd-card .mjd-ct span{font-size:12px;color:var(--muted)}',
@@ -302,10 +315,10 @@
     '.mjd-file span{font-size:11px;color:var(--muted)}',
     '.mjd-typing{align-self:flex-start;display:flex;align-items:center;gap:9px;padding:11px 15px;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;border-bottom-right-radius:6px}',
     '.mjd-typing .mjd-dots{display:flex;gap:4px}',
-    '.mjd-typing i{width:6px;height:6px;border-radius:50%;background:var(--soft);animation:mjdBlink 1.3s infinite}',
+    '.mjd-typing i{width:6px;height:6px;border-radius:50%;background:var(--soft);animation:mjdBlink .9s infinite}',
     '.mjd-typing i:nth-child(2){animation-delay:.2s}.mjd-typing i:nth-child(3){animation-delay:.4s}',
     '@keyframes mjdBlink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}',
-    '.mjd-typing .mjd-tw{font-size:12.5px;font-weight:700;white-space:nowrap;background:linear-gradient(90deg,var(--soft) 20%,var(--text) 50%,var(--soft) 80%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:mjdShine 1.8s linear infinite,mjdFadeWord .45s ease both}',
+    '.mjd-typing .mjd-tw{font-size:12.5px;font-weight:700;white-space:nowrap;background:linear-gradient(90deg,var(--soft) 20%,var(--text) 50%,var(--soft) 80%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:mjdShine 1.4s linear infinite,mjdFadeWord .4s ease both}',
     '@keyframes mjdShine{from{background-position:220% 0}to{background-position:-220% 0}}',
     '@keyframes mjdFadeWord{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}',
     '/* pending attachment chip */',
@@ -493,6 +506,49 @@
       return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' + tail;
     });
   }
+  // ---------- lightweight markdown → safe HTML (for bot replies) ----------
+  // Botpress sends markdown-ish text (**bold**, lists, headings). We escape first
+  // (XSS-safe) then re-introduce only a small, known set of tags.
+  function mdInline(s) {
+    var store = [];
+    var hold = function (html) { store.push(html); return '\u0000' + (store.length - 1) + '\u0000'; };
+    // inline code first, so its contents aren't touched by other rules
+    s = s.replace(/`([^`]+)`/g, function (_, c) { return hold('<code>' + c + '</code>'); });
+    // [text](url) links
+    s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, t, u) {
+      return hold('<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>');
+    });
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    // bare URLs (kept out of any link we already built via placeholders)
+    s = s.replace(/https?:\/\/[^\s<>"']+/g, function (u) {
+      var tail = '', m = u.match(/[)\].,!?؟،;:]+$/);
+      if (m) { tail = m[0]; u = u.slice(0, u.length - tail.length); }
+      return hold('<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>') + tail;
+    });
+    return s.replace(/\u0000(\d+)\u0000/g, function (_, i) { return store[+i]; });
+  }
+  function mdToHtml(src) {
+    var lines = esc(src || '').split(/\r?\n/);
+    var html = '', para = [], listType = null;
+    var flushPara = function () { if (para.length) { html += '<p>' + mdInline(para.join('<br>')) + '</p>'; para = []; } };
+    var closeList = function () { if (listType) { html += '</' + listType + '>'; listType = null; } };
+    for (var i = 0; i < lines.length; i++) {
+      var t = lines[i].trim();
+      if (!t) { flushPara(); closeList(); continue; }
+      var h = t.match(/^(#{1,3})\s+(.*)$/);
+      var ul = t.match(/^[-*•]\s+(.*)$/);
+      var ol = t.match(/^(\d+)[.)]\s+(.*)$/);
+      if (/^(-{3,}|_{3,}|\*{3,})$/.test(t)) { flushPara(); closeList(); html += '<hr>'; continue; }
+      if (h) { flushPara(); closeList(); html += '<div class="mjd-h mjd-h' + h[1].length + '">' + mdInline(h[2]) + '</div>'; continue; }
+      if (ul) { flushPara(); if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; } html += '<li>' + mdInline(ul[1]) + '</li>'; continue; }
+      if (ol) { flushPara(); if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; } html += '<li>' + mdInline(ol[2]) + '</li>'; continue; }
+      closeList(); para.push(t);
+    }
+    flushPara(); closeList();
+    return html || '<p></p>';
+  }
   function fmtSize(b) {
     b = Number(b) || 0;
     if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
@@ -612,9 +668,10 @@
     replyBar.innerHTML = '';
   }
 
-  function addBot(html) {
+  function addBot(html, isMd) {
+    var bub = '<div class="mjd-bub' + (isMd ? ' mjd-md' : '') + '">' + html + '</div>';
     var row = inject('div', { class: 'mjd-row mjd-bot' },
-      '<img class="mjd-mini" src="' + AVATAR + '"' + AVA_ERR + '/><div class="mjd-bub">' + html + '</div>');
+      '<img class="mjd-mini" src="' + AVATAR + '"' + AVA_ERR + '/>' + bub);
     bd.appendChild(row); attachReply(row, 'bot'); scrollDown();
   }
   function addMe(text, quote) {
@@ -801,7 +858,7 @@
   }
   function addOptions(attrs, content) {
     var items = (attrs && attrs.items) || [];
-    if (content) addBot(esc(content));
+    if (content) addBot(mdToHtml(content), true);
     var wrap = inject('div', { class: 'mjd-options' }, '');
     items.forEach(function (it) {
       var b = inject('button', { class: 'mjd-opt', type: 'button', 'data-val': it.value || it.title || '' }, esc(it.title || it.value || 'اختيار'));
@@ -817,7 +874,7 @@
     var kind = attrs.media_type || 'file';
     var title = attrs.title || mediaTitleFromUrl(url, kind) || url || 'ملف';
     var caption = String(content || '').trim();
-    if (caption && caption !== title && caption !== url) addBot(esc(caption));
+    if (caption && caption !== title && caption !== url) addBot(mdToHtml(caption), true);
     var el = inject('div', { class: 'mjd-media' }, '');
     if (url && kind === 'image') {
       buildImageMedia(el, url, title);
@@ -858,7 +915,7 @@
       i++;
     };
     rotate();
-    typingTimer = setInterval(rotate, 2200);
+    typingTimer = setInterval(rotate, 1600);
     bd.appendChild(typingEl); scrollDown();
   }
   function hideTyping() {
@@ -872,17 +929,17 @@
     m.content_attributes = objectAttrs(m.content_attributes);
     var inlineMedia = (!m.content_type || m.content_type === 'text') && m.content ? detectMediaInText(m.content) : null;
     if (inlineMedia) {
-      if (inlineMedia.caption) addBot(linkify(inlineMedia.caption));
+      if (inlineMedia.caption) addBot(mdToHtml(inlineMedia.caption), true);
       addMedia({ media_type: inlineMedia.kind, url: inlineMedia.url, title: inlineMedia.title }, '');
     } else if (m.content_type === 'cards' && m.content_attributes && (m.content_attributes.items || []).length) {
-      if (m.content) addBot(linkify(m.content));
+      if (m.content) addBot(mdToHtml(m.content), true);
       addCard(m.content_attributes);
     } else if (m.content_type === 'input_select' && m.content_attributes) {
       addOptions(m.content_attributes, m.content);
     } else if (m.content_type === 'media' && m.content_attributes) {
       addMedia(m.content_attributes, m.content);
     } else if (m.content) {
-      addBot(linkify(m.content));
+      addBot(mdToHtml(m.content), true);
     }
     (m.attachments || []).forEach(function (a) { addAttachment(a, false); });
   }
