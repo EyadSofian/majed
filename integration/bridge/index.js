@@ -747,7 +747,7 @@ function shapeWidgetMessage(msg) {
   }
 
   return {
-    id: msg.id,
+    id: attrs.bp_id || msg.id,
     content,
     content_type: contentType || 'text',
     content_attributes: contentAttributes || {},
@@ -1146,9 +1146,14 @@ function normalizeBotMessages(payload) {
   return out;
 }
 
-// A bot reply arrived from Botpress (via SSE) → write to Chatwoot + push to widget.
-async function handleBotReply(cwConvId, payload) {
+// A bot reply arrived from Botpress (via SSE). We push it to the widget IMMEDIATELY,
+// then persist to Chatwoot off the critical path — so the customer sees the reply without
+// waiting on the Chatwoot round-trip. A stable `bp_id` (Botpress message id) is carried in
+// content_attributes so the reconnect/catchup replay (which reads Chatwoot) reproduces the
+// same widget id and de-dups correctly against the live push.
+async function handleBotReply(cwConvId, payload, bpMsgId) {
   const messages = normalizeBotMessages(payload);
+  let idx = 0;
   for (const msg of messages) {
     let content = msg.content || '';
     const hm = content.match(HANDOFF_RE);
@@ -1162,19 +1167,26 @@ async function handleBotReply(cwConvId, payload) {
     }
     if (!content && !msg.contentType) continue;
 
-    const created = await cwSendMessage(cwConvId, {
+    const wid = 'bp-' + (bpMsgId || Date.now()) + '-' + idx++;
+
+    // 1) Widget first — no Chatwoot wait on the path the customer feels.
+    pushToWidget(cwConvId, {
+      id: wid,
+      content,
+      content_type: msg.widgetContentType || msg.contentType || 'text',
+      content_attributes: { ...(msg.widgetContentAttributes || msg.contentAttributes || {}), bp_id: wid },
+    });
+
+    // 2) Chatwoot (source of truth) in the background; carries bp_id for catchup de-dup.
+    const t0 = Date.now();
+    cwSendMessage(cwConvId, {
       content,
       messageType: 'outgoing',
       contentType: msg.contentType,
-      contentAttributes: msg.contentAttributes,
-    });
-    console.log(`OUT Chatwoot conv ${cwConvId} (bot): ${content.slice(0, 60) || msg.contentType || msg.widgetContentType}`);
-    pushToWidget(cwConvId, {
-      ...created,
-      content,
-      content_type: msg.widgetContentType || created.content_type || msg.contentType,
-      content_attributes: msg.widgetContentAttributes || created.content_attributes || msg.contentAttributes || {},
-    });
+      contentAttributes: { ...(msg.contentAttributes || {}), bp_id: wid },
+    }).then(() => {
+      console.log(`OUT Chatwoot conv ${cwConvId} (bot, ${Date.now() - t0}ms): ${content.slice(0, 60) || msg.contentType || msg.widgetContentType}`);
+    }).catch((e) => console.error('cw outgoing write failed:', e.response?.data || e.message));
   }
 }
 
@@ -1252,7 +1264,7 @@ async function handleSseEvent(cwConvId, mapping, ev) {
     mapping.seen.add(msg.id);
     mapping.lastActivity = Date.now();
     console.log(`BOTPRESS reply (cw ${cwConvId}): ${(msg.payload?.text || msg.payload?.type || '').toString().slice(0, 60)}`);
-    await handleBotReply(cwConvId, msg.payload || {});
+    await handleBotReply(cwConvId, msg.payload || {}, msg.id);
     return;
   }
 
