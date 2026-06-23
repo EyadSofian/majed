@@ -300,10 +300,14 @@
     '.mjd-file .mjd-fi svg{width:18px;height:18px}',
     '.mjd-file b{font-size:12.5px;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-file span{font-size:11px;color:var(--muted)}',
-    '.mjd-typing{align-self:flex-start;display:flex;gap:5px;padding:13px 15px;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;border-bottom-right-radius:6px}',
-    '.mjd-typing i{width:7px;height:7px;border-radius:50%;background:var(--soft);animation:mjdBlink 1.3s infinite}',
+    '.mjd-typing{align-self:flex-start;display:flex;align-items:center;gap:9px;padding:11px 15px;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;border-bottom-right-radius:6px}',
+    '.mjd-typing .mjd-dots{display:flex;gap:4px}',
+    '.mjd-typing i{width:6px;height:6px;border-radius:50%;background:var(--soft);animation:mjdBlink 1.3s infinite}',
     '.mjd-typing i:nth-child(2){animation-delay:.2s}.mjd-typing i:nth-child(3){animation-delay:.4s}',
     '@keyframes mjdBlink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}',
+    '.mjd-typing .mjd-tw{font-size:12.5px;font-weight:700;white-space:nowrap;background:linear-gradient(90deg,var(--soft) 20%,var(--text) 50%,var(--soft) 80%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:mjdShine 1.8s linear infinite,mjdFadeWord .45s ease both}',
+    '@keyframes mjdShine{from{background-position:220% 0}to{background-position:-220% 0}}',
+    '@keyframes mjdFadeWord{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}',
     '/* pending attachment chip */',
     '.mjd-attbar{display:none;align-items:center;gap:9px;margin:0 14px;padding:8px 10px;background:var(--surf2);border:1px dashed var(--pillbd);border-radius:13px}',
     '.mjd-attbar.mjd-on{display:flex}',
@@ -786,13 +790,36 @@
     }
     bd.appendChild(el); scrollDown();
   }
-  var typingEl = null;
+  var typingEl = null, typingTimer = null;
+  // rotating "thinking" phrases shown while Majed prepares a reply
+  var THINK_PHRASES = [
+    'ماجد بيفكّر…',
+    'بيجهّز ردّه…',
+    'بيراجع التفاصيل…',
+    'بيدوّر على أحسن إجابة…',
+    'لحظة واحدة…',
+    'ثواني وهيرد…'
+  ];
   function showTyping() {
     if (typingEl) return;
-    typingEl = inject('div', { class: 'mjd-typing' }, '<i></i><i></i><i></i>');
+    typingEl = inject('div', { class: 'mjd-typing' },
+      '<span class="mjd-dots"><i></i><i></i><i></i></span><span class="mjd-tw"></span>');
+    var tw = typingEl.querySelector('.mjd-tw');
+    var i = Math.floor(Math.random() * THINK_PHRASES.length);
+    var rotate = function () {
+      tw.textContent = THINK_PHRASES[i % THINK_PHRASES.length];
+      // restart the fade animation on each phrase change
+      tw.style.animation = 'none'; void tw.offsetWidth; tw.style.animation = '';
+      i++;
+    };
+    rotate();
+    typingTimer = setInterval(rotate, 2200);
     bd.appendChild(typingEl); scrollDown();
   }
-  function hideTyping() { if (typingEl) { typingEl.remove(); typingEl = null; } }
+  function hideTyping() {
+    if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+    if (typingEl) { typingEl.remove(); typingEl = null; }
+  }
 
   // one agent/bot message (from SSE or transcript) → the right bubble type
   function renderAgentMessage(m) {
@@ -914,7 +941,7 @@
       .then(function (d) {
         var msgs = (d && d.messages) || [];
         if (!msgs.length) return;
-        bd.innerHTML = ''; typingEl = null;
+        bd.innerHTML = ''; hideTyping();
         var anyMine = false;
         msgs.forEach(function (m) {
           if (m.id != null) seenIds[m.id] = 1;
@@ -1102,7 +1129,7 @@
     rememberConv(convId);
     seenIds = {};
     removeSubscribeCard();
-    bd.innerHTML = ''; typingEl = null;
+    bd.innerHTML = ''; hideTyping();
     setLive(false);
     loadMessages(convId).then(function () { openStream(); input.focus(); });
   }
@@ -1115,7 +1142,7 @@
     forceNew = true;
     seenIds = {};
     removeSubscribeCard();
-    bd.innerHTML = ''; typingEl = null;
+    bd.innerHTML = ''; hideTyping();
     clearPendingFile();
     setLive(false);
     startSession().then(function () { input.focus(); });
