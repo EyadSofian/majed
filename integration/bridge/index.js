@@ -1704,9 +1704,21 @@ app.get('/widget/stream', async (req, res) => {
 app.post('/widget/message', async (req, res) => {
   try {
     const convId = String(req.body?.conversationId || '');
-    const text = String(req.body?.text || '').trim();
+    let text = String(req.body?.text || '').trim();
     const userData = req.body?.userData || {};
     if (!convId || !text) return res.status(400).json({ error: 'missing_conversation_or_text' });
+
+    // Reply-to-message: prepend the quoted message so the bot (and the agent in
+    // Chatwoot) see what the customer is replying to. Botpress' text payload has
+    // no native "quote" field, so we embed it as a short context line.
+    const replyTo = req.body?.replyTo;
+    if (replyTo && replyTo.text) {
+      const snippet = String(replyTo.text).replace(/\s+/g, ' ').trim().slice(0, 240);
+      if (snippet) {
+        const who = replyTo.role === 'me' ? 'رسالة العميل السابقة' : 'رسالة ماجد السابقة';
+        text = `↩️ ردًّا على ${who}: «${snippet}»\n${text}`;
+      }
+    }
 
     console.log(`IN widget conv ${convId}: ${text.slice(0, 60)}`);
 

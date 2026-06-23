@@ -318,6 +318,21 @@
     '.mjd-attbar span{font-size:10.5px;color:var(--muted)}',
     '.mjd-attbar .mjd-att-x{margin-inline-start:auto;width:26px;height:26px;border-radius:8px;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:14px}',
     '.mjd-attbar .mjd-att-x:hover{color:#ef4444}',
+    '/* reply-to-message */',
+    '.mjd-reply-btn{flex-shrink:0;align-self:center;width:26px;height:26px;border-radius:50%;border:0;background:transparent;color:var(--soft);cursor:pointer;display:grid;place-items:center;opacity:0;transition:opacity .15s,background .15s,color .15s}',
+    '.mjd-reply-btn svg{width:15px;height:15px}',
+    '.mjd-row:hover .mjd-reply-btn{opacity:.65}',
+    '.mjd-reply-btn:hover{opacity:1;background:var(--surf2);color:#7c5cff}',
+    '@media (hover:none){.mjd-reply-btn{opacity:.5}}',
+    '.mjd-quote{display:block;border-inline-start:3px solid rgba(255,255,255,.55);background:rgba(255,255,255,.14);padding:4px 9px;margin:0 0 7px;border-radius:6px;font-size:12px;line-height:1.5;max-height:46px;overflow:hidden;opacity:.92}',
+    '.mjd-bot .mjd-quote{border-inline-start-color:rgba(124,92,255,.55);background:var(--surf2);color:var(--muted)}',
+    '.mjd-replybar{display:none;align-items:center;gap:9px;margin:0 14px 8px;padding:8px 11px;background:var(--surf2);border:1px solid var(--pillbd);border-inline-start:3px solid #7c5cff;border-radius:11px}',
+    '.mjd-replybar.mjd-on{display:flex}',
+    '.mjd-replybar .mjd-rb-tx{flex:1;min-width:0;font-size:12px;color:var(--muted);line-height:1.45}',
+    '.mjd-replybar .mjd-rb-tx b{display:block;font-size:11px;color:#7c5cff;font-weight:800;margin-bottom:1px}',
+    '.mjd-replybar .mjd-rb-tx span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mjd-replybar .mjd-rb-x{flex-shrink:0;width:26px;height:26px;border-radius:8px;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:14px}',
+    '.mjd-replybar .mjd-rb-x:hover{color:#ef4444}',
     '/* input */',
     '.mjd-ip{padding:12px 14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:9px;background:var(--bar)}',
     '.mjd-box{flex:1;display:flex;align-items:center;gap:4px;background:var(--surf2);border:1px solid var(--line);border-radius:999px;padding:0 6px 0 15px;height:46px;transition:border-color .16s,box-shadow .16s}',
@@ -431,6 +446,7 @@
         '<button class="mjd-cb mjd-vo" id="mjd-voice" type="button">' + I.mic + 'فويس <span class="mjd-soon">قريبًا</span></button>' +
       '</div>' +
       '<div class="mjd-bd" id="mjd-bd"></div>' +
+      '<div class="mjd-replybar" id="mjd-replybar"></div>' +
       '<div class="mjd-attbar" id="mjd-attbar"></div>' +
       '<div class="mjd-ip">' +
         '<div class="mjd-box">' +
@@ -458,6 +474,7 @@
   var input = document.getElementById('mjd-in');
   var sendBtn = document.getElementById('mjd-send');
   var attBar = document.getElementById('mjd-attbar');
+  var replyBar = document.getElementById('mjd-replybar');
   var fileIn = document.getElementById('mjd-file');
   var tz = document.getElementById('mjd-tz');
   var tzIn = document.getElementById('mjd-tz-in');
@@ -568,14 +585,42 @@
     panel.classList.toggle('mjd-live', live);
   }
 
+  // ---------- reply-to-message ----------
+  var REPLY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h11a4 4 0 0 1 4 4v2"/></svg>';
+  var replyTo = null; // { text, role } captured for the next send
+  function attachReply(row, role) {
+    var bub = row.querySelector('.mjd-bub');
+    if (!bub) return;
+    var btn = inject('button', { class: 'mjd-reply-btn', type: 'button', 'aria-label': 'رد على هذه الرسالة', title: 'رد' }, REPLY_SVG);
+    btn.addEventListener('click', function () { startReply(bub.textContent || '', role); });
+    row.appendChild(btn);
+  }
+  function startReply(text, role) {
+    text = (text || '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    replyTo = { text: text, role: role };
+    var who = role === 'me' ? 'ردًّا على رسالتك' : 'ردًّا على ماجد';
+    replyBar.innerHTML = '<div class="mjd-rb-tx"><b>' + esc(who) + '</b><span>' + esc(text.slice(0, 140)) + '</span></div>' +
+      '<button class="mjd-rb-x" type="button" aria-label="إلغاء الرد">✕</button>';
+    replyBar.querySelector('.mjd-rb-x').addEventListener('click', clearReply);
+    replyBar.classList.add('mjd-on');
+    try { input.focus(); } catch (e) {}
+  }
+  function clearReply() {
+    replyTo = null;
+    replyBar.classList.remove('mjd-on');
+    replyBar.innerHTML = '';
+  }
+
   function addBot(html) {
     var row = inject('div', { class: 'mjd-row mjd-bot' },
       '<img class="mjd-mini" src="' + AVATAR + '"' + AVA_ERR + '/><div class="mjd-bub">' + html + '</div>');
-    bd.appendChild(row); scrollDown();
+    bd.appendChild(row); attachReply(row, 'bot'); scrollDown();
   }
-  function addMe(text) {
-    var row = inject('div', { class: 'mjd-row mjd-me' }, '<div class="mjd-bub">' + esc(text) + '</div>');
-    bd.appendChild(row); scrollDown();
+  function addMe(text, quote) {
+    var q = quote ? '<span class="mjd-quote">' + esc(String(quote).slice(0, 200)) + '</span>' : '';
+    var row = inject('div', { class: 'mjd-row mjd-me' }, '<div class="mjd-bub">' + q + esc(text) + '</div>');
+    bd.appendChild(row); attachReply(row, 'me'); scrollDown();
   }
   function subscribeBackendEnabled() {
     return SUBSCRIBE_CFG.enabled && (!sessionConfig.subscribe || sessionConfig.subscribe.enabled !== false);
@@ -793,12 +838,12 @@
   var typingEl = null, typingTimer = null;
   // rotating "thinking" phrases shown while Majed prepares a reply
   var THINK_PHRASES = [
-    'ماجد بيفكّر…',
-    'بيجهّز ردّه…',
-    'بيراجع التفاصيل…',
-    'بيدوّر على أحسن إجابة…',
-    'لحظة واحدة…',
-    'ثواني وهيرد…'
+    'ماجد يفكّر…',
+    'يُجهّز الرد…',
+    'يراجع التفاصيل…',
+    'يبحث عن أفضل إجابة…',
+    'لحظة من فضلك…',
+    'بعد ثوانٍ يصلك الرد…'
   ];
   function showTyping() {
     if (typingEl) return;
@@ -992,19 +1037,23 @@
   function sendMessage(text, display) {
     text = (text || '').trim();
     // a picked file goes out with the typed text as caption (button clicks don't consume it)
-    if (pendingFile && display == null) { sendAttachment(text); return; }
+    if (pendingFile && display == null) { clearReply(); sendAttachment(text); return; }
     if (!text) return;
     removeSubscribeCard();
-    addMe((display || text).trim() || text);
+    var rep = replyTo;   // capture before clearing, so the send carries the quote
+    clearReply();
+    addMe((display || text).trim() || text, rep ? rep.text : '');
     setLive(true);
-    if (!convId) { startSession().then(function () { if (convId) postMsg(text); }); return; }
-    postMsg(text);
+    if (!convId) { startSession().then(function () { if (convId) postMsg(text, rep); }); return; }
+    postMsg(text, rep);
   }
-  function postMsg(text) {
+  function postMsg(text, rep) {
     showTyping();
+    var body = { conversationId: convId, text: text, userData: userData };
+    if (rep && rep.text) body.replyTo = { text: rep.text, role: rep.role };
     fetch(BRIDGE + '/widget/message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId: convId, text: text, userData: userData })
+      body: JSON.stringify(body)
     }).catch(function () { hideTyping(); addBot('تعذّر إرسال الرسالة.'); });
   }
 
