@@ -620,6 +620,28 @@ function isBridgeIncomingEcho(convId, msg) {
   return true;
 }
 
+// Bot replies the bridge already pushed LIVE to the widget (before the Chatwoot write).
+// The Chatwoot message_created webhook will echo the same outgoing message back; we skip
+// that echo so the widget doesn't render the bot reply twice. Consume-on-match (one echo
+// per live push) so a genuinely repeated bot line still shows.
+const bridgeOutgoingEchoes = new Map(); // key -> expiry
+function outgoingEchoKey(convId, content, attrs) {
+  const c = String(content || '').trim();
+  if (c) return `${convId}:t:${c}`;
+  const a = attrs || {};
+  return `${convId}:m:${a.url || a.image_url || ''}`;
+}
+function markBridgeOutgoing(convId, content, attrs) {
+  bridgeOutgoingEchoes.set(outgoingEchoKey(convId, content, attrs), Date.now() + 30000);
+}
+function isBridgeOutgoingEcho(convId, content, attrs) {
+  const key = outgoingEchoKey(convId, content, attrs);
+  const until = bridgeOutgoingEchoes.get(key);
+  if (until == null) return false;
+  bridgeOutgoingEchoes.delete(key); // consume — one echo per live push
+  return until >= Date.now();
+}
+
 function mapAttachments(list) {
   return (Array.isArray(list) ? list : []).map((a) => ({
     file_type: a.file_type || 'file',
@@ -1169,6 +1191,9 @@ async function handleBotReply(cwConvId, payload, bpMsgId) {
 
     const wid = 'bp-' + (bpMsgId || Date.now()) + '-' + idx++;
 
+    // Remember this reply so its Chatwoot webhook echo is skipped (we push it live below).
+    markBridgeOutgoing(cwConvId, content, msg.contentAttributes);
+
     // 1) Widget first — no Chatwoot wait on the path the customer feels.
     pushToWidget(cwConvId, {
       id: wid,
@@ -1494,6 +1519,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [key, until] of bridgeIncomingEchoes) {
     if (until < now) bridgeIncomingEchoes.delete(key);
+  }
+  for (const [key, until] of bridgeOutgoingEchoes) {
+    if (until < now) bridgeOutgoingEchoes.delete(key);
   }
   for (const [cwConvId, m] of bpMap) {
     if (now - m.lastActivity > BP_IDLE_MS && m.stream) {
@@ -1964,6 +1992,10 @@ app.post('/chatwoot/webhook', async (req, res) => {
 
     if (isOutgoing) {
       if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
+      // Bot reply the bridge already pushed live → skip this echo (avoid a doubled bubble).
+      if (isBridgeOutgoingEcho(convId, p.content, parseObject(p.content_attributes))) {
+        return res.status(200).json({ status: 'skipped', reason: 'bridge_bot_echo' });
+      }
       // Human agent (or flow) reply → widget. Never re-forwarded to Botpress.
       pushToWidget(convId, {
         id: p.id,
