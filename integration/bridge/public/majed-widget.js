@@ -181,8 +181,10 @@
     html: pmt.html || '💳 محتار تدفع إزاي؟<br/>أشرحلك الفرق بين <b>Kashier</b> و<b>Apple Pay</b> و<b>Tap</b> وأنهي أنسب ليك',
     botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين طرق الدفع (Kashier / Apple Pay / PayPal / Tap)، ممكن تشرحلي الفرق بينهم وأنهي أنسب ليّا؟',
     botMessageLabel: pmt.botMessageLabel || '💳 اشرحلي طرق الدفع',
-    code: pmt.code || DISCOUNT_CODE,
-    codeLabel: pmt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+    // مفيش كود خصم على صفحة الدفع (طلب العميل) — التيزر بيشرح طرق الدفع بس.
+    // قابل لإعادة التفعيل من Railway عبر MAJED_PAYMENT_TEASER_CODE لو احتجت.
+    code: pmt.code || '',
+    codeLabel: pmt.codeLabel || ''
   };
 
   // صفحة طلبات الشركات — طلب تدريب خاص/مخصّص للشركات (مش باقات جاهزة)
