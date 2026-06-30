@@ -28,6 +28,9 @@
  *       // showOn:   string | string[] — يظهر التيزر فقط لما يطابق الـ URL أحد الأنماط (substring),
  *       //           مثال: showOn:'/shop'  أو  showOn:['engosoft.com/shop','/course'] . بدونها يظهر في كل الصفحات.
  *       // showOnSelector: CSS selector — يظهر التيزر لو العنصر ده موجود في الصفحة (بديل/إضافة لـ showOn).
+ *       // excludeOn: string | string[] — يخفي التيزر لو الـ URL طابق أحد الأنماط دي (يكسب على showOn).
+ *       //            مفيد لمنع تيزر المتجر/الكورس من الظهور على '/shop/cart' و'/shop/payment'.
+ *       // excludeOnSelector: CSS selector — يخفي التيزر لو العنصر ده موجود في الصفحة.
  *       // ملاحظة: لو في تيزر مستهدَف مطابق للصفحة، بيظهر لوحده وبتختفي التيزرات العامة (زي الترحيب).
  *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
  *       // {{course}} داخل html أو botMessage يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية.
@@ -105,9 +108,13 @@
   //  2) showOn على '/shop/' و '/course/' و '/training_package/' بشَرطة في الآخر كشرط
   //     احتياطي يضمن الظهور على صفحة الدورة/الباقة حتى لو القالب مختلف، ومع كده القائمة
   //     العامة '/shop' (من غير شرطة) متطلعش.
+  // صفحات المتجر اللي مش صفحة كورس/قائمة (سلة/دفع/تأكيد) — نستثنيها من تيزر الكورس والكتالوج
+  // عشان '/shop/cart' و'/shop/payment' بتحتوي على '/shop' كـ substring فكانت بتسرّبهم بالغلط.
+  var SHOP_FLOW_EXCLUDE = ['/shop/cart', '/shop/checkout', '/shop/payment', '/shop/confirmation', '/shop/address'];
   var ct = SCFG.courseTeaser || {};
   var COURSE_TEASER = {
     showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
+    excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
     html: ct.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>معاك خصم <b>20%</b> على الدورة دي بالكود 👇',
     botMessage: ct.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، ومعايا كود خصم ' + DISCOUNT_CODE + '.',
@@ -122,6 +129,7 @@
   var st = SCFG.shopTeaser || {};
   var CATALOG_TEASER = {
     showOn: st.showOn != null ? st.showOn : ['/shop', '/course'],
+    excludeOn: st.excludeOn != null ? st.excludeOn : SHOP_FLOW_EXCLUDE,
     excludeOnSelector: st.excludeOnSelector != null ? st.excludeOnSelector : '#product_details, #product_detail, .js_main_product',
     html: st.html || 'تحب أساعدك تختار الدورة المناسبة ليك؟ 🎯<br/>وفيه <b>خصم</b> على الدورات 👇',
     botMessage: st.botMessage || 'تحب تساعدني أختار الدورة المناسبة ليا من دوراتكم؟ وسمعت إن فيه خصم على الدورات.',
@@ -177,13 +185,22 @@
     codeLabel: pmt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
 
-  // صفحة طلبات الشركات — باقات تدريب الفرق
+  // صفحة طلبات الشركات — طلب تدريب خاص/مخصّص للشركات (مش باقات جاهزة)
   var cmt = SCFG.companyTeaser || {};
   var COMPANY_TEASER = {
     showOn: cmt.showOn != null ? cmt.showOn : ['/company-requests', '/company-request'],
-    html: cmt.html || '🏢 عايز تدرّب فريق شركتك؟<br/>أقولك على باقات الشركات والفرق بينها',
-    botMessage: cmt.botMessage || 'عايز أعرف باقات تدريب الشركات والفرق بينها، ممكن تساعدني؟',
-    botMessageLabel: cmt.botMessageLabel || '🏢 باقات الشركات'
+    html: cmt.html || '🏢 محتاج تدريب خاص لفريق شركتك؟<br/>أساعدك تجهّز طلب تدريب مخصّص بسرعة',
+    botMessage: cmt.botMessage || 'عايز أعمل طلب تدريب خاص لشركتي، ممكن تساعدني أجهّز الطلب وأعرف الخطوات؟',
+    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريب خاص'
+  };
+
+  // صفحة «عن إنجوسوفت» — تعريف بالشركة وعرض المساعدة
+  var abt = SCFG.aboutTeaser || {};
+  var ABOUT_TEASER = {
+    showOn: abt.showOn != null ? abt.showOn : ['/about-us', '/about'],
+    html: abt.html || 'حابب تعرف أكتر عن <b>إنجوسوفت</b>؟ 🏢<br/>اسألني عن خبرتنا ودوراتنا وإزاي نساعدك',
+    botMessage: abt.botMessage || 'حابب أعرف أكتر عن إنجوسوفت وخبرتكم والمجالات اللي بتدرّبوا فيها، ممكن تحكيلي؟',
+    botMessageLabel: abt.botMessageLabel || 'ℹ️ عرّفني بإنجوسوفت'
   };
 
   // الرسالة اللي بتلفت انتباه العميل.
@@ -209,6 +226,7 @@
       CART_TEASER,
       PAYMENT_TEASER,
       COMPANY_TEASER,
+      ABOUT_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
     ];
@@ -1332,6 +1350,18 @@
   //  - من غير أي منهم → يظهر في كل صفحة
   function tzMatchesPage(t) {
     if (!t) return false;
+    var here = '';
+    try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
+    // excludeOn: لو الـ URL طابق أحد الأنماط دي → التيزر مايظهرش (يكسب على showOn).
+    // بيمنع تسرّب تيزرات المتجر/الكورس العامة على صفحات السلة/الدفع (لأن '/shop/cart'
+    // بتحتوي على '/shop' كـ substring).
+    if (t.excludeOn != null) {
+      var ex = Array.isArray(t.excludeOn) ? t.excludeOn : [t.excludeOn];
+      for (var j = 0; j < ex.length; j++) {
+        var ep = String(ex[j] || '').trim().toLowerCase();
+        if (ep && here.indexOf(ep) !== -1) return false;
+      }
+    }
     if (t.excludeOnSelector) {
       try { if (document.querySelector(t.excludeOnSelector)) return false; } catch (e) {}
     }
@@ -1341,8 +1371,6 @@
     }
     if (t.showOn != null) {
       var pats = Array.isArray(t.showOn) ? t.showOn : [t.showOn];
-      var here = '';
-      try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
       for (var i = 0; i < pats.length; i++) {
         var p = String(pats[i] || '').trim().toLowerCase();
         if (p && here.indexOf(p) !== -1) return true;

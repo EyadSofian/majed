@@ -228,6 +228,7 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_COURSE_CODE) course.code = process.env.MAJED_COURSE_CODE;
   if (process.env.MAJED_COURSE_SHOWON) course.showOn = splitList(process.env.MAJED_COURSE_SHOWON);
   if (process.env.MAJED_COURSE_SHOWON_SELECTOR) course.showOnSelector = process.env.MAJED_COURSE_SHOWON_SELECTOR;
+  if (process.env.MAJED_COURSE_EXCLUDE_ON) course.excludeOn = splitList(process.env.MAJED_COURSE_EXCLUDE_ON);
   if (Object.keys(course).length) cfg.courseTeaser = course;
   // granular knobs for the catalog (/shop listing) teaser — the general «help me choose» message
   const shop = {};
@@ -238,6 +239,7 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_SHOP_CODE) shop.code = process.env.MAJED_SHOP_CODE;
   if (process.env.MAJED_SHOP_SHOWON) shop.showOn = splitList(process.env.MAJED_SHOP_SHOWON);
   if (process.env.MAJED_SHOP_EXCLUDE_SELECTOR) shop.excludeOnSelector = process.env.MAJED_SHOP_EXCLUDE_SELECTOR;
+  if (process.env.MAJED_SHOP_EXCLUDE_ON) shop.excludeOn = splitList(process.env.MAJED_SHOP_EXCLUDE_ON);
   if (Object.keys(shop).length) cfg.shopTeaser = shop;
   // per-page contextual teasers (signup / login / cart / payment / company-requests).
   // Each can be tuned from Railway env without editing code; same shape as courseTeaser.
@@ -261,6 +263,8 @@ function buildWidgetServerConfig() {
   if (payment) cfg.paymentTeaser = payment;
   const company = pageTeaser('MAJED_COMPANY_TEASER');
   if (company) cfg.companyTeaser = company;
+  const about = pageTeaser('MAJED_ABOUT_TEASER');
+  if (about) cfg.aboutTeaser = about;
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();
