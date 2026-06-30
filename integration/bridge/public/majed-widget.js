@@ -165,13 +165,16 @@
     codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
 
-  // صفحات الدفع/الإتمام — شرح وسائل الدفع والفرق بينها
+  // صفحات الدفع/الإتمام — شرح الفرق بين بوابات الدفع الفعلية على الموقع
+  // (Kashier / Apple Pay / PayPal / Tap) + زرار نسخ كود الخصم.
   var pmt = SCFG.paymentTeaser || {};
   var PAYMENT_TEASER = {
     showOn: pmt.showOn != null ? pmt.showOn : ['/shop/checkout', '/shop/payment', '/shop/confirmation'],
-    html: pmt.html || '💳 محتار في طريقة الدفع؟<br/>أشرحلك الفرق بين الوسائل وأنهي أنسب ليك',
-    botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين وسائل الدفع، ممكن تشرحلي الفرق بينهم وأنهي أنسب ليّا؟',
-    botMessageLabel: pmt.botMessageLabel || '💳 اشرحلي وسائل الدفع'
+    html: pmt.html || '💳 محتار تدفع إزاي؟<br/>أشرحلك الفرق بين <b>Kashier</b> و<b>Apple Pay</b> و<b>Tap</b> وأنهي أنسب ليك',
+    botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين طرق الدفع (Kashier / Apple Pay / PayPal / Tap)، ممكن تشرحلي الفرق بينهم وأنهي أنسب ليّا؟',
+    botMessageLabel: pmt.botMessageLabel || '💳 اشرحلي طرق الدفع',
+    code: pmt.code || DISCOUNT_CODE,
+    codeLabel: pmt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
 
   // صفحة طلبات الشركات — باقات تدريب الفرق
