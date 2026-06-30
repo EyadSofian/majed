@@ -239,6 +239,28 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_SHOP_SHOWON) shop.showOn = splitList(process.env.MAJED_SHOP_SHOWON);
   if (process.env.MAJED_SHOP_EXCLUDE_SELECTOR) shop.excludeOnSelector = process.env.MAJED_SHOP_EXCLUDE_SELECTOR;
   if (Object.keys(shop).length) cfg.shopTeaser = shop;
+  // per-page contextual teasers (signup / login / cart / payment / company-requests).
+  // Each can be tuned from Railway env without editing code; same shape as courseTeaser.
+  function pageTeaser(prefix) {
+    const t = {};
+    if (process.env[`${prefix}_HTML`]) t.html = process.env[`${prefix}_HTML`];
+    if (process.env[`${prefix}_MSG`]) t.botMessage = process.env[`${prefix}_MSG`];
+    if (process.env[`${prefix}_LABEL`]) t.botMessageLabel = process.env[`${prefix}_LABEL`];
+    if (process.env[`${prefix}_SHOWON`]) t.showOn = splitList(process.env[`${prefix}_SHOWON`]);
+    if (process.env[`${prefix}_CODE`]) t.code = process.env[`${prefix}_CODE`];
+    if (process.env[`${prefix}_CODE_LABEL`]) t.codeLabel = process.env[`${prefix}_CODE_LABEL`];
+    return Object.keys(t).length ? t : null;
+  }
+  const signup = pageTeaser('MAJED_SIGNUP_TEASER');
+  if (signup) cfg.signupTeaser = signup;
+  const login = pageTeaser('MAJED_LOGIN_TEASER');
+  if (login) cfg.loginTeaser = login;
+  const cart = pageTeaser('MAJED_CART_TEASER');
+  if (cart) cfg.cartTeaser = cart;
+  const payment = pageTeaser('MAJED_PAYMENT_TEASER');
+  if (payment) cfg.paymentTeaser = payment;
+  const company = pageTeaser('MAJED_COMPANY_TEASER');
+  if (company) cfg.companyTeaser = company;
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();

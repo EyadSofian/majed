@@ -129,6 +129,63 @@
     code: st.code || DISCOUNT_CODE,
     codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
+  // ── تيزرات مخصّصة لكل صفحة (ماجد يظهر بسياق الصفحة اللي العميل واقف عليها) ──
+  // كلها مستهدَفة بـ showOn (مسار الـ URL) فبتظهر لوحدها على صفحتها وتخفي التيزرات العامة.
+  // الزرار بيفتح الشات ويبعت botMessage للبوت → ماجد يكمّل الشرح/المساعدة (التعليمات في Botpress).
+  // قابلة للتخصيص من Railway env عبر SCFG.<name>Teaser (أو MAJED_TEASERS_JSON للتحكم الكامل).
+
+  // صفحة إنشاء الحساب — للزوار فقط
+  var sgt = SCFG.signupTeaser || {};
+  var SIGNUP_TEASER = {
+    showOn: sgt.showOn != null ? sgt.showOn : ['/web/signup', '/web/reset_password'],
+    guestOnly: sgt.guestOnly != null ? sgt.guestOnly : true,
+    html: sgt.html || 'بتعمل حساب جديد؟ 👋<br/>لو وقفت في أي خطوة أنا <b>ماجد</b> أساعدك فورًا',
+    botMessage: sgt.botMessage || 'أنا في صفحة إنشاء الحساب ووقفت، ممكن تساعدني أكمّل التسجيل خطوة بخطوة؟',
+    botMessageLabel: sgt.botMessageLabel || '✋ ساعدني في التسجيل'
+  };
+
+  // صفحة تسجيل الدخول — للزوار فقط (نسيت الباسورد / مش عارف يدخل)
+  var lgt = SCFG.loginTeaser || {};
+  var LOGIN_TEASER = {
+    showOn: lgt.showOn != null ? lgt.showOn : ['/web/login'],
+    guestOnly: lgt.guestOnly != null ? lgt.guestOnly : true,
+    html: lgt.html || 'مش عارف تدخل؟ 🔐<br/>نسيت الباسورد؟ أساعدك تعمل <b>ريِست</b> ويوصلك رابط على الإيميل',
+    botMessage: lgt.botMessage || 'عندي مشكلة في تسجيل الدخول، يمكن نسيت الباسورد، ممكن تساعدني أعمل ريِست؟',
+    botMessageLabel: lgt.botMessageLabel || '🔐 ساعدني أدخل'
+  };
+
+  // صفحة السلة — تشجيع إتمام الطلب + كود الخصم
+  var crt = SCFG.cartTeaser || {};
+  var CART_TEASER = {
+    showOn: crt.showOn != null ? crt.showOn : ['/shop/cart'],
+    html: crt.html || '🛒 إنت على خطوة من إتمام طلبك!<br/>محتاج مساعدة؟ ومعاك <b>خصم 20%</b> 👇',
+    botMessage: crt.botMessage || 'أنا في السلة وعايز أكمّل الطلب، ممكن تساعدني؟ وفيه خصم متاح؟',
+    botMessageLabel: crt.botMessageLabel || '🛒 ساعدني أكمّل',
+    code: crt.code || DISCOUNT_CODE,
+    codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+  };
+
+  // صفحات الدفع/الإتمام — شرح الفرق بين بوابات الدفع الفعلية على الموقع
+  // (Kashier / Apple Pay / PayPal / Tap) + زرار نسخ كود الخصم.
+  var pmt = SCFG.paymentTeaser || {};
+  var PAYMENT_TEASER = {
+    showOn: pmt.showOn != null ? pmt.showOn : ['/shop/checkout', '/shop/payment', '/shop/confirmation'],
+    html: pmt.html || '💳 محتار تدفع إزاي؟<br/>أشرحلك الفرق بين <b>Kashier</b> و<b>Apple Pay</b> و<b>Tap</b> وأنهي أنسب ليك',
+    botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين طرق الدفع (Kashier / Apple Pay / PayPal / Tap)، ممكن تشرحلي الفرق بينهم وأنهي أنسب ليّا؟',
+    botMessageLabel: pmt.botMessageLabel || '💳 اشرحلي طرق الدفع',
+    code: pmt.code || DISCOUNT_CODE,
+    codeLabel: pmt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+  };
+
+  // صفحة طلبات الشركات — باقات تدريب الفرق
+  var cmt = SCFG.companyTeaser || {};
+  var COMPANY_TEASER = {
+    showOn: cmt.showOn != null ? cmt.showOn : ['/company-requests', '/company-request'],
+    html: cmt.html || '🏢 عايز تدرّب فريق شركتك؟<br/>أقولك على باقات الشركات والفرق بينها',
+    botMessage: cmt.botMessage || 'عايز أعرف باقات تدريب الشركات والفرق بينها، ممكن تساعدني؟',
+    botMessageLabel: cmt.botMessageLabel || '🏢 باقات الشركات'
+  };
+
   // الرسالة اللي بتلفت انتباه العميل.
   // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
@@ -147,6 +204,11 @@
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
         link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
+      SIGNUP_TEASER,
+      LOGIN_TEASER,
+      CART_TEASER,
+      PAYMENT_TEASER,
+      COMPANY_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
     ];
