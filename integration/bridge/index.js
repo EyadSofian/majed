@@ -2018,8 +2018,15 @@ app.post('/chatwoot/webhook', async (req, res) => {
 
     if (isOutgoing) {
       if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
+      const outAttrs = parseObject(p.content_attributes);
+      // Bot reply the bridge already pushed live carries bp_id == the widget id we used
+      // for the live push. Skip by id (robust against any Chatwoot content normalization
+      // that would defeat the content-based echo key below).
+      if (outAttrs && outAttrs.bp_id && pushedIds.has(`cw-${outAttrs.bp_id}`)) {
+        return res.status(200).json({ status: 'skipped', reason: 'bridge_bot_echo_id' });
+      }
       // Bot reply the bridge already pushed live → skip this echo (avoid a doubled bubble).
-      if (isBridgeOutgoingEcho(convId, p.content, parseObject(p.content_attributes))) {
+      if (isBridgeOutgoingEcho(convId, p.content, outAttrs)) {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_bot_echo' });
       }
       // Human agent (or flow) reply → widget. Never re-forwarded to Botpress.

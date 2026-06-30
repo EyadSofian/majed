@@ -242,6 +242,30 @@
     )
   ];
 
+  // ── رسائل تحفيزية لصفحة السلة (/shop/cart) — تشجّع العميل على إتمام عملية الشراء ──
+  // تتبدّل واحدة تلو الأخرى كل بضع ثوانٍ مع تيزر السلة الأساسي (CART_TEASER).
+  var CART_MOTIVATION_TEASERS = [
+    {
+      showOn: ['/shop/cart'],
+      html: '⏳ لا تفوّت الفرصة!<br/>أكمل طلبك الآن واحجز مقعدك في الدورة',
+      botMessage: 'أنا في سلة الشراء وأريد إكمال طلبي وحجز مقعدي، هل يمكنك مساعدتي؟',
+      botMessageLabel: '✅ أكمل طلبي'
+    },
+    {
+      showOn: ['/shop/cart'],
+      html: '🚀 استثمر في مستقبلك المهني!<br/>أكمل الشراء وابدأ رحلة التعلّم فورًا',
+      botMessage: 'أرغب في إتمام الشراء والبدء في التعلّم فورًا، ما الخطوات؟',
+      botMessageLabel: '🚀 أكمل الشراء'
+    },
+    {
+      showOn: ['/shop/cart'],
+      html: '🎉 خصم <b>20%</b> بانتظارك!<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
+      botMessage: 'هناك خصم 20% وأريد الاستفادة منه على طلبي في السلة، كيف أطبّقه؟',
+      botMessageLabel: '🏷️ استفد من الخصم',
+      code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
+    }
+  ];
+
   // الرسالة التي تلفت انتباه العميل.
   // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
@@ -268,7 +292,7 @@
       ABOUT_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
-    ].concat(SHOP_MOTIVATION_TEASERS);
+    ].concat(SHOP_MOTIVATION_TEASERS, CART_MOTIVATION_TEASERS);
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
@@ -1145,11 +1169,30 @@
     });
     es.onerror = function () { /* EventSource auto-reconnects */ };
   }
+  // backstop ضد الرسالة المكرّرة: لو نفس المحتوى وصل عبر الستريم مرتين بـ id مختلف
+  // خلال نافذة قصيرة (مثلاً echo من Chatwoot بعد البث الحي)، نتجاهل التكرار.
+  var recentStream = []; // [{ sig, ts }]
+  function streamSig(m) {
+    m = m || {};
+    var ca = m.content_attributes || {};
+    var att = (m.attachments || []).map(function (a) { return a.data_url || a.url || a.name || ''; }).join(',');
+    var extra = ca.url || ca.image_url || '';
+    try { if (ca.items) extra += '#' + ca.items.length; } catch (e) {}
+    return (m.content_type || 'text') + '|' + (m.content || '') + '|' + att + '|' + extra;
+  }
+  function isRecentDuplicate(m) {
+    var sig = streamSig(m), now = Date.now();
+    recentStream = recentStream.filter(function (e) { return now - e.ts < 4000; });
+    for (var i = 0; i < recentStream.length; i++) { if (recentStream[i].sig === sig) return true; }
+    recentStream.push({ sig: sig, ts: now });
+    return false;
+  }
   function renderStreamMessage(m) {
     if (m.id != null) {
       if (seenIds[m.id]) return;
       seenIds[m.id] = 1;
     }
+    if (isRecentDuplicate(m)) return;
     hideTyping();
     renderAgentMessage(m);
     if (live) showSubscribeCard('after_reply');
