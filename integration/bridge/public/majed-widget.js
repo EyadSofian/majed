@@ -77,7 +77,7 @@
   var WA = String(SCFG.waNumber || CFG.waNumber || '966920016295').replace(/[^\d]/g, '');
   var EMAIL = SCFG.supportEmail || CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
-  var GREETING = CFG.greeting || 'أهلاً، أنا ماجد';
+  var GREETING = CFG.greeting || 'مرحبًا، أنا ماجد';
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
   // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر خصم 20%
   var SHOP_URL = CFG.shopUrl || SCFG.shopUrl || 'https://engosoft.com/shop';
@@ -116,8 +116,8 @@
     showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
     excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
-    html: ct.html || '🛒 محتاج مساعدة في شراء «{{course}}»؟<br/>معاك خصم <b>20%</b> على الدورة دي بالكود 👇',
-    botMessage: ct.botMessage || 'محتاج مساعدة في شراء كورس «{{course}}»، ومعايا كود خصم ' + DISCOUNT_CODE + '.',
+    html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>لديك خصم <b>20%</b> على هذه الدورة بالكود 👇',
+    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، ولديّ كود خصم ' + DISCOUNT_CODE + '.',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
     code: ct.code || DISCOUNT_CODE,
     codeLabel: ct.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
@@ -131,9 +131,9 @@
     showOn: st.showOn != null ? st.showOn : ['/shop', '/course'],
     excludeOn: st.excludeOn != null ? st.excludeOn : SHOP_FLOW_EXCLUDE,
     excludeOnSelector: st.excludeOnSelector != null ? st.excludeOnSelector : '#product_details, #product_detail, .js_main_product',
-    html: st.html || 'تحب أساعدك تختار الدورة المناسبة ليك؟ 🎯<br/>وفيه <b>خصم</b> على الدورات 👇',
-    botMessage: st.botMessage || 'تحب تساعدني أختار الدورة المناسبة ليا من دوراتكم؟ وسمعت إن فيه خصم على الدورات.',
-    botMessageLabel: st.botMessageLabel || '🎯 ساعدني أختار',
+    html: st.html || 'هل تحب أن أساعدك في اختيار الدورة المناسبة لك؟ 🎯<br/>وهناك <b>خصم</b> على الدورات 👇',
+    botMessage: st.botMessage || 'هل يمكنك مساعدتي في اختيار الدورة المناسبة لي من دوراتكم؟ وقد سمعت أن هناك خصمًا على الدورات.',
+    botMessageLabel: st.botMessageLabel || '🎯 ساعدني في الاختيار',
     code: st.code || DISCOUNT_CODE,
     codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
@@ -147,8 +147,8 @@
   var SIGNUP_TEASER = {
     showOn: sgt.showOn != null ? sgt.showOn : ['/web/signup', '/web/reset_password'],
     guestOnly: sgt.guestOnly != null ? sgt.guestOnly : true,
-    html: sgt.html || 'بتعمل حساب جديد؟ 👋<br/>لو وقفت في أي خطوة أنا <b>ماجد</b> أساعدك فورًا',
-    botMessage: sgt.botMessage || 'أنا في صفحة إنشاء الحساب ووقفت، ممكن تساعدني أكمّل التسجيل خطوة بخطوة؟',
+    html: sgt.html || 'هل تُنشئ حسابًا جديدًا؟ 👋<br/>إن واجهتك أي خطوة، فأنا <b>ماجد</b> لمساعدتك فورًا',
+    botMessage: sgt.botMessage || 'أنا في صفحة إنشاء الحساب وتوقّفت، هل يمكنك مساعدتي في إكمال التسجيل خطوة بخطوة؟',
     botMessageLabel: sgt.botMessageLabel || '✋ ساعدني في التسجيل'
   };
 
@@ -157,18 +157,18 @@
   var LOGIN_TEASER = {
     showOn: lgt.showOn != null ? lgt.showOn : ['/web/login'],
     guestOnly: lgt.guestOnly != null ? lgt.guestOnly : true,
-    html: lgt.html || 'مش عارف تدخل؟ 🔐<br/>نسيت الباسورد؟ أساعدك تعمل <b>ريِست</b> ويوصلك رابط على الإيميل',
-    botMessage: lgt.botMessage || 'عندي مشكلة في تسجيل الدخول، يمكن نسيت الباسورد، ممكن تساعدني أعمل ريِست؟',
-    botMessageLabel: lgt.botMessageLabel || '🔐 ساعدني أدخل'
+    html: lgt.html || 'تواجه مشكلة في الدخول؟ 🔐<br/>نسيت كلمة المرور؟ أساعدك على إعادة تعيينها ويصلك الرابط على بريدك',
+    botMessage: lgt.botMessage || 'لديّ مشكلة في تسجيل الدخول، ربما نسيت كلمة المرور، هل يمكنك مساعدتي في إعادة تعيينها؟',
+    botMessageLabel: lgt.botMessageLabel || '🔐 ساعدني في الدخول'
   };
 
   // صفحة السلة — تشجيع إتمام الطلب + كود الخصم
   var crt = SCFG.cartTeaser || {};
   var CART_TEASER = {
     showOn: crt.showOn != null ? crt.showOn : ['/shop/cart'],
-    html: crt.html || '🛒 إنت على خطوة من إتمام طلبك!<br/>محتاج مساعدة؟ ومعاك <b>خصم 20%</b> 👇',
-    botMessage: crt.botMessage || 'أنا في السلة وعايز أكمّل الطلب، ممكن تساعدني؟ وفيه خصم متاح؟',
-    botMessageLabel: crt.botMessageLabel || '🛒 ساعدني أكمّل',
+    html: crt.html || '🛒 تفصلك خطوة واحدة عن إتمام طلبك!<br/>هل تحتاج مساعدة؟ ولديك <b>خصم 20%</b> 👇',
+    botMessage: crt.botMessage || 'أنا في سلة الشراء وأرغب في إتمام الطلب، هل يمكنك مساعدتي؟ وهل يوجد خصم متاح؟',
+    botMessageLabel: crt.botMessageLabel || '🛒 ساعدني في الإتمام',
     code: crt.code || DISCOUNT_CODE,
     codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
@@ -178,9 +178,9 @@
   var pmt = SCFG.paymentTeaser || {};
   var PAYMENT_TEASER = {
     showOn: pmt.showOn != null ? pmt.showOn : ['/shop/checkout', '/shop/payment', '/shop/confirmation'],
-    html: pmt.html || '💳 محتار تدفع إزاي؟<br/>أشرحلك الفرق بين <b>Kashier</b> و<b>Apple Pay</b> و<b>Tap</b> وأنهي أنسب ليك',
-    botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين طرق الدفع (Kashier / Apple Pay / PayPal / Tap)، ممكن تشرحلي الفرق بينهم وأنهي أنسب ليّا؟',
-    botMessageLabel: pmt.botMessageLabel || '💳 اشرحلي طرق الدفع',
+    html: pmt.html || '💳 محتار في طريقة الدفع؟<br/>أوضّح لك الفرق بين <b>Kashier</b> و<b>Apple Pay</b> و<b>Tap</b> وأيها أنسب لك',
+    botMessage: pmt.botMessage || 'أنا في صفحة الدفع ومحتار بين طرق الدفع (Kashier / Apple Pay / PayPal / Tap)، هل يمكنك توضيح الفرق بينها وأيها أنسب لي؟',
+    botMessageLabel: pmt.botMessageLabel || '💳 وضّح لي طرق الدفع',
     // مفيش كود خصم على صفحة الدفع (طلب العميل) — التيزر بيشرح طرق الدفع بس.
     // قابل لإعادة التفعيل من Railway عبر MAJED_PAYMENT_TEASER_CODE لو احتجت.
     code: pmt.code || '',
@@ -191,36 +191,73 @@
   var cmt = SCFG.companyTeaser || {};
   var COMPANY_TEASER = {
     showOn: cmt.showOn != null ? cmt.showOn : ['/company-requests', '/company-request'],
-    html: cmt.html || '🏢 محتاج تدريب خاص لفريق شركتك؟<br/>أساعدك تجهّز طلب تدريب مخصّص بسرعة',
-    botMessage: cmt.botMessage || 'عايز أعمل طلب تدريب خاص لشركتي، ممكن تساعدني أجهّز الطلب وأعرف الخطوات؟',
-    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريب خاص'
+    html: cmt.html || '🏢 هل تحتاج تدريبًا خاصًا لفريق شركتك؟<br/>أساعدك على تجهيز طلب تدريب مخصّص بسرعة',
+    botMessage: cmt.botMessage || 'أرغب في تقديم طلب تدريب خاص لشركتي، هل يمكنك مساعدتي في تجهيز الطلب ومعرفة الخطوات؟',
+    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريبًا خاصًا'
   };
 
   // صفحة «عن إنجوسوفت» — تعريف بالشركة وعرض المساعدة
   var abt = SCFG.aboutTeaser || {};
   var ABOUT_TEASER = {
     showOn: abt.showOn != null ? abt.showOn : ['/about-us', '/about'],
-    html: abt.html || 'حابب تعرف أكتر عن <b>إنجوسوفت</b>؟ 🏢<br/>اسألني عن خبرتنا ودوراتنا وإزاي نساعدك',
-    botMessage: abt.botMessage || 'حابب أعرف أكتر عن إنجوسوفت وخبرتكم والمجالات اللي بتدرّبوا فيها، ممكن تحكيلي؟',
+    html: abt.html || 'هل ترغب في معرفة المزيد عن <b>إنجوسوفت</b>؟ 🏢<br/>اسألني عن خبرتنا ودوراتنا وكيف نساعدك',
+    botMessage: abt.botMessage || 'أرغب في معرفة المزيد عن إنجوسوفت وخبرتكم والمجالات التي تدرّبون فيها، هل يمكنك إخباري؟',
     botMessageLabel: abt.botMessageLabel || 'ℹ️ عرّفني بإنجوسوفت'
   };
 
-  // الرسالة اللي بتلفت انتباه العميل.
+  // ── رسائل تحفيزية لصفحة المتجر (/shop) — تظهر واحدة تلو الأخرى كل بضع ثوانٍ ──
+  // تستهدف قائمة المتجر فقط (مستثناة من صفحة الدورة المفردة وصفحات السلة/الدفع)،
+  // وتشجّع الزائر المتردّد على البدء. قابلة للتجاوز الكامل من Railway عبر MAJED_TEASERS_JSON.
+  function shopMotivation(html, botMessage, botMessageLabel, extra) {
+    var t = {
+      showOn: ['/shop', '/course'],
+      excludeOn: SHOP_FLOW_EXCLUDE,
+      excludeOnSelector: '#product_details, #product_detail, .js_main_product',
+      html: html, botMessage: botMessage, botMessageLabel: botMessageLabel
+    };
+    if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) t[k] = extra[k]; } }
+    return t;
+  }
+  var SHOP_MOTIVATION_TEASERS = [
+    shopMotivation(
+      '🤔 هل أنت متردّد في اختيار دورتك؟<br/>دعني أساعدك على اختيار الأنسب لمجالك',
+      'أنا متردّد في اختيار الدورة المناسبة لي، هل يمكنك مساعدتي في الاختيار؟',
+      '🎯 ساعدني في الاختيار'
+    ),
+    shopMotivation(
+      '👷‍♂️ اغتنم الفرصة كما فعل غيرك!<br/>آلاف المهندسين طوّروا مهاراتهم وانطلقوا في مسارهم المهني معنا',
+      'أرغب في تطوير مهاراتي المهنية مثل غيري من المهندسين، ما الدورات التي تنصحني بها؟',
+      '🚀 ابدأ الآن'
+    ),
+    shopMotivation(
+      '🎓 انضمّ إلى أكثر من <b>50,000 متدرّب</b><br/>اختر دورتك وابدأ رحلتك التعليمية اليوم',
+      'أرغب في الانضمام إليكم والبدء في رحلتي التعليمية، ما الخطوات؟',
+      '✨ انضمّ إلينا'
+    ),
+    shopMotivation(
+      '🎉 خصم <b>20%</b> على <b>جميع الدورات</b>!<br/>اغتنم الفرصة قبل انتهائها',
+      'سمعت أن هناك خصم 20% على جميع الدورات، كيف أستفيد منه؟',
+      '🏷️ استفد من الخصم',
+      { code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE }
+    )
+  ];
+
+  // الرسالة التي تلفت انتباه العميل.
   // الأولوية: MajedConfig.teasers (الصفحة) ← MajedServerConfig.teasers (Railway) ← الافتراضي المدمج.
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
     : (SCFG.teasers && SCFG.teasers.length) ? SCFG.teasers
     : [
-      { html: 'أهلاً! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي كورس أو خطّتك التعليمية' },
+      { html: 'مرحبًا! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي دورة أو عن خطتك التعليمية' },
       {
-        // عرض الكورس المجاني — يظهر قبل اللوجين فقط (للزوار)
+        // عرض الدورة المجانية — يظهر قبل تسجيل الدخول فقط (للزوار)
         guestOnly: true,
-        html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجاناً</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
+        html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجانًا</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
         link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
       },
       {
-        // خصم 20% على أي دورة — يظهر بعد اللوجين فقط (للعملاء المسجّلين)
+        // خصم 20% على أي دورة — يظهر بعد تسجيل الدخول فقط (للعملاء المسجّلين)
         loggedInOnly: true,
-        html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم الكود ده عند الشراء 👇',
+        html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم هذا الكود عند الشراء 👇',
         link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
       },
       SIGNUP_TEASER,
@@ -231,7 +268,7 @@
       ABOUT_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
-    ];
+    ].concat(SHOP_MOTIVATION_TEASERS);
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
