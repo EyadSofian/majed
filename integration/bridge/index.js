@@ -263,6 +263,8 @@ function buildWidgetServerConfig() {
   if (payment) cfg.paymentTeaser = payment;
   const company = pageTeaser('MAJED_COMPANY_TEASER');
   if (company) cfg.companyTeaser = company;
+  const about = pageTeaser('MAJED_ABOUT_TEASER');
+  if (about) cfg.aboutTeaser = about;
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();

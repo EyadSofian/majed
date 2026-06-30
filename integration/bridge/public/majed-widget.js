@@ -185,13 +185,22 @@
     codeLabel: pmt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
   };
 
-  // صفحة طلبات الشركات — باقات تدريب الفرق
+  // صفحة طلبات الشركات — طلب تدريب خاص/مخصّص للشركات (مش باقات جاهزة)
   var cmt = SCFG.companyTeaser || {};
   var COMPANY_TEASER = {
     showOn: cmt.showOn != null ? cmt.showOn : ['/company-requests', '/company-request'],
-    html: cmt.html || '🏢 عايز تدرّب فريق شركتك؟<br/>أقولك على باقات الشركات والفرق بينها',
-    botMessage: cmt.botMessage || 'عايز أعرف باقات تدريب الشركات والفرق بينها، ممكن تساعدني؟',
-    botMessageLabel: cmt.botMessageLabel || '🏢 باقات الشركات'
+    html: cmt.html || '🏢 محتاج تدريب خاص لفريق شركتك؟<br/>أساعدك تجهّز طلب تدريب مخصّص بسرعة',
+    botMessage: cmt.botMessage || 'عايز أعمل طلب تدريب خاص لشركتي، ممكن تساعدني أجهّز الطلب وأعرف الخطوات؟',
+    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريب خاص'
+  };
+
+  // صفحة «عن إنجوسوفت» — تعريف بالشركة وعرض المساعدة
+  var abt = SCFG.aboutTeaser || {};
+  var ABOUT_TEASER = {
+    showOn: abt.showOn != null ? abt.showOn : ['/about-us', '/about'],
+    html: abt.html || 'حابب تعرف أكتر عن <b>إنجوسوفت</b>؟ 🏢<br/>اسألني عن خبرتنا ودوراتنا وإزاي نساعدك',
+    botMessage: abt.botMessage || 'حابب أعرف أكتر عن إنجوسوفت وخبرتكم والمجالات اللي بتدرّبوا فيها، ممكن تحكيلي؟',
+    botMessageLabel: abt.botMessageLabel || 'ℹ️ عرّفني بإنجوسوفت'
   };
 
   // الرسالة اللي بتلفت انتباه العميل.
@@ -217,6 +226,7 @@
       CART_TEASER,
       PAYMENT_TEASER,
       COMPANY_TEASER,
+      ABOUT_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
     ];

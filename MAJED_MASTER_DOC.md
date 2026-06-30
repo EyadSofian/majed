@@ -333,8 +333,13 @@ When user responds after sales pitch:
 | `SIGNUP_TEASER` | `/web/signup`, `/web/reset_password` (guestOnly) | مساعدة إنشاء الحساب خطوة بخطوة + هدية الدورة المجانية |
 | `LOGIN_TEASER` | `/web/login` (guestOnly) | نسيت الباسورد؟ مساعدة عمل ريِست عبر الإيميل |
 | `CART_TEASER` | `/shop/cart` | تشجيع إتمام الطلب + كود الخصم 20% |
-| `PAYMENT_TEASER` | `/shop/checkout`, `/shop/payment`, `/shop/confirmation` | شرح الفرق بين وسائل الدفع |
-| `COMPANY_TEASER` | `/company-requests` | باقات تدريب الشركات |
+| `PAYMENT_TEASER` | `/shop/checkout`, `/shop/payment`, `/shop/confirmation` | شرح الفرق بين بوابات الدفع (Kashier/Apple Pay/PayPal/Tap) — بدون كلام عن العملة |
+| `COMPANY_TEASER` | `/company-requests` | طلب تدريب خاص/مخصّص للشركات (مش باقات) |
+| `ABOUT_TEASER` | `/about-us` | تعريف بإنجوسوفت وعرض المساعدة |
+
+> 🛡️ تيزرات المتجر/الكورس (`COURSE_TEASER`/`CATALOG_TEASER`) فيها `excludeOn` لمنع
+> ظهورها على صفحات مسار الشراء (`/shop/cart`, `/shop/payment` …) لأن مطابقة `showOn`
+> بالـ substring كانت بتسرّبهم هناك. التحكم من Railway: `MAJED_COURSE_EXCLUDE_ON` / `MAJED_SHOP_EXCLUDE_ON`.
 
 **التحكم من Railway env (اختياري — بدون تعديل كود):** لكل تيزر مجموعة env vars بنفس
 نمط `MAJED_COURSE_*`. مثال للتسجيل: `MAJED_SIGNUP_TEASER_HTML` / `_MSG` / `_LABEL` /
