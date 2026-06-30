@@ -102,11 +102,11 @@ const config = {
   welcomeCardEnabled: (process.env.WELCOME_CARD_ENABLED || 'false').toLowerCase() === 'true',
   welcomeText:
     process.env.WELCOME_TEXT ||
-    'أهلاً 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن أي دورة أو عن تقدّمك في التعلّم.',
+    'مرحبًا 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن أي دورة أو عن تقدّمك في التعلّم.',
   // choice buttons sent right after the welcome text (values go to the bot as the user's message)
   welcomeChoicesText: process.env.WELCOME_CHOICES_TEXT || 'اختر ما يناسبك:',
   welcomeChoices: (process.env.WELCOME_CHOICES ||
-    'أبحث عن كورس مناسب لي|أسعار الدورات|مجالات التدريب المتاحة|تواصل مع فريق المبيعات')
+    'أبحث عن دورة مناسبة لي|أسعار الدورات|مجالات التدريب المتاحة|تواصل مع فريق المبيعات')
     .split('|').map((s) => s.trim()).filter(Boolean),
   waNumber: (process.env.WA_NUMBER || '966920016295').replace(/[^\d]/g, ''),
   supportEmail: process.env.SUPPORT_EMAIL || 'aibot@engosoft.com',
