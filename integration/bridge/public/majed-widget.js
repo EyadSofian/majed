@@ -34,6 +34,8 @@
  *       // ملاحظة: لو في تيزر مستهدَف مطابق للصفحة، بيظهر لوحده وبتختفي التيزرات العامة (زي الترحيب).
  *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
  *       // {{course}} داخل html أو botMessage يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية.
+ *       // en: { html, botMessage, botMessageLabel, linkText, codeLabel } — النص الإنجليزي.
+ *       //     يظهر تلقائيًا لما تكون لغة الصفحة إنجليزي (من <html lang> أو بادئة /en/). بدونه يظهر العربي.
  *     courseNameSelector: 'h1[itemprop="name"]',   // (اختياري) من فين يقرأ اسم الكورس — الافتراضي يغطي صفحات Odoo
  *   };
  *
@@ -120,7 +122,13 @@
     botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، ولديّ كود خصم ' + DISCOUNT_CODE + '.',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
     code: ct.code || DISCOUNT_CODE,
-    codeLabel: ct.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+    codeLabel: ct.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    en: ct.en || {
+      html: '🛒 Need help buying «{{course}}»?<br/>You get <b>20%</b> off this course with the code 👇',
+      botMessage: 'I need help buying the course «{{course}}», and I have discount code ' + DISCOUNT_CODE + '.',
+      botMessageLabel: '💬 Help me buy',
+      codeLabel: 'Discount code ' + DISCOUNT_CODE
+    }
   };
 
   // تيزر قائمة الدورات (صفحة المتجر العامة /shop) — رسالة عامة «تحب أساعدك تختار الدورة المناسبة؟»
@@ -135,7 +143,13 @@
     botMessage: st.botMessage || 'هل يمكنك مساعدتي في اختيار الدورة المناسبة لي من دوراتكم؟ وقد سمعت أن هناك خصمًا على الدورات.',
     botMessageLabel: st.botMessageLabel || '🎯 ساعدني في الاختيار',
     code: st.code || DISCOUNT_CODE,
-    codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+    codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    en: st.en || {
+      html: 'Would you like me to help you choose the right course? 🎯<br/>And there\'s a <b>discount</b> on courses 👇',
+      botMessage: 'Can you help me choose the right course from your catalog? I heard there\'s a discount on courses.',
+      botMessageLabel: '🎯 Help me choose',
+      codeLabel: 'Discount code ' + DISCOUNT_CODE
+    }
   };
   // ── تيزرات مخصّصة لكل صفحة (ماجد يظهر بسياق الصفحة اللي العميل واقف عليها) ──
   // كلها مستهدَفة بـ showOn (مسار الـ URL) فبتظهر لوحدها على صفحتها وتخفي التيزرات العامة.
@@ -149,7 +163,12 @@
     guestOnly: sgt.guestOnly != null ? sgt.guestOnly : true,
     html: sgt.html || 'هل تُنشئ حسابًا جديدًا؟ 👋<br/>إن واجهتك أي خطوة، فأنا <b>ماجد</b> لمساعدتك فورًا',
     botMessage: sgt.botMessage || 'أنا في صفحة إنشاء الحساب وتوقّفت، هل يمكنك مساعدتي في إكمال التسجيل خطوة بخطوة؟',
-    botMessageLabel: sgt.botMessageLabel || '✋ ساعدني في التسجيل'
+    botMessageLabel: sgt.botMessageLabel || '✋ ساعدني في التسجيل',
+    en: sgt.en || {
+      html: 'Creating a new account? 👋<br/>If you get stuck on any step, I\'m <b>Majed</b>, here to help right away',
+      botMessage: 'I\'m on the sign-up page and got stuck, can you help me complete the registration step by step?',
+      botMessageLabel: '✋ Help me sign up'
+    }
   };
 
   // صفحة تسجيل الدخول — للزوار فقط (نسيت الباسورد / مش عارف يدخل)
@@ -159,7 +178,12 @@
     guestOnly: lgt.guestOnly != null ? lgt.guestOnly : true,
     html: lgt.html || 'تواجه مشكلة في الدخول؟ 🔐<br/>نسيت كلمة المرور؟ أساعدك على إعادة تعيينها ويصلك الرابط على بريدك',
     botMessage: lgt.botMessage || 'لديّ مشكلة في تسجيل الدخول، ربما نسيت كلمة المرور، هل يمكنك مساعدتي في إعادة تعيينها؟',
-    botMessageLabel: lgt.botMessageLabel || '🔐 ساعدني في الدخول'
+    botMessageLabel: lgt.botMessageLabel || '🔐 ساعدني في الدخول',
+    en: lgt.en || {
+      html: 'Trouble signing in? 🔐<br/>Forgot your password? I\'ll help you reset it and you\'ll get the link by email',
+      botMessage: 'I\'m having trouble logging in, maybe I forgot my password, can you help me reset it?',
+      botMessageLabel: '🔐 Help me sign in'
+    }
   };
 
   // صفحة السلة — تشجيع إتمام الطلب + كود الخصم
@@ -170,7 +194,13 @@
     botMessage: crt.botMessage || 'أنا في سلة الشراء وأرغب في إتمام الطلب، هل يمكنك مساعدتي؟ وهل يوجد خصم متاح؟',
     botMessageLabel: crt.botMessageLabel || '🛒 ساعدني في الإتمام',
     code: crt.code || DISCOUNT_CODE,
-    codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE
+    codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    en: crt.en || {
+      html: '🛒 You\'re one step away from completing your order!<br/>Need help? You have a <b>20% discount</b> 👇',
+      botMessage: 'I\'m in the cart and want to complete my order, can you help me? Is there a discount available?',
+      botMessageLabel: '🛒 Help me checkout',
+      codeLabel: 'Discount code ' + DISCOUNT_CODE
+    }
   };
 
   // صفحات الدفع/الإتمام — شرح الفرق بين بوابات الدفع الفعلية على الموقع
@@ -184,7 +214,12 @@
     // مفيش كود خصم على صفحة الدفع (طلب العميل) — التيزر بيشرح طرق الدفع بس.
     // قابل لإعادة التفعيل من Railway عبر MAJED_PAYMENT_TEASER_CODE لو احتجت.
     code: pmt.code || '',
-    codeLabel: pmt.codeLabel || ''
+    codeLabel: pmt.codeLabel || '',
+    en: pmt.en || {
+      html: '💳 Not sure which payment method?<br/>I\'ll explain the difference between <b>Kashier</b>, <b>Apple Pay</b> and <b>Tap</b> and which suits you',
+      botMessage: 'I\'m on the payment page and unsure between the methods (Kashier / Apple Pay / PayPal / Tap), can you explain the difference and which suits me best?',
+      botMessageLabel: '💳 Explain payment methods'
+    }
   };
 
   // صفحة طلبات الشركات — طلب تدريب خاص/مخصّص للشركات (مش باقات جاهزة)
@@ -193,7 +228,12 @@
     showOn: cmt.showOn != null ? cmt.showOn : ['/company-requests', '/company-request'],
     html: cmt.html || '🏢 هل تحتاج تدريبًا خاصًا لفريق شركتك؟<br/>أساعدك على تجهيز طلب تدريب مخصّص بسرعة',
     botMessage: cmt.botMessage || 'أرغب في تقديم طلب تدريب خاص لشركتي، هل يمكنك مساعدتي في تجهيز الطلب ومعرفة الخطوات؟',
-    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريبًا خاصًا'
+    botMessageLabel: cmt.botMessageLabel || '🏢 اطلب تدريبًا خاصًا',
+    en: cmt.en || {
+      html: '🏢 Need custom training for your company team?<br/>I\'ll help you prepare a tailored training request quickly',
+      botMessage: 'I\'d like to submit a custom training request for my company, can you help me prepare it and know the steps?',
+      botMessageLabel: '🏢 Request custom training'
+    }
   };
 
   // صفحة «عن إنجوسوفت» — تعريف بالشركة وعرض المساعدة
@@ -202,7 +242,12 @@
     showOn: abt.showOn != null ? abt.showOn : ['/about-us', '/about'],
     html: abt.html || 'هل ترغب في معرفة المزيد عن <b>إنجوسوفت</b>؟ 🏢<br/>اسألني عن خبرتنا ودوراتنا وكيف نساعدك',
     botMessage: abt.botMessage || 'أرغب في معرفة المزيد عن إنجوسوفت وخبرتكم والمجالات التي تدرّبون فيها، هل يمكنك إخباري؟',
-    botMessageLabel: abt.botMessageLabel || 'ℹ️ عرّفني بإنجوسوفت'
+    botMessageLabel: abt.botMessageLabel || 'ℹ️ عرّفني بإنجوسوفت',
+    en: abt.en || {
+      html: 'Want to know more about <b>Engosoft</b>? 🏢<br/>Ask me about our experience, courses and how we help you',
+      botMessage: 'I\'d like to know more about Engosoft, your experience and the fields you train in, can you tell me?',
+      botMessageLabel: 'ℹ️ About Engosoft'
+    }
   };
 
   // ── رسائل تحفيزية لصفحة المتجر (/shop) — تظهر واحدة تلو الأخرى كل بضع ثوانٍ ──
@@ -222,23 +267,43 @@
     shopMotivation(
       '🤔 هل أنت متردّد في اختيار دورتك؟<br/>دعني أساعدك على اختيار الأنسب لمجالك',
       'أنا متردّد في اختيار الدورة المناسبة لي، هل يمكنك مساعدتي في الاختيار؟',
-      '🎯 ساعدني في الاختيار'
+      '🎯 ساعدني في الاختيار',
+      { en: {
+        html: '🤔 Not sure which course to pick?<br/>Let me help you choose the best fit for your field',
+        botMessage: 'I\'m hesitant about choosing the right course, can you help me choose?',
+        botMessageLabel: '🎯 Help me choose'
+      } }
     ),
     shopMotivation(
       '👷‍♂️ اغتنم الفرصة كما فعل غيرك!<br/>آلاف المهندسين طوّروا مهاراتهم وانطلقوا في مسارهم المهني معنا',
       'أرغب في تطوير مهاراتي المهنية مثل غيري من المهندسين، ما الدورات التي تنصحني بها؟',
-      '🚀 ابدأ الآن'
+      '🚀 ابدأ الآن',
+      { en: {
+        html: '👷‍♂️ Seize the opportunity like others did!<br/>Thousands of engineers upgraded their skills and advanced their careers with us',
+        botMessage: 'I want to develop my professional skills like other engineers, which courses do you recommend?',
+        botMessageLabel: '🚀 Start now'
+      } }
     ),
     shopMotivation(
       '🎓 انضمّ إلى أكثر من <b>50,000 متدرّب</b><br/>اختر دورتك وابدأ رحلتك التعليمية اليوم',
       'أرغب في الانضمام إليكم والبدء في رحلتي التعليمية، ما الخطوات؟',
-      '✨ انضمّ إلينا'
+      '✨ انضمّ إلينا',
+      { en: {
+        html: '🎓 Join more than <b>50,000 trainees</b><br/>Pick your course and start your learning journey today',
+        botMessage: 'I\'d like to join and start my learning journey, what are the steps?',
+        botMessageLabel: '✨ Join us'
+      } }
     ),
     shopMotivation(
       '🎉 خصم <b>20%</b> على <b>جميع الدورات</b>!<br/>اغتنم الفرصة قبل انتهائها',
       'سمعت أن هناك خصم 20% على جميع الدورات، كيف أستفيد منه؟',
       '🏷️ استفد من الخصم',
-      { code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE }
+      { code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE, en: {
+        html: '🎉 <b>20%</b> off <b>all courses</b>!<br/>Grab the offer before it ends',
+        botMessage: 'I heard there\'s a 20% discount on all courses, how do I use it?',
+        botMessageLabel: '🏷️ Get the discount',
+        codeLabel: 'Discount code ' + DISCOUNT_CODE
+      } }
     )
   ];
 
@@ -249,20 +314,36 @@
       showOn: ['/shop/cart'],
       html: '⏳ لا تفوّت الفرصة!<br/>أكمل طلبك الآن واحجز مقعدك في الدورة',
       botMessage: 'أنا في سلة الشراء وأريد إكمال طلبي وحجز مقعدي، هل يمكنك مساعدتي؟',
-      botMessageLabel: '✅ أكمل طلبي'
+      botMessageLabel: '✅ أكمل طلبي',
+      en: {
+        html: '⏳ Don\'t miss out!<br/>Complete your order now and reserve your seat',
+        botMessage: 'I\'m in the cart and want to complete my order and reserve my seat, can you help me?',
+        botMessageLabel: '✅ Complete my order'
+      }
     },
     {
       showOn: ['/shop/cart'],
       html: '🚀 استثمر في مستقبلك المهني!<br/>أكمل الشراء وابدأ رحلة التعلّم فورًا',
       botMessage: 'أرغب في إتمام الشراء والبدء في التعلّم فورًا، ما الخطوات؟',
-      botMessageLabel: '🚀 أكمل الشراء'
+      botMessageLabel: '🚀 أكمل الشراء',
+      en: {
+        html: '🚀 Invest in your career!<br/>Complete your purchase and start learning right away',
+        botMessage: 'I\'d like to complete the purchase and start learning right away, what are the steps?',
+        botMessageLabel: '🚀 Complete purchase'
+      }
     },
     {
       showOn: ['/shop/cart'],
       html: '🎉 خصم <b>20%</b> بانتظارك!<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
       botMessage: 'هناك خصم 20% وأريد الاستفادة منه على طلبي في السلة، كيف أطبّقه؟',
       botMessageLabel: '🏷️ استفد من الخصم',
-      code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
+      code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE,
+      en: {
+        html: '🎉 A <b>20%</b> discount is waiting!<br/>Complete your order and use the offer before it ends',
+        botMessage: 'There\'s a 20% discount and I want to use it on my cart order, how do I apply it?',
+        botMessageLabel: '🏷️ Get the discount',
+        codeLabel: 'Discount code ' + DISCOUNT_CODE
+      }
     }
   ];
 
@@ -271,18 +352,29 @@
   var TEASERS = (CFG.teasers && CFG.teasers.length) ? CFG.teasers
     : (SCFG.teasers && SCFG.teasers.length) ? SCFG.teasers
     : [
-      { html: 'مرحبًا! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي دورة أو عن خطتك التعليمية' },
+      {
+        html: 'مرحبًا! أنا <b>ماجد</b>، مستشارك التعليمي 👋<br/>اسألني عن أي دورة أو عن خطتك التعليمية',
+        en: { html: 'Hi! I\'m <b>Majed</b>, your learning advisor 👋<br/>Ask me about any course or your learning plan' }
+      },
       {
         // عرض الدورة المجانية — يظهر قبل تسجيل الدخول فقط (للزوار)
         guestOnly: true,
         html: '🎁 دورة <b>احتراف العمل الحر - Freelance</b><br/><b>مجانًا</b> 🎉<br/>أنشئ حسابك واحصل على هديتك 👇',
-        link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم'
+        link: COURSE_URL, linkText: 'رابط الدورة', code: PROMO_CODE, codeLabel: 'كود الخصم',
+        en: {
+          html: '🎁 <b>Freelance Masterclass</b><br/><b>Free</b> 🎉<br/>Create your account and get your gift 👇',
+          linkText: 'Course link', codeLabel: 'Promo code'
+        }
       },
       {
         // خصم 20% على أي دورة — يظهر بعد تسجيل الدخول فقط (للعملاء المسجّلين)
         loggedInOnly: true,
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم هذا الكود عند الشراء 👇',
-        link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE
+        link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE,
+        en: {
+          html: '🎉 <b>20%</b> off <b>any course</b>!<br/>Use this code at checkout 👇',
+          linkText: 'Browse courses', codeLabel: 'Promo code ' + DISCOUNT_CODE
+        }
       },
       SIGNUP_TEASER,
       LOGIN_TEASER,
@@ -1487,9 +1579,28 @@
   // يستبدل {{course}} باسم الكورس الحالي (escapeName=true لما يتحقن في HTML)
   function resolveCourse(s, escapeName) {
     if (!s || s.indexOf('{{course}}') === -1) return s;
-    var name = pageCourseName() || 'الكورس ده';
+    var name = pageCourseName() || (pageLang() === 'en' ? 'this course' : 'هذه الدورة');
     if (escapeName) name = esc(name);
     return s.replace(/\{\{course\}\}/g, name);
+  }
+
+  // لغة الصفحة الحالية: 'en' لو الموقع إنجليزي (من <html lang> أو بادئة الرابط /en/…)، وإلا 'ar'.
+  // بيتحدّث تلقائيًا لما العميل يبدّل لغة الموقع (Odoo بيعمل reload)، فالتيزر بيظهر باللغة الصح.
+  function pageLang() {
+    var l = '';
+    try { l = (document.documentElement.getAttribute('lang') || '').toLowerCase(); } catch (e) {}
+    if (l.indexOf('en') === 0) return 'en';
+    if (l.indexOf('ar') === 0) return 'ar';
+    try {
+      var m = location.pathname.toLowerCase().match(/^\/([a-z]{2})(?:[-_][a-z]{2,3})?(?:\/|$)/);
+      if (m && m[1] === 'en') return 'en';
+    } catch (e) {}
+    return 'ar';
+  }
+  // نص التيزر باللغة الحالية: لو الصفحة إنجليزي وللتيزر ترجمة en[key] → استخدمها، وإلا العربي.
+  function tzText(t, key) {
+    if (pageLang() === 'en' && t && t.en && t.en[key] != null) return t.en[key];
+    return t ? t[key] : undefined;
   }
 
   // التيزرات المعروضة دلوقتي:
@@ -1511,13 +1622,20 @@
   function renderTeaser() {
     var list = visibleTeasers();
     var t = list[tzIndex % list.length] || {};
+    var en = pageLang() === 'en';
+    var txHtml = resolveCourse(tzText(t, 'html') || '', true);
+    var msg = tzText(t, 'botMessage');
+    var msgLabel = tzText(t, 'botMessageLabel') || (en ? 'Chat 💬' : 'كلّمني 💬');
+    var linkTx = tzText(t, 'linkText') || (en ? 'Open link' : 'افتح الرابط');
+    var codeLbl = tzText(t, 'codeLabel') || t.code;
+    var dirAttr = en ? ' dir="ltr" style="text-align:left"' : '';
     var h = '<img src="' + AVATAR + '"' + AVA_ERR + ' alt="ماجد"/>' +
-      '<div><div class="mjd-tz-tx">' + resolveCourse(t.html || '', true) + '</div>';
-    if (t.link || t.code || t.botMessage) {
+      '<div' + dirAttr + '><div class="mjd-tz-tx">' + txHtml + '</div>';
+    if (t.link || t.code || msg) {
       h += '<div class="mjd-tz-act">';
-      if (t.botMessage) h += '<button class="mjd-tz-go mjd-tz-ask" type="button" data-msg="' + esc(t.botMessage) + '">' + esc(t.botMessageLabel || 'كلّمني 💬') + '</button>';
-      if (t.link) h += '<a class="mjd-tz-go" href="' + esc(t.link) + '" target="_blank" rel="noopener">' + esc(t.linkText || 'افتح الرابط') + ' ↗</a>';
-      if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '" data-label="' + esc(t.codeLabel || t.code) + '">🏷️ ' + esc(t.codeLabel || t.code) + '</button>';
+      if (msg) h += '<button class="mjd-tz-go mjd-tz-ask" type="button" data-msg="' + esc(msg) + '">' + esc(msgLabel) + '</button>';
+      if (t.link) h += '<a class="mjd-tz-go" href="' + esc(t.link) + '" target="_blank" rel="noopener">' + esc(linkTx) + ' ↗</a>';
+      if (t.code) h += '<button class="mjd-tz-code" type="button" data-code="' + esc(t.code) + '" data-label="' + esc(codeLbl) + '">🏷️ ' + esc(codeLbl) + '</button>';
       h += '</div>';
     }
     h += '</div>';
@@ -1528,7 +1646,8 @@
       var code = codeBtn.getAttribute('data-code') || '';
       var label = codeBtn.getAttribute('data-label') || code;
       // after copying show the actual code briefly so the customer sees what landed in the clipboard
-      var ok = function () { codeBtn.textContent = '✓ اتنسخ: ' + code; setTimeout(function () { codeBtn.textContent = '🏷️ ' + label; }, 2200); };
+      var copied = en ? '✓ Copied: ' : '✓ تم النسخ: ';
+      var ok = function () { codeBtn.textContent = copied + code; setTimeout(function () { codeBtn.textContent = '🏷️ ' + label; }, 2200); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, ok);
       else ok();
     });

@@ -337,6 +337,11 @@ When user responds after sales pitch:
 | `COMPANY_TEASER` | `/company-requests` | طلب تدريب خاص/مخصّص للشركات (مش باقات) |
 | `ABOUT_TEASER` | `/about-us` | تعريف بإنجوسوفت وعرض المساعدة |
 
+> 🌍 **ثنائي اللغة تلقائيًا:** كل تيزر ممكن ياخد حقل `en` (فيه `html`/`botMessage`/
+> `botMessageLabel`/`linkText`/`codeLabel`). لما لغة الموقع إنجليزي (من `<html lang>`
+> أو بادئة `/en/`) يظهر النص الإنجليزي، وغير كده العربي — من غير أي إعداد إضافي.
+> التيزرات المدمجة كلها متُرجمة. للتيزرات المخصّصة عبر `MAJED_TEASERS_JSON` ضيف `en` لكل عنصر.
+
 > 🛡️ تيزرات المتجر/الكورس (`COURSE_TEASER`/`CATALOG_TEASER`) فيها `excludeOn` لمنع
 > ظهورها على صفحات مسار الشراء (`/shop/cart`, `/shop/payment` …) لأن مطابقة `showOn`
 > بالـ substring كانت بتسرّبهم هناك. التحكم من Railway: `MAJED_COURSE_EXCLUDE_ON` / `MAJED_SHOP_EXCLUDE_ON`.
