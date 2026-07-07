@@ -97,7 +97,11 @@ majed-liquid-widget/
 
 ### خلص وتم التأكيد منه ✅
 - بريدج كامل: session/message/SSE + Chatwoot API channel + Botpress Chat API + handoff.
-- ويدجت «نور»: زرار عائم، Light/Dark، teaser دوّار، مرفقات (📎)، تاريخ محادثات (🕘)، هيدر زجاجي.
+- ويدجت «نور»: زرار عائم، Light/Dark، teaser دوّار، مرفقات (📎)، **تسجيل صوتي (🎙️)**، تاريخ محادثات (🕘)، هيدر زجاجي.
+
+### تسجيل صوتي (Deepgram Nova-3) 🆕
+- زرار مايك في شريط الكتابة (يظهر فقط لو `DEEPGRAM_API_KEY` متضبط في Railway) → يسجّل صوت → `POST /widget/voice` → البريدج يفرّغه عبر **Deepgram Nova-3 (عربي)** → يبعت النص للبوت زي أي رسالة + يسجّله في Chatwoot.
+- متغيرات Railway: `DEEPGRAM_API_KEY` (إلزامي)، `DEEPGRAM_MODEL` (افتراضي `nova-3`)، `DEEPGRAM_LANGUAGE` (افتراضي `ar` — أو `ar-EG`/`ar-SA`). المفتاح server-side فقط.
 - موديول Odoo: حقن الويدجت + بيانات المتدرب من `/ai_webhook/user_context`.
 - Handoff آلي بـ 3 طرق: `[[HANDOFF:N]]` في نص الرد، custom event، أو legacy POST.
 - De-dup كامل (message id + SSE reconnect + echo).

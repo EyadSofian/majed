@@ -132,6 +132,13 @@ const config = {
   subscribeStoreFile: process.env.SUBSCRIBE_STORE_FILE || path.join(__dirname, 'data', 'subscribers.jsonl'),
   subscribeWebhookUrl: process.env.SUBSCRIBE_WEBHOOK_URL || '',
   subscribeAdminToken: process.env.SUBSCRIBE_ADMIN_TOKEN || '',
+
+  // Voice input («تسجيل صوتي»): the widget records audio, the bridge sends it to
+  // Deepgram (Nova-3, Arabic) for transcription, then forwards the text to the bot
+  // exactly like a typed message. The API key stays server-side only.
+  deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
+  deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
+  deepgramLanguage: process.env.DEEPGRAM_LANGUAGE || 'ar',
 };
 
 // Legacy var: if someone still sets BOTPRESS_WEBHOOK_URL, try to salvage a chat id
@@ -265,6 +272,8 @@ function buildWidgetServerConfig() {
   if (company) cfg.companyTeaser = company;
   const about = pageTeaser('MAJED_ABOUT_TEASER');
   if (about) cfg.aboutTeaser = about;
+  // voice input toggle — only advertise the mic button when a Deepgram key is set.
+  if (config.deepgramApiKey) cfg.voice = true;
   return cfg;
 }
 const WIDGET_SERVER_CONFIG = buildWidgetServerConfig();
@@ -1867,6 +1876,77 @@ app.post('/widget/upload', uploadMw.single('file'), async (req, res) => {
   } catch (err) {
     console.error('upload error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'upload_failed' });
+  }
+});
+
+// ── Deepgram speech-to-text (Nova-3, Arabic) ───────────────────────
+// Sends raw audio bytes to Deepgram's pre-recorded endpoint and returns the transcript.
+async function deepgramTranscribe(buffer, mimetype) {
+  if (!config.deepgramApiKey) throw new Error('deepgram_not_configured');
+  const params = new URLSearchParams({
+    model: config.deepgramModel,
+    language: config.deepgramLanguage,
+    smart_format: 'true',
+    punctuate: 'true',
+  });
+  const { data } = await axios.post(
+    `https://api.deepgram.com/v1/listen?${params.toString()}`,
+    buffer,
+    {
+      headers: {
+        Authorization: `Token ${config.deepgramApiKey}`,
+        'Content-Type': mimetype || 'audio/webm',
+      },
+      timeout: 30000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    }
+  );
+  const alt = data?.results?.channels?.[0]?.alternatives?.[0];
+  return String(alt?.transcript || '').trim();
+}
+
+// 3b-voice) Customer voice note from the widget («تسجيل صوتي»).
+//     multipart: file (audio) + conversationId (+ userData JSON).
+//     Transcribe with Deepgram → treat the text exactly like a typed message
+//     (Chatwoot incoming + forward to bot) → return the transcript to the widget.
+app.post('/widget/voice', uploadMw.single('file'), async (req, res) => {
+  try {
+    if (!config.deepgramApiKey) return res.status(503).json({ error: 'voice_not_configured' });
+    const convId = cleanId(req.body?.conversationId);
+    let userData = {};
+    try { userData = JSON.parse(req.body?.userData || '{}') || {}; } catch (_) {}
+    if (!convId) return res.status(400).json({ error: 'missing_conversation' });
+    if (!req.file) return res.status(400).json({ error: 'missing_file' });
+
+    let text = '';
+    try {
+      text = await deepgramTranscribe(req.file.buffer, req.file.mimetype);
+    } catch (e) {
+      console.error('deepgram transcribe failed:', e.response?.data || e.message);
+      return res.status(502).json({ error: 'transcribe_failed' });
+    }
+    if (!text) return res.json({ status: 'ok', transcript: '' }); // silence / no speech detected
+
+    console.log(`IN widget conv ${convId}: 🎙️ ${text.slice(0, 60)}`);
+
+    // Same path as a typed message: Chatwoot (source of truth) + forward to the bot.
+    markBridgeIncoming(convId, null, text);
+    const cwWrite = cwSendMessage(convId, { content: text, messageType: 'incoming' })
+      .then((created) => { markBridgeIncoming(convId, created, text); })
+      .catch((e) => console.error('cw incoming write failed:', e.response?.data || e.message));
+
+    await reviveIfResolved(convId);
+    try {
+      await forwardToBot(convId, text, { name: userData.name, userData });
+    } catch (e) {
+      console.error('forwardToBot (voice) failed:', e.response?.data || e.message);
+    }
+    await cwWrite;
+    return res.json({ status: 'ok', transcript: text });
+  } catch (err) {
+    console.error('voice error:', err.response?.data || err.message);
+    return res.status(500).json({ error: 'voice_failed' });
   }
 });
 

@@ -80,6 +80,8 @@
   var EMAIL = SCFG.supportEmail || CFG.supportEmail || 'aibot@engosoft.com';
   var THEME = CFG.theme === 'dark' ? 'dark' : 'light';
   var GREETING = CFG.greeting || 'مرحبًا، أنا ماجد';
+  // تسجيل صوتي: يظهر زرار المايك فقط لو Deepgram متفعّل في البريدج (SCFG.voice) أو مفعّل من الصفحة.
+  var VOICE_ON = SCFG.voice === true || CFG.voice === true;
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
   // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر خصم 20%
   var SHOP_URL = CFG.shopUrl || SCFG.shopUrl || 'https://engosoft.com/shop';
@@ -590,6 +592,17 @@
     '.mjd-box input::placeholder{color:var(--soft)}',
     '.mjd-att-btn{width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:var(--soft);cursor:pointer;display:grid;place-items:center;flex-shrink:0}',
     '.mjd-att-btn:hover{color:#7c5cff;background:rgba(124,92,255,.1)}.mjd-att-btn svg{width:18px;height:18px}',
+    '/* voice recording */',
+    '.mjd-att-btn.mjd-recording{color:#ef4444;background:rgba(239,68,68,.14);animation:mjdRecPulse 1.1s ease-in-out infinite}',
+    '@keyframes mjdRecPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.35)}50%{box-shadow:0 0 0 6px rgba(239,68,68,0)}}',
+    '.mjd-recbar{display:none;align-items:center;gap:10px;margin:0 14px 8px;padding:9px 12px;background:var(--surf2);border:1px solid var(--pillbd);border-radius:13px}',
+    '.mjd-recbar.mjd-on{display:flex}',
+    '.mjd-recbar .mjd-rec-dot{width:11px;height:11px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:mjdDot 1s ease-in-out infinite}',
+    '@keyframes mjdDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}',
+    '.mjd-recbar .mjd-rec-time{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text)}',
+    '.mjd-recbar .mjd-rec-lbl{font-size:12px;color:var(--muted)}',
+    '.mjd-recbar .mjd-rec-cancel{margin-inline-start:auto;background:transparent;border:0;color:var(--muted);cursor:pointer;font:inherit;font-size:12px;font-weight:700;padding:4px 8px;border-radius:8px}',
+    '.mjd-recbar .mjd-rec-cancel:hover{color:#ef4444;background:rgba(239,68,68,.1)}',
     '.mjd-snd{width:42px;height:42px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#7c5cff,#06b6d4);box-shadow:0 8px 22px rgba(124,92,255,.45);transition:transform .14s}',
     '.mjd-snd:hover{transform:scale(1.06)}.mjd-snd svg{width:18px;height:18px;transform:scaleX(-1)}',
     '.mjd-snd[disabled]{opacity:.55;cursor:default;transform:none}',
@@ -697,9 +710,11 @@
       '<div class="mjd-bd" id="mjd-bd"></div>' +
       '<div class="mjd-replybar" id="mjd-replybar"></div>' +
       '<div class="mjd-attbar" id="mjd-attbar"></div>' +
+      (VOICE_ON ? '<div class="mjd-recbar" id="mjd-recbar"><span class="mjd-rec-dot"></span><span class="mjd-rec-time" id="mjd-rec-time">0:00</span><span class="mjd-rec-lbl">جارٍ التسجيل… اضغط المايك للإرسال</span><button class="mjd-rec-cancel" id="mjd-rec-cancel" type="button">✕ إلغاء</button></div>' : '') +
       '<div class="mjd-ip">' +
         '<div class="mjd-box">' +
           '<input id="mjd-in" type="text" placeholder="اكتب رسالتك لماجد..." aria-label="رسالة"/>' +
+          (VOICE_ON ? '<button class="mjd-att-btn mjd-rec" id="mjd-rec-btn" type="button" aria-label="تسجيل صوتي" title="تسجيل صوتي">' + I.mic + '</button>' : '') +
           '<button class="mjd-att-btn" id="mjd-att-btn" type="button" aria-label="إرفاق ملف">' + I.clip + '</button>' +
         '</div>' +
         '<button class="mjd-snd" id="mjd-send" aria-label="إرسال">' + I.send + '</button>' +
@@ -725,6 +740,9 @@
   var attBar = document.getElementById('mjd-attbar');
   var replyBar = document.getElementById('mjd-replybar');
   var fileIn = document.getElementById('mjd-file');
+  var recBtn = document.getElementById('mjd-rec-btn');
+  var recBar = document.getElementById('mjd-recbar');
+  var recTime = document.getElementById('mjd-rec-time');
   var tz = document.getElementById('mjd-tz');
   var tzIn = document.getElementById('mjd-tz-in');
   var hist = document.getElementById('mjd-hist');
@@ -1437,6 +1455,90 @@
     else doUpload();
   }
 
+  // ---------- voice recording («تسجيل صوتي» → Deepgram → نص) ----------
+  var mediaRec = null, mediaChunks = [], mediaStream = null, recTimer = null, recStart = 0, recCancelled = false, voiceSending = false;
+  function isRecording() { return !!(mediaRec && mediaRec.state === 'recording'); }
+  function pickRecMime() {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    var opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+    for (var i = 0; i < opts.length; i++) { if (MediaRecorder.isTypeSupported(opts[i])) return opts[i]; }
+    return '';
+  }
+  function stopTracks() {
+    if (mediaStream) { try { mediaStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} mediaStream = null; }
+  }
+  function tickRec() {
+    var s = Math.floor((Date.now() - recStart) / 1000);
+    if (recTime) recTime.textContent = Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+    if (s >= 120) stopRecording(false); // حد أقصى دقيقتين
+  }
+  function showRecBar() {
+    if (recBar) recBar.classList.add('mjd-on');
+    if (recBtn) recBtn.classList.add('mjd-recording');
+    tickRec(); clearInterval(recTimer); recTimer = setInterval(tickRec, 500);
+  }
+  function hideRecBar() {
+    if (recBar) recBar.classList.remove('mjd-on');
+    if (recBtn) recBtn.classList.remove('mjd-recording');
+    clearInterval(recTimer);
+  }
+  function startRecording() {
+    if (voiceSending) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+      addBot('التسجيل الصوتي غير مدعوم في هذا المتصفح 🎙️'); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      mediaStream = stream;
+      var mime = pickRecMime();
+      try { mediaRec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+      catch (e) { mediaRec = new MediaRecorder(stream); }
+      mediaChunks = []; recCancelled = false;
+      mediaRec.ondataavailable = function (ev) { if (ev.data && ev.data.size) mediaChunks.push(ev.data); };
+      mediaRec.onstop = function () {
+        stopTracks();
+        if (recCancelled) { mediaChunks = []; return; }
+        var type = (mediaRec && mediaRec.mimeType) || mime || 'audio/webm';
+        var blob = new Blob(mediaChunks, { type: type });
+        mediaChunks = [];
+        if (blob.size > 400) sendVoice(blob);
+      };
+      mediaRec.start();
+      recStart = Date.now();
+      showRecBar();
+    }).catch(function () { addBot('محتاج إذن الميكروفون عشان أسجّل صوتك 🎙️'); });
+  }
+  function stopRecording(cancel) {
+    recCancelled = !!cancel;
+    hideRecBar();
+    if (mediaRec && mediaRec.state !== 'inactive') { try { mediaRec.stop(); } catch (e) { stopTracks(); } }
+    else stopTracks();
+  }
+  function sendVoice(blob) {
+    if (!blob || !blob.size || voiceSending) return;
+    voiceSending = true;
+    setLive(true);
+    var doSend = function () {
+      if (!convId) { voiceSending = false; return; }
+      var ext = blob.type.indexOf('mp4') >= 0 ? 'm4a' : blob.type.indexOf('ogg') >= 0 ? 'ogg' : 'webm';
+      var fd = new FormData();
+      fd.append('file', blob, 'voice.' + ext);
+      fd.append('conversationId', convId);
+      fd.append('userData', JSON.stringify(userData));
+      showTyping();
+      fetch(BRIDGE + '/widget/voice', { method: 'POST', body: fd })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          voiceSending = false;
+          if (res.ok && res.d && res.d.transcript) { addMe(res.d.transcript); return; }
+          hideTyping();
+          if (res.d && res.d.error === 'transcribe_failed') addBot('تعذّر تحويل الصوت إلى نص، حاول مرة أخرى 🎙️');
+          else addBot('لم أسمع صوتًا واضحًا، حاول مرة أخرى 🎙️');
+        })
+        .catch(function () { voiceSending = false; hideTyping(); addBot('تعذّر إرسال التسجيل، حاول مرة أخرى.'); });
+    };
+    if (!convId) startSession().then(doSend); else doSend();
+  }
+
   // ---------- conversation history («المحادثات السابقة») ----------
   function openHistory() {
     hist.classList.add('mjd-on');
@@ -1907,6 +2009,11 @@
   });
   document.getElementById('mjd-att-btn').addEventListener('click', function () { fileIn.click(); });
   fileIn.addEventListener('change', function () { setPendingFile(fileIn.files && fileIn.files[0]); });
+  if (recBtn) {
+    recBtn.addEventListener('click', function () { if (isRecording()) stopRecording(false); else startRecording(); });
+    var recCancel = document.getElementById('mjd-rec-cancel');
+    if (recCancel) recCancel.addEventListener('click', function () { stopRecording(true); });
+  }
   document.getElementById('mjd-hist-btn').addEventListener('click', function () {
     hist.classList.contains('mjd-on') ? closeHistory() : openHistory();
   });
