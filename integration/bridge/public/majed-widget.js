@@ -1093,6 +1093,13 @@
     else el.innerHTML = fileChipHtml(att.name, att.file_size || att.size, url);
     bd.appendChild(el); scrollDown();
   }
+  // customer's own voice note → an inline audio player of their recording. We show the
+  // recording (not the transcript) so the spoken text stays private; only the bot sees it.
+  function addVoiceNote(blob) {
+    var url = '';
+    try { url = URL.createObjectURL(blob); } catch (e) {}
+    if (url) addAttachment({ file_type: 'audio', data_url: url }, true);
+  }
   function addCard(attrs) {
     var items = (attrs && attrs.items) || [];
     items.forEach(function (it) {
@@ -1455,7 +1462,7 @@
     else doUpload();
   }
 
-  // ---------- voice recording («تسجيل صوتي» → Deepgram → نص) ----------
+  // ---------- voice recording (تسجيل صوتي → Deepgram → نص للبوت؛ العميل يشوف التسجيل فقط) ----------
   var mediaRec = null, mediaChunks = [], mediaStream = null, recTimer = null, recStart = 0, recCancelled = false, voiceSending = false;
   function isRecording() { return !!(mediaRec && mediaRec.state === 'recording'); }
   function pickRecMime() {
@@ -1524,12 +1531,17 @@
       fd.append('file', blob, 'voice.' + ext);
       fd.append('conversationId', convId);
       fd.append('userData', JSON.stringify(userData));
+      // Show the customer's recording (audio player), NOT the transcript — the spoken text
+      // stays private and only reaches the bot server-side. Then «ماجد يفكّر…» → رد ماجد.
+      addVoiceNote(blob);
       showTyping();
       fetch(BRIDGE + '/widget/voice', { method: 'POST', body: fd })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
         .then(function (res) {
           voiceSending = false;
-          if (res.ok && res.d && res.d.transcript) { addMe(res.d.transcript); return; }
+          // Speech recognised → keep the indicator until Majed's reply lands over SSE.
+          if (res.ok && res.d && res.d.transcript) return;
+          // No speech / transcription failed → stop the indicator and nudge the customer.
           hideTyping();
           if (res.d && res.d.error === 'transcribe_failed') addBot('تعذّر تحويل الصوت إلى نص، حاول مرة أخرى 🎙️');
           else addBot('لم أسمع صوتًا واضحًا، حاول مرة أخرى 🎙️');
