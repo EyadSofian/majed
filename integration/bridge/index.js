@@ -1908,8 +1908,10 @@ async function deepgramTranscribe(buffer, mimetype) {
 
 // 3b-voice) Customer voice note from the widget («تسجيل صوتي»).
 //     multipart: file (audio) + conversationId (+ userData JSON).
-//     Transcribe with Deepgram → treat the text exactly like a typed message
-//     (Chatwoot incoming + forward to bot) → return the transcript to the widget.
+//     Transcribe with Deepgram → store the AUDIO in Chatwoot as the customer's incoming
+//     message (source of truth, replays on reopen) + a PRIVATE note with the transcript for
+//     the agent + forward the transcript text to the bot. The customer sees only the
+//     recording — the transcribed text is never shown to them.
 app.post('/widget/voice', uploadMw.single('file'), async (req, res) => {
   try {
     if (!config.deepgramApiKey) return res.status(503).json({ error: 'voice_not_configured' });
@@ -1930,11 +1932,32 @@ app.post('/widget/voice', uploadMw.single('file'), async (req, res) => {
 
     console.log(`IN widget conv ${convId}: 🎙️ ${text.slice(0, 60)}`);
 
-    // Same path as a typed message: Chatwoot (source of truth) + forward to the bot.
-    markBridgeIncoming(convId, null, text);
-    const cwWrite = cwSendMessage(convId, { content: text, messageType: 'incoming' })
-      .then((created) => { markBridgeIncoming(convId, created, text); })
-      .catch((e) => console.error('cw incoming write failed:', e.response?.data || e.message));
+    // Store the RECORDING itself in Chatwoot as the customer's incoming message — it's the
+    // source of truth and it replays when the conversation is reopened. The audio (not the
+    // transcript) is the visible message, so the customer never sees the transcribed text.
+    const filename = safeFileName(req.file.originalname || 'voice.webm');
+    const audioMime = String(req.file.mimetype || 'audio/webm').split(';')[0]; // drop ;codecs=…
+    markBridgeIncoming(convId, null, '');
+    let created = null;
+    try {
+      created = await cwSendAttachmentMessage(convId, {
+        buffer: req.file.buffer,
+        mime: audioMime,
+        filename,
+        caption: '', // no caption → the transcript is never written as visible text
+      });
+      markBridgeIncoming(convId, created, '');
+    } catch (e) {
+      console.error('cw voice attachment write failed:', e.response?.data || e.message);
+    }
+
+    // Give the human agent the transcript as a PRIVATE note (agent-only — never sent to the
+    // widget on live push, SSE catch-up, or restore), so they can read what the customer said.
+    cwSendMessage(convId, {
+      content: `🎙️ تفريغ الرسالة الصوتية: ${text}`,
+      messageType: 'outgoing',
+      isPrivate: true,
+    }).catch((e) => console.error('cw voice transcript note failed:', e.response?.data || e.message));
 
     await reviveIfResolved(convId);
     try {
@@ -1942,7 +1965,6 @@ app.post('/widget/voice', uploadMw.single('file'), async (req, res) => {
     } catch (e) {
       console.error('forwardToBot (voice) failed:', e.response?.data || e.message);
     }
-    await cwWrite;
     return res.json({ status: 'ok', transcript: text });
   } catch (err) {
     console.error('voice error:', err.response?.data || err.message);
