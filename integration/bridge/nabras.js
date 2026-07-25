@@ -195,6 +195,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   let packageCards = [];
   let chips = [];
   let handoff = null;
+  let deferred = null;
 
   try {
     const res = await axios.post(
@@ -216,11 +217,21 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
       else if (ev.type === 'cards') courseCards = ev.course_cards || [];
       else if (ev.type === 'packages') packageCards = ev.package_cards || [];
       else if (ev.type === 'chips') chips = ev.chips || [];
+      else if (ev.type === 'defer') deferred = ev;
       else if (ev.type === 'handoff') handoff = ev;
       else if (ev.type === 'error') throw new Error('upstream_error');
     }
   } catch (e) {
     console.warn(`NABRAS chat failed (conv ${cwConvId}): ${e.message} — falling back`);
+    return false;
+  }
+
+  // "not mine" — the brain read the question and decided it cannot prove an
+  // answer (payment terms, refunds, an existing order). Nothing is delivered,
+  // so Botpress answers this same message from its knowledge base and the
+  // customer sees one assistant that simply knew the answer.
+  if (deferred) {
+    console.log(`NABRAS deferred conv ${cwConvId} to Botpress: ${deferred.reason || '-'}`);
     return false;
   }
 

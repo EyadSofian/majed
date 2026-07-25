@@ -295,6 +295,7 @@ class FakeOdoo:
                  no_translations: bool = False):
         self.packages_denied = packages_denied
         self.no_translations = no_translations
+        self.payments_denied = False
         self.lang_calls: list[str] = []
         self.fail = fail
         self.leads: list = []
@@ -366,6 +367,17 @@ class FakeOdoo:
             return {}
         names = NAMES_BY_LANG.get(lang, {})
         return {i: {"id": i, "name": names[i]} for i in ids if i in names}
+
+    async def fetch_payment_options(self) -> dict:
+        self._boom()
+        if self.payments_denied:
+            return {"available": False, "reason": "access_denied", "providers": []}
+        return {"available": True, "providers": [
+            {"name": "Bank Transfer", "code": "custom", "test_mode": False},
+            {"name": "Paymob Card", "code": "paymob", "test_mode": False},
+            # a provider left in test mode is not something a customer can use
+            {"name": "Tamara", "code": "tamara", "test_mode": True},
+        ]}
 
     async def product_variant_id(self, template_id: int):
         self._boom()

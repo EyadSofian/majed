@@ -15,8 +15,8 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
-from .tools import (CARD_SINK, CHIP_SINK, CURRENCY, HANDOFF_SINK, LANG,
-                    PACKAGE_SINK)
+from .tools import (CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK, HANDOFF_SINK,
+                    LANG, PACKAGE_SINK)
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -168,6 +168,7 @@ async def chat(req: ChatRequest, request: Request,
         chip_tok = CHIP_SINK.set([])
         cur_tok = CURRENCY.set(currency)
         lang_tok = LANG.set(lang)
+        defer_tok = DEFER_SINK.set({})
         try:
             async for chunk, meta in graph.astream(
                 {"messages": [HumanMessage(content=ctx)]},
@@ -181,6 +182,15 @@ async def chat(req: ChatRequest, request: Request,
                 text = _text(chunk.content)
                 if text:
                     yield _ev("token", {"content": text})
+
+            # "not mine": drop everything from this turn so the bridge can
+            # hand the same message to the other bot. Emitted before the cards
+            # so a client that stops at `defer` never renders a half answer.
+            deferred = DEFER_SINK.get() or {}
+            if deferred.get("deferred"):
+                yield _ev("defer", {"reason": deferred.get("reason", "")})
+                yield _ev("done", {})
+                return
 
             cards = CARD_SINK.get() or []
             if cards:
@@ -207,6 +217,7 @@ async def chat(req: ChatRequest, request: Request,
             CHIP_SINK.reset(chip_tok)
             CURRENCY.reset(cur_tok)
             LANG.reset(lang_tok)
+            DEFER_SINK.reset(defer_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

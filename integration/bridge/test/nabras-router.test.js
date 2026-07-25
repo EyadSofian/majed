@@ -34,6 +34,13 @@ const TRACK_SSE = [
   'data: {"type":"done"}', '',
 ].join('\n');
 
+// "not mine": the brain refuses to answer a payment question it cannot prove
+const DEFER_SSE = [
+  'data: {"type":"token","content":"كلام لا يجب أن يصل للعميل"}',
+  'data: {"type":"defer","reason":"instalment terms not in Odoo"}',
+  'data: {"type":"done"}', '',
+].join('\n');
+
 let mode = 'ok';
 const server = http.createServer((req, res) => {
   if (req.url.includes('guest-session')) {
@@ -44,7 +51,7 @@ const server = http.createServer((req, res) => {
   if (mode === 'chat_fail') { res.writeHead(502); return res.end('bad gateway'); }
   if (mode === 'empty') { res.writeHead(200); return res.end('data: {"type":"done"}\n\n'); }
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  res.end(mode === 'track' ? TRACK_SSE : OK_SSE);
+  res.end(mode === 'track' ? TRACK_SSE : mode === 'defer' ? DEFER_SSE : OK_SSE);
 });
 
 function delivered() {
@@ -140,8 +147,17 @@ function delivered() {
                            ['ميكانيكا', 'كهرباء']);
   })();
 
+  // 8) a deferred turn delivers NOTHING and hands the message to Botpress —
+  //    otherwise the customer would see a guess about instalments
+  mode = 'defer';
+  await withEnv(ON, async (t) => {
+    const d = delivered();
+    assert.strictEqual(await t(8, 'عندكم تقسيط؟', { userData: me }, d), false);
+    assert.strictEqual(d.out.length, 0);
+  })();
+
   server.close();
-  console.log('✅ nabras router: 9 cases passed — every failure path falls back to Botpress');
+  console.log('✅ nabras router: 10 cases passed — every failure path falls back to Botpress');
 })().catch((e) => { server.close(); console.error('❌', e); process.exit(1); });
 
 // ---------------------------------------------------------------------------

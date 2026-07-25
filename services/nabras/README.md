@@ -330,6 +330,30 @@ a title.
 `ODOO_LANG` only sets that fallback. If Arabic titles come back English, the
 code is wrong for this database: try `ar_001` / `ar_EG` / `ar_SA`.
 
+### "Not mine" — deferring to the other bot
+
+The router is a per-*conversation* switch: once نبراس is enabled for a visitor,
+it answers every message and Botpress is never consulted. That is what makes
+rollback a single env var — but it also means a question with no tool behind it
+gets improvised. It did exactly that once, answering "do you offer instalments?"
+with valU and Tamara, neither of which anyone had verified.
+
+Two changes, because either alone is not enough:
+
+* `get_payment_options` reads `payment.provider` and returns **only** providers
+  in `enabled` state — a provider left in `test` is not something a customer can
+  pay with. The prompt forbids naming any instalment company that did not come
+  back from it.
+* `defer_to_bot(reason)` lets the agent say *this is not mine*. The turn's text
+  and cards are discarded, the stream carries a `defer` event, the router
+  returns `false`, and Botpress answers **that same message** from its knowledge
+  base. The customer sees one assistant that simply knew the answer.
+
+Deferral is for questions this service cannot prove: payment and instalment
+terms, refunds, invoices, corporate deals, an existing order, certificate
+equivalence, careers. It is not an escape hatch for course questions — those
+have tools, and the tools are the answer.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.

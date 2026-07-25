@@ -329,6 +329,28 @@ class Odoo:
             ["id"], limit=1)
         return recs[0]["id"] if recs else None
 
+    async def fetch_payment_options(self) -> dict:
+        """Payment providers actually switched on for this shop.
+
+        "Do you offer installments?" is a money question, and the model has no
+        business inferring the answer from what other schools do — a wrong yes
+        here is a customer who reaches checkout and finds nothing. Either Odoo
+        says which providers are live, or the bot must not answer.
+        """
+        try:
+            rows = await self.search_read(
+                "payment.provider", [["state", "in", ["enabled", "test"]]],
+                ["id", "name", "code", "state"], order="sequence asc")
+        except OdooAccessDenied as e:
+            log.warning("payment providers unreadable (%s)", e)
+            return {"available": False, "reason": "access_denied", "providers": []}
+        except Exception as e:  # noqa: BLE001
+            log.warning("payment providers unavailable: %s", e)
+            return {"available": False, "reason": "error", "providers": []}
+        return {"available": True,
+                "providers": [{"name": r.get("name") or "", "code": r.get("code") or "",
+                               "test_mode": r.get("state") == "test"} for r in rows]}
+
     async def create_lead(self, payload: dict) -> int:
         return await self.execute("crm.lead", "create", [payload])
 

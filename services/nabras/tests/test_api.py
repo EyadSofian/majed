@@ -840,3 +840,41 @@ async def test_a_language_is_read_once_not_every_turn(client_factory, fake_odoo)
             await _chat(client, tok, "هاي", lang="fr_FR")
     # once for the request language; the rest come from the snapshot
     assert fake_odoo.lang_calls.count("fr_FR") == 1
+
+
+# ======================================================= money & deferral
+async def test_payment_answer_lists_only_what_the_shop_switched_on(loaded_catalog):
+    """The bot answered a "do you do instalments?" question with valU and
+    تمارا — from general knowledge, not from this shop. Now the only names it
+    can say are the live providers, and a test-mode one is not live."""
+    from app import tools as tools_mod
+    payload = json.loads(await tools_mod.get_payment_options.ainvoke({}))
+    assert payload["available"] is True
+    assert payload["methods"] == ["Bank Transfer", "Paymob Card"]
+    assert "Tamara" not in payload["methods"]
+
+
+async def test_unreadable_payment_config_tells_the_model_to_defer(fake_odoo):
+    from app import tools as tools_mod
+    fake_odoo.payments_denied = True
+    payload = json.loads(await tools_mod.get_payment_options.ainvoke({}))
+    assert payload["available"] is False
+    assert payload["note"] == "ask_a_human_or_defer"
+
+
+async def test_deferring_discards_the_turn_so_the_other_bot_can_answer(
+        client_factory):
+    """A question this brain cannot prove must leave NOTHING delivered — the
+    bridge only falls back to Botpress when nothing was shown."""
+    script = [{"tool": "defer_to_bot", "args": {"reason": "instalment terms"}},
+              {"text": "هذا نص لا يجب أن يصل للعميل أبداً"}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "عندكم طرق تقسيط متاحة؟")
+        events = parse_sse(r.text)
+    kinds = [e["type"] for e in events]
+    assert "defer" in kinds
+    assert kinds[-1] == "done"
+    assert "cards" not in kinds and "packages" not in kinds
+    assert next(e for e in events if e["type"] == "defer")["reason"] == "instalment terms"

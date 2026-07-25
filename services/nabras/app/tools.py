@@ -43,6 +43,10 @@ CURRENCY: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_currency", default="EGP")
 LANG: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_lang", default="")
+# "not mine" — the bridge drops this turn and lets the site's other bot answer
+# the same message. Mutated in place like every sink above.
+DEFER_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "nabras_defer", default=None)
 
 
 def _cards() -> list:
@@ -884,6 +888,51 @@ async def request_handoff(summary: str, reason: str = "customer_request") -> str
     return json.dumps({"status": "handoff_requested", "reason": reason})
 
 
+@tool
+async def get_payment_options() -> str:
+    """How the customer can actually pay, and whether instalments exist.
+
+    Call this before answering ANY payment question — "تقسيط", "أقساط",
+    "فيزا", "تحويل بنكي", "بتقبلوا إيه". Returns only the providers switched on
+    for this shop. If it returns `available: false`, the shop has not told us:
+    do not describe payment options from general knowledge — call
+    `defer_to_bot` or `request_handoff` instead. A wrong "yes we do instalments"
+    is a customer who reaches checkout and finds nothing.
+    """
+    data = await odoo.fetch_payment_options()
+    if not data.get("available"):
+        return json.dumps({"available": False, "note": "ask_a_human_or_defer"},
+                          ensure_ascii=False)
+    live = [p for p in data["providers"] if not p["test_mode"]]
+    return json.dumps({
+        "available": True,
+        "methods": [p["name"] for p in live],
+        "codes": [p["code"] for p in live],
+        "note": "only these are live on the shop; anything else does not exist",
+    }, ensure_ascii=False)
+
+
+@tool
+async def defer_to_bot(reason: str) -> str:
+    """Hand THIS message to the site's other assistant instead of answering.
+
+    Use when the question is outside what these tools can prove: payment or
+    instalment terms this shop has not published, refunds, invoices, corporate
+    or group deals, an existing order or complaint, certificate equivalence,
+    careers. The customer sees one assistant either way — they are not told a
+    transfer happened — so deferring costs nothing, while guessing about money
+    or policy costs a customer.
+
+    Say nothing else in the same turn: whatever you write is discarded.
+    """
+    sink = DEFER_SINK.get()
+    if sink is None:
+        return json.dumps({"status": "defer_unavailable"})
+    sink.update({"deferred": True, "reason": (reason or "")[:300]})
+    return json.dumps({"status": "deferred"})
+
+
 TOOLS = [search_courses, get_course_details, get_upcoming_batches, get_price,
          get_instructor, search_packages, list_specializations, recommend_track,
-         build_checkout_link, create_lead, request_handoff]
+         get_payment_options, build_checkout_link, create_lead,
+         defer_to_bot, request_handoff]
