@@ -120,6 +120,20 @@ class Odoo:
             return []
         return await self.execute(model, "read", [list(ids)], {"fields": fields})
 
+    async def read_in_language(self, model: str, ids: list[int], fields: list,
+                               lang: str) -> dict[int, dict]:
+        """The same records as the customer's language renders them.
+
+        Odoo serves translatable fields in the API user's language; the bot's
+        user is English, so course names come back English even though the shop
+        page is Arabic. Only a `lang` context returns what the visitor sees.
+        """
+        if not ids or not lang:
+            return {}
+        rows = await self.execute(model, "read", [list(ids)],
+                                  {"fields": fields, "context": {"lang": lang}})
+        return {r["id"]: r for r in rows}
+
     # -------------------------------------------------------------- catalogue
     async def fetch_courses(self, since: Optional[str] = None) -> list[dict]:
         """Published, sellable courses. `since` enables delta polling."""

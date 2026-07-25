@@ -106,7 +106,7 @@ async def _card_for(course: "catalog.Course", price: Optional[dict]) -> dict:
     cur = price.get("currency") if price else CURRENCY.get()
     return CourseCard(
         course_id=course.id,
-        title=course.name,
+        title=course.display_name,
         url=course.url,
         image_url=course.image_url,
         price_display=_fmt_price(price.get("price") if price else None, cur or ""),
@@ -130,7 +130,7 @@ def _brief(course: "catalog.Course", card: dict) -> dict:
     carries only what a recommendation decision needs."""
     batches = _open_batches(course.id)
     return {
-        "course_id": course.id, "title": course.name,
+        "course_id": course.id, "title": course.display_name,
         "price": card["price_display"], "currency": card["currency"],
         "delivery": course.delivery, "duration": course.duration_text,
         "categories": course.categories, "rating": card["rating"],
@@ -568,13 +568,15 @@ _ALIAS_TOKENS = {cat: catalog.tokens(" ".join(words))
 # Odoo stores category names in English. A visitor picking their field should
 # read it in their own language, so the chip carries the Arabic label and the
 # English name stays the key everything else matches on.
+# Worded exactly as the shop's own category sidebar, so a visitor who just
+# scrolled past "المدني والانشائي" is offered that, not a synonym of it.
 SPEC_LABELS = {
-    "BIM": "BIM — نمذجة المعلومات",
+    "BIM": "دورات الـ BIM",
     "Electrical": "كهرباء",
     "Mechanical": "ميكانيكا",
-    "Civil and Structural": "مدني وإنشائي",
-    "Interior Design and Decoration": "تصميم داخلي وديكور",
-    "Management and Safety": "إدارة وسلامة",
+    "Civil and Structural": "المدني والانشائي",
+    "Interior Design and Decoration": "التصميم الداخلي و الديكور",
+    "Management and Safety": "الادارة والسلامة",
 }
 # A merchandising tag, not a field of engineering — offering it as a
 # "specialization" tells a mechanical engineer nothing about where they belong.
@@ -622,7 +624,7 @@ async def list_specializations() -> str:
             "specialization": name,
             "label": SPEC_LABELS.get(name, name),
             "courses": len(courses),
-            "examples": [c.name for c in courses[:3]],
+            "examples": [c.display_name for c in courses[:3]],
             "tracks": [p.get("name") for p in packages][:4],
         })
         _chips().append({"title": SPEC_LABELS.get(name, name),

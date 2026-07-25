@@ -275,11 +275,21 @@ PACKAGES = {
 }
 
 
+# Arabic titles as the shop renders them — the same records, another language.
+ARABIC_NAMES = {
+    2092: "دورة إدارة المشاريع الاحترافية (PMP)",
+    2107: "تنسيق أنظمة الميكانيكا (Navisworks MEP)",
+    2116: "تصميم الأنظمة الكهربائية باستخدام ريفيت (Revit Electrical)",
+}
+
+
 class FakeOdoo:
     """Implements only what catalog.py and tools.py actually call."""
 
-    def __init__(self, *, packages_denied: bool = False, fail: bool = False):
+    def __init__(self, *, packages_denied: bool = False, fail: bool = False,
+                 no_translations: bool = False):
         self.packages_denied = packages_denied
+        self.no_translations = no_translations
         self.fail = fail
         self.leads: list = []
         self.price_calls: list = []
@@ -342,6 +352,13 @@ class FakeOdoo:
         if model == "hr.employee":
             return [EMPLOYEES[i] for i in ids if i in EMPLOYEES]
         return []
+
+    async def read_in_language(self, model: str, ids, fields, lang: str) -> dict:
+        self._boom()
+        if not lang or self.no_translations:
+            return {}
+        return {i: {"id": i, "name": ARABIC_NAMES[i]}
+                for i in ids if i in ARABIC_NAMES}
 
     async def product_variant_id(self, template_id: int):
         self._boom()

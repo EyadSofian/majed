@@ -47,9 +47,10 @@ def _ar_stem(word: str) -> str:
 @dataclass
 class Course:
     id: int
-    name: str
+    name: str                     # as the API user reads it (English)
     url: str
     image_url: str
+    name_ar: str = ""             # as the website shows it, when Odoo has it
     code: str = ""
     course_type: str = ""
     subtitle: str = ""
@@ -69,6 +70,14 @@ class Course:
     @property
     def delivery(self) -> str:
         return COURSE_TYPE_LABELS.get(self.course_type, self.course_type or "")
+
+    @property
+    def display_name(self) -> str:
+        """What the customer is shown. The page beside the chat says
+        «تصميم أنظمة التيار الخفيف (Light Current)»; naming it
+        "Light Current Systems Design" in the same breath reads like two
+        different products."""
+        return self.name_ar or self.name
 
 
 @dataclass
@@ -143,11 +152,14 @@ async def refresh(full: bool = False) -> Snapshot:
     if cat_ids:
         cats = await odoo.read("product.public.category", sorted(cat_ids), ["id", "name"])
         snap.categories.update({c["id"]: c["name"] for c in cats})
+    await _attach_arabic_names(snap, [r["id"] for r in rows])
     for c in snap.courses.values():
         c.categories = [snap.categories.get(i, "") for i in c.category_ids]
         c.categories = [x for x in c.categories if x]
+        # BOTH names go in the blob: the customer may type either, and an
+        # Arabic-only blob would stop matching "navisworks".
         c._search_blob = tokens(" ".join(
-            [c.name, c.subtitle, c.description[:600], c.duration_text,
+            [c.name, c.name_ar, c.subtitle, c.description[:600], c.duration_text,
              c.delivery, c.instructor_tagline, *c.categories]))
 
     if instr_ids:
@@ -191,6 +203,38 @@ def _to_course(r: dict) -> Course:
         instructor_tagline=(r.get("instructor_tagline") or
                             r.get("attendance_instructor_tagline") or "").strip(),
     )
+
+
+async def _attach_arabic_names(snap: Snapshot, ids: list[int]) -> None:
+    """Read the same courses again in the customer's language.
+
+    Odoo returns translatable fields in the API user's language, and the bot's
+    user is English — so without this the assistant quotes English titles at a
+    visitor reading an Arabic page. Best effort by design: an unknown language
+    code or a missing translation leaves the English name in place.
+    """
+    lang = get_settings().odoo_lang
+    if not lang or not ids:
+        return
+    try:
+        rows = await odoo.read_in_language(
+            "product.template", ids, ["id", "name", "course_subtitle"], lang)
+    except Exception:  # noqa: BLE001
+        log.warning("arabic names unavailable (lang=%s) — keeping English", lang)
+        return
+    hits = 0
+    for cid, r in rows.items():
+        c = snap.courses.get(cid)
+        if c is None:
+            continue
+        name = (r.get("name") or "").strip()
+        if name and name != c.name:
+            c.name_ar = name
+            hits += 1
+        sub = (r.get("course_subtitle") or "").strip()
+        if sub and not c.subtitle:
+            c.subtitle = sub
+    log.info("arabic names: %d/%d translated (lang=%s)", hits, len(ids), lang)
 
 
 async def _attach_channels(snap: Snapshot) -> None:
@@ -269,7 +313,9 @@ def catalog_digest(limit: int = 200) -> str:
     snap = snapshot()
     lines = []
     for c in sorted(snap.courses.values(), key=lambda x: x.name)[:limit]:
-        bits = [f"#{c.id}", c.name]
+        bits = [f"#{c.id}", c.display_name]
+        if c.name_ar and c.name_ar != c.name:
+            bits.append(c.name)          # keep the English title searchable
         if c.categories:
             bits.append("/".join(c.categories))
         if c.delivery:

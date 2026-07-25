@@ -388,7 +388,8 @@ async def test_specializations_list_what_is_inside_each_field(loaded_catalog):
     bim = next(s for s in payload["specializations"] if s["specialization"] == "BIM")
     assert bim["courses"] == 2 and bim["examples"]
     # the visitor picks in Arabic; the value the bot receives stays the Odoo name
-    assert {"title": "BIM — نمذجة المعلومات", "value": "أنا في تخصص BIM"} in chips
+    # worded exactly like the shop's category sidebar
+    assert {"title": "دورات الـ BIM", "value": "أنا في تخصص BIM"} in chips
 
 
 async def test_specialization_chips_reach_the_widget(client_factory):
@@ -400,7 +401,7 @@ async def test_specialization_chips_reach_the_widget(client_factory):
         r = await _chat(client, tok, "أنا مهندس، عندكم إيه؟")
         events = parse_sse(r.text)
     chips = next(e for e in events if e["type"] == "chips")["chips"]
-    assert any(c["title"] == "ميكانيكا" or c["title"] == "إدارة وسلامة" for c in chips)
+    assert any(c["title"] in ("ميكانيكا", "الادارة والسلامة") for c in chips)
 
 
 async def test_track_reaches_the_widget_as_cards_and_a_package(client_factory):
@@ -767,3 +768,37 @@ async def test_boot_does_not_strip_anything_for_an_unrelated_failure():
 
     await agent_mod.negotiate_model(build=build)
     assert len(built) == 1
+
+
+# ============================================================ course naming
+async def test_courses_are_named_the_way_the_shop_names_them(loaded_catalog):
+    """The page beside the chat says «تنسيق أنظمة الميكانيكا (Navisworks MEP)».
+    Odoo serves the bot's user English, so without a language read the assistant
+    would answer with a different product name than the one on screen."""
+    nav = loaded_catalog.courses[2107]
+    assert nav.display_name == "تنسيق أنظمة الميكانيكا (Navisworks MEP)"
+    assert nav.name == "Navisworks MEP"          # English kept for matching
+    # both spellings still find it
+    assert catalog_mod.search("navisworks")[0].id == 2107
+    assert catalog_mod.search("تنسيق أنظمة الميكانيكا")[0].id == 2107
+
+
+async def test_cards_carry_the_arabic_title(client_factory):
+    script = [{"tool": "search_courses", "args": {"query": "navisworks"}},
+              {"text": "أهو."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "navisworks")
+        events = parse_sse(r.text)
+    card = next(c for c in next(e for e in events if e["type"] == "cards")
+                ["course_cards"] if c["course_id"] == 2107)
+    assert card["title"] == "تنسيق أنظمة الميكانيكا (Navisworks MEP)"
+
+
+async def test_missing_translation_leaves_the_english_name(fake_odoo):
+    """An unknown language code or an untranslated course must not blank a
+    title — it falls back to what Odoo already gave us."""
+    fake_odoo.no_translations = True
+    snap = await catalog_mod.refresh(full=True)
+    assert snap.courses[2107].display_name == "Navisworks MEP"

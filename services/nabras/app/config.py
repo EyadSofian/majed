@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     odoo_uid: int = 15577
     odoo_api_key: str = ""                         # <- .env, never hardcode
     odoo_timeout: float = 20.0
+    # The shop renders Arabic; the bot's Odoo user reads English. Course names
+    # are re-read in this language so the chat calls a course what the page
+    # calls it. Empty = keep whatever the API user's language returns.
+    odoo_lang: str = "ar_001"
 
     # Courses are product.template rows of this type (custom Engosoft type).
     course_product_type: str = "course"

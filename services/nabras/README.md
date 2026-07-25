@@ -299,6 +299,21 @@ reports `packages_source`, `packages_count` and `packages_age_seconds`.
 This is a bridge, not the destination: once the bot user has eLearning/Manager +
 Operation Group, it reads packages directly and the workflow can be switched off.
 
+### Course names the customer recognises
+
+Odoo serves translatable fields in the API *user's* language, and the bot's user
+reads English — so the assistant would answer "Light Current Systems Design"
+while the page beside it says «تصميم أنظمة التيار الخفيف». Course names are
+therefore re-read with a language context (`ODOO_LANG`, default `ar_001`) and
+shown in that language, with the English title kept in the search index so both
+spellings still match. An unknown language code or an untranslated course simply
+leaves the English name in place — nothing blanks out.
+
+If the chips or titles come back English in production, the language code is
+wrong for this database: read one course with a `context` of `{"lang": "..."}`
+in n8n, try `ar_001` / `ar_EG` / `ar_SA`, and set `ODOO_LANG` to whichever
+returns Arabic.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.
