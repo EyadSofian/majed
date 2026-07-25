@@ -447,3 +447,65 @@ async def test_health_reports_catalogue_state(client_factory, loaded_catalog):
     assert body["status"] == "ok"
     assert body["courses"] == 3
     assert body["packages_available"] is True
+
+
+# ================================================================== ingest
+async def test_ingest_installs_packages_and_survives_a_denied_odoo_read(
+        client_factory, fake_odoo, monkeypatch):
+    """n8n pushes what the bot's own Odoo user cannot read. A later refresh
+    that gets AccessError must NOT wipe what was pushed."""
+    from app import catalog as cat
+    from app import main as main_mod
+    from .fakes import PACKAGES
+    monkeypatch.setattr(main_mod.s, "ingest_token", "secret-token")
+
+    client, _ = client_factory([])
+    async with client:
+        r = await client.post("/api/v1/internal/catalog/packages",
+                              json=PACKAGES,
+                              headers={"X-Ingest-Token": "secret-token"})
+        assert r.status_code == 200
+        assert r.json()["installed"]["packages"] == 2
+
+        fake_odoo.packages_denied = True
+        await cat.refresh(full=True)          # Odoo says access denied
+        h = (await client.get("/health")).json()
+
+    assert h["packages_source"] == "ingest"
+    assert h["packages_available"] is True
+    assert h["packages_count"] == 2
+
+
+async def test_ingest_rejects_a_bad_or_missing_token(client_factory, monkeypatch):
+    from app import main as main_mod
+    from .fakes import PACKAGES
+    monkeypatch.setattr(main_mod.s, "ingest_token", "secret-token")
+    client, _ = client_factory([])
+    async with client:
+        assert (await client.post("/api/v1/internal/catalog/packages",
+                                  json=PACKAGES)).status_code == 401
+        assert (await client.post("/api/v1/internal/catalog/packages",
+                                  json=PACKAGES,
+                                  headers={"X-Ingest-Token": "wrong"})).status_code == 401
+
+
+async def test_ingest_is_off_until_a_token_is_configured(client_factory, monkeypatch):
+    from app import main as main_mod
+    from .fakes import PACKAGES
+    monkeypatch.setattr(main_mod.s, "ingest_token", "")
+    client, _ = client_factory([])
+    async with client:
+        r = await client.post("/api/v1/internal/catalog/packages", json=PACKAGES,
+                              headers={"X-Ingest-Token": "anything"})
+    assert r.status_code == 503
+
+
+async def test_ingest_refuses_an_empty_payload(client_factory, monkeypatch):
+    from app import main as main_mod
+    monkeypatch.setattr(main_mod.s, "ingest_token", "secret-token")
+    client, _ = client_factory([])
+    async with client:
+        r = await client.post("/api/v1/internal/catalog/packages",
+                              json={"packages": []},
+                              headers={"X-Ingest-Token": "secret-token"})
+    assert r.status_code == 422

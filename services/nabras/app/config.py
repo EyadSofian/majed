@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # ---- Checkout ----
     shop_base: str = "https://engosoft.com"
 
+    # ---- Package ingest (n8n push) ----
+    # The bot's Odoo user cannot read training.package*. n8n can, so it PUSHES a
+    # snapshot on a schedule instead of the bot pulling through it: no extra hop
+    # on the chat path and no admin credential in a public request path.
+    ingest_token: str = ""
+
     # ---- Chatwoot handoff ----
     # Nabras does NOT write to Chatwoot: the bridge owns that conversation
     # state. We only emit a handoff signal on the SSE stream.

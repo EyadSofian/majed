@@ -71,6 +71,8 @@ class Snapshot:
     events_by_course: dict[int, list[dict]] = field(default_factory=dict)
     events_by_channel: dict[int, list[dict]] = field(default_factory=dict)
     packages: dict[str, Any] = field(default_factory=dict)
+    packages_source: str = "odoo"        # odoo | ingest
+    packages_at: float = 0.0
     loaded_at: float = 0.0
     last_write_date: Optional[str] = None
 
@@ -102,7 +104,15 @@ async def refresh(full: bool = False) -> Snapshot:
         _snap.loaded_at = time.time()
         return _snap
 
-    snap = Snapshot() if (full or not _snap.ready) else _snap
+    if full or not _snap.ready:
+        snap = Snapshot()
+        # A full rebuild must not discard a snapshot n8n pushed — that data is
+        # the only copy, since the bot's own Odoo user cannot re-read it.
+        snap.packages = _snap.packages
+        snap.packages_source = _snap.packages_source
+        snap.packages_at = _snap.packages_at
+    else:
+        snap = _snap
     if since and _snap.ready:
         rows = changed                      # merge deltas into the live snapshot
     else:
@@ -137,7 +147,12 @@ async def refresh(full: bool = False) -> Snapshot:
 
     await _attach_channels(snap)
     await _refresh_events(snap)
-    snap.packages = await odoo.fetch_packages()
+    fetched = await odoo.fetch_packages()
+    # A denied read must not erase a snapshot n8n already pushed.
+    if fetched.get("available") or snap.packages_source != "ingest":
+        snap.packages = fetched
+        snap.packages_source = "odoo"
+        snap.packages_at = time.time()
 
     snap.last_write_date = max(
         [r.get("write_date") for r in rows if r.get("write_date")] +
@@ -258,6 +273,26 @@ def catalog_digest(limit: int = 200) -> str:
             bits.append(f"{n} دفعة قادمة")
         lines.append(" | ".join(bits))
     return "\n".join(lines)
+
+
+def install_packages(payload: dict) -> dict:
+    """Install a package snapshot pushed by n8n.
+
+    Returns a small summary so the pusher can verify what landed.
+    """
+    snap = snapshot()
+    keys = ("packages", "lines", "levels", "groups", "outcomes",
+            "attendee_lines")
+    data = {k: list(payload.get(k) or []) for k in keys}
+    if not data["packages"]:
+        raise ValueError("payload contains no packages")
+    data["available"] = True
+    snap.packages = data
+    snap.packages_source = "ingest"
+    snap.packages_at = time.time()
+    log.info("packages ingested: %s", {k: len(v) for k, v in data.items()
+                                       if isinstance(v, list)})
+    return {k: len(v) for k, v in data.items() if isinstance(v, list)}
 
 
 async def refresher_loop() -> None:

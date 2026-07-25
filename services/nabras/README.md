@@ -231,9 +231,33 @@ are excluded — selling a seat there sells a course that already began.
 This is also why the previous Majed prompt said "never state a price, send the
 URL": without the mode-and-cohort split there is no single correct number.
 
-> **Still unknown:** `training.package.attendee.product.line` (the attendance
-> side of the course list) has never been read, and the site reportedly lets a
-> trainee buy *part* of a package. Neither is modelled yet.
+> **Still unknown:** whether a trainee can buy *part* of a package. Not modelled.
+
+### Getting package data in without the permission grant
+
+The bot's Odoo user cannot read `training.package*`; n8n's credential can. So
+n8n **pushes** a snapshot instead of the bot pulling through it:
+
+```
+n8n (every 20 min) ──► POST /api/v1/internal/catalog/packages   [X-Ingest-Token]
+                        └─► held in memory, read by search_packages
+```
+
+`sync_packages.n8n.json` is the workflow — set `NABRAS_URL` and `INGEST_TOKEN`
+in its Config node and import. It reads packages, levels, recorded lines,
+attendee lines, groups and outcomes in parallel, keeps only published rows
+belonging to published packages, and refuses to push an empty snapshot.
+
+Why push and not proxy: a per-request proxy would add a hop to every chat turn
+and place an admin-rights credential in the request path of a public bot. This
+way the chat still reads from memory and never calls out.
+
+A denied Odoo read can no longer erase pushed data — including on a full
+rebuild, where the fresh snapshot inherits it (`packages_source`). `GET /health`
+reports `packages_source`, `packages_count` and `packages_age_seconds`.
+
+This is a bridge, not the destination: once the bot user has eLearning/Manager +
+Operation Group, it reads packages directly and the workflow can be switched off.
 
 ## 7. Models
 

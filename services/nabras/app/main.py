@@ -5,6 +5,7 @@ import uuid
 from collections import defaultdict
 
 import jwt
+import secrets
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -92,8 +93,34 @@ async def health():
         "courses": len(snap.courses),
         "batches": sum(len(v) for v in snap.events_by_course.values()),
         "packages_available": bool((snap.packages or {}).get("available")),
+        "packages_count": len((snap.packages or {}).get("packages") or []),
+        "packages_source": snap.packages_source,
+        "packages_age_seconds": round(time.time() - snap.packages_at, 1) if snap.packages_at else None,
         "catalog_age_seconds": round(time.time() - snap.loaded_at, 1) if snap.loaded_at else None,
     }
+
+
+@app.post("/api/v1/internal/catalog/packages")
+async def ingest_packages(payload: dict, request: Request,
+                          x_ingest_token: str | None = Header(default=None)):
+    """Receive a package snapshot pushed by n8n.
+
+    The bot's Odoo user cannot read `training.package*`; n8n's credential can.
+    Rather than proxying every chat request through n8n — an extra hop plus an
+    admin credential sitting in a public request path — n8n pushes here on a
+    schedule and the chat keeps reading from memory.
+    """
+    if not s.ingest_token:
+        raise HTTPException(503, "ingest disabled: set INGEST_TOKEN")
+    if not x_ingest_token or not secrets.compare_digest(x_ingest_token, s.ingest_token):
+        log.warning("rejected package ingest from %s",
+                    request.client.host if request.client else "?")
+        raise HTTPException(401, "invalid ingest token")
+    try:
+        counts = catalog.install_packages(payload)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"status": "ok", "installed": counts}
 
 
 @app.post("/api/v1/user/guest-session/create/")
