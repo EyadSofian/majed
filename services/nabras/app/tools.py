@@ -505,8 +505,15 @@ async def create_lead(name: str, phone: Optional[str] = None,
         return json.dumps({"error": "need_contact",
                            "detail": "ask for a phone number or an email first"})
     s = get_settings()
+    if not s.allow_crm_writes:
+        # Trial mode: exercise the whole funnel without polluting the live CRM
+        # with test leads. The agent still gets a success-shaped result.
+        log.info("lead suppressed (ALLOW_CRM_WRITES=false): %s / %s",
+                 name, phone or email)
+        return json.dumps({"lead_id": None, "simulated": True,
+                           "note": "trial mode — not written to Odoo"})
     payload = {
-        "name": f"[نبراس] {course_interest or 'استفسار عن كورس'} — {name}",
+        "name": f"[ماجد] {course_interest or 'استفسار عن كورس'} — {name}",
         "contact_name": name, "type": "lead",
         "user_id": s.sales_advisor_id,
         "description": notes or "", "phone": phone or "", "email_from": email or "",

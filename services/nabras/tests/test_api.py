@@ -509,3 +509,43 @@ async def test_ingest_refuses_an_empty_payload(client_factory, monkeypatch):
                               json={"packages": []},
                               headers={"X-Ingest-Token": "secret-token"})
     assert r.status_code == 422
+
+
+# =============================================== identity & trial safety
+async def test_the_assistant_is_named_majed_to_the_visitor(client_factory):
+    """The visitor meets one bot: ماجد. "نبراس" is an internal codename and must
+    never appear in anything customer-facing, or the site looks like it has two
+    different assistants."""
+    from app import prompts
+    assert prompts.BOT_NAME == "ماجد"
+    assert "نبراس" not in prompts.build_system_prompt("cat|alogue")
+    client, _ = client_factory([])
+    async with client:
+        assert (await client.get("/health")).json()["assistant"] == "ماجد"
+
+
+async def test_trial_mode_does_not_write_leads_to_the_live_crm(
+        client_factory, fake_odoo, monkeypatch):
+    from app import main as main_mod
+    monkeypatch.setattr(main_mod.s, "allow_crm_writes", False)
+    script = [{"tool": "create_lead",
+               "args": {"name": "أحمد", "phone": "01000000000"}},
+              {"text": "تمام."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "كلموني")
+        assert [e["type"] for e in parse_sse(r.text)][-1] == "done"
+    assert fake_odoo.leads == []          # nothing reached the production CRM
+
+
+async def test_lead_name_is_tagged_majed_not_the_codename(client_factory, fake_odoo):
+    script = [{"tool": "create_lead",
+               "args": {"name": "أحمد", "phone": "01000000000",
+                        "course_interest": "PMP"}},
+              {"text": "تمام."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        await _chat(client, tok, "كلموني")
+    assert fake_odoo.leads[0]["name"].startswith("[ماجد]")

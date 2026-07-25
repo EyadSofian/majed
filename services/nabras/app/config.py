@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # ---- Checkout ----
     shop_base: str = "https://engosoft.com"
 
+    # ---- Safety while trialling on demo ----
+    # Reads always come from the production catalogue — that is where the data
+    # lives. Writes must not: a trial conversation would otherwise create real
+    # CRM leads. Set false while testing on demo.engosoft.com.
+    allow_crm_writes: bool = True
+
     # ---- Package ingest (n8n push) ----
     # The bot's Odoo user cannot read training.package*. n8n can, so it PUSHES a
     # snapshot on a schedule instead of the bot pulling through it: no extra hop

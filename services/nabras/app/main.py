@@ -23,7 +23,7 @@ s = get_settings()
 if len(s.jwt_secret.encode()) < 32 or s.jwt_secret == "change-me":
     log.warning("nabras: JWT_SECRET is weak — use >=32 random bytes in production")
 
-app = FastAPI(title="نبراس — Engosoft AI Advisor", lifespan=lifespan_agent)
+app = FastAPI(title="Majed — Engosoft AI Advisor", lifespan=lifespan_agent)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=s.allowed_origins,
@@ -89,7 +89,8 @@ def _text(content) -> str:
 async def health():
     snap = catalog.snapshot()
     return {
-        "status": "ok", "service": "nabras",
+        "status": "ok", "service": "nabras", "assistant": "ماجد",
+        "crm_writes": s.allow_crm_writes,
         "courses": len(snap.courses),
         "batches": sum(len(v) for v in snap.events_by_course.values()),
         "packages_available": bool((snap.packages or {}).get("available")),

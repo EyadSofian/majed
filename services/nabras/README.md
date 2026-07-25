@@ -1,4 +1,10 @@
-# نبراس — Engosoft AI Course Advisor
+# ماجد — Engosoft AI Course Advisor  ·  service codename `nabras`
+
+> **One assistant, one name.** The visitor only ever meets **ماجد**. `nabras` is
+> the internal name of this service — the directory, the module, the logs. It
+> must never appear in a reply, a card, a lead or anything else a customer can
+> read: a second name would make the site look like it runs two different bots.
+> This service does not replace Majed, it gives Majed selling skills.
 
 Sales-capable, page-aware course assistant for the Engosoft Odoo 17 site. Built
 to beat eyouth's **فاهم (Fahym)** on the three gaps the audit found — **real
@@ -135,7 +141,36 @@ onto `{type:'link'}` — a buy button, with no widget rewrite.
 
 ---
 
-## 5. Run
+## 5. Trialling it on demo.engosoft.com
+
+Nothing here needs a custom domain. Deploy it as a **second Railway service**
+next to `majed` and use the free URL Railway hands out (the existing bot already
+runs on `majed-production-dd41.up.railway.app`); the widget only needs a URL, not
+a domain.
+
+Reads and writes are configured separately on purpose:
+
+| Variable | Trial value | Why |
+|---|---|---|
+| `ODOO_URL` | `https://engosoft.com` | The catalogue lives in production. Reading it is safe. |
+| `SHOP_BASE` | `https://demo.engosoft.com` | Where course links, images and **checkout** point. Keeps test carts off the live shop. |
+| `ALLOW_CRM_WRITES` | `false` | `create_lead` is simulated. No test leads in the live CRM. |
+| `CORS_ORIGINS` | `https://demo.engosoft.com` | Only the demo site may call it. |
+
+`GET /health` echoes `crm_writes` so you can see at a glance which mode is live.
+
+> **One thing to check:** the checkout link is built from the *production*
+> product id. If demo is a copy of the production database the link resolves; if
+> demo has its own catalogue the link will 404 — safe, but you will not be able
+> to walk the last step. If demo runs its own Odoo, point `ODOO_URL` at demo too
+> and everything stays internally consistent (with demo data).
+
+Going live is then three variables: `SHOP_BASE` back to `engosoft.com`,
+`ALLOW_CRM_WRITES=true`, and the real origin in `CORS_ORIGINS`.
+
+---
+
+## 6. Run
 
 ```bash
 cp .env.example .env            # fill OPENAI_API_KEY and ODOO_API_KEY
@@ -164,7 +199,7 @@ relative URLs) so a regression fails the suite instead of a customer.
 
 ---
 
-## 6. Verified behaviour (last run)
+## 7. Verified behaviour (last run)
 
 35/35 green. The demo trace walks a full funnel — discover → price objection →
 dates and seats → close → hesitation → lead + human handoff:
@@ -259,7 +294,7 @@ reports `packages_source`, `packages_count` and `packages_age_seconds`.
 This is a bridge, not the destination: once the bot user has eLearning/Manager +
 Operation Group, it reads packages directly and the workflow can be switched off.
 
-## 7. Models
+## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.
 
@@ -274,7 +309,7 @@ GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`
 
 ---
 
-## 8. Open item — package permissions
+## 9. Open item — package permissions
 
 `training.package` and its four related models need groups the bot's Odoo user
 (`uid 15577`) does not have. Until they are granted, `search_packages` returns

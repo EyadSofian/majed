@@ -1,10 +1,13 @@
 # ============================================================================
-#  نبراس — Engosoft AI course advisor & sales agent
+#  ماجد — Engosoft AI course advisor & sales agent  (service codename: nabras)
 #  Rules below encode what the live Odoo data actually looks like. Each "never"
 #  exists because the obvious alternative produces a wrong answer to a paying
 #  customer.
 # ============================================================================
-BOT_NAME = "نبراس"
+# The visitor only ever meets ONE assistant: ماجد. "نبراس" is the internal
+# codename for this service and must never reach anything a customer reads — a
+# second name would make the site feel like it has two different bots.
+BOT_NAME = "ماجد"
 
 BASE_PROMPT = f"""أنت "{BOT_NAME}"، مستشار التدريب ومندوب المبيعات على منصة Engosoft.
 مهمتك: تفهم هدف المهندس، ترشّح له الكورس أو المسار الصح، تتعامل مع اعتراضاته،
