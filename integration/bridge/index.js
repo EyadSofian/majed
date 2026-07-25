@@ -26,6 +26,7 @@
 
 const express = require('express');
 const axios = require('axios');
+const { tryNabras } = require('./nabras');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -1492,16 +1493,50 @@ function welcomeNoteIfNeeded(mapping, cwConvId) {
 }
 
 // Forward one customer message to Botpress (status-gated).
+// Deliver a نبراس reply exactly the way a Botpress reply is delivered:
+// widget first (that is the path the customer feels), Chatwoot in the
+// background so it stays the single source of truth.
+async function deliverNabras(cwConvId, msg) {
+  markBridgeOutgoing(cwConvId, msg.content, msg.content_attributes);
+  pushToWidget(cwConvId, {
+    id: msg.id,
+    content: msg.content,
+    content_type: msg.content_type || 'text',
+    content_attributes: { ...(msg.content_attributes || {}), bp_id: msg.id },
+  });
+  cwSendMessage(cwConvId, {
+    content: msg.content,
+    messageType: 'outgoing',
+    contentType: msg.content_type === 'text' ? undefined : msg.content_type,
+    contentAttributes: { ...(msg.content_attributes || {}), bp_id: msg.id },
+  }).catch((e) => console.error('cw outgoing write failed:', e.response?.data || e.message));
+}
+
 async function forwardToBot(cwConvId, text, { name, userData }) {
+  const status0 = await getConvStatus(cwConvId);
+  if (status0 === 'open') {
+    console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
+    return;
+  }
+  // نبراس gets first refusal. It returns false for anything at all — disabled,
+  // not allowlisted, network, timeout — and Botpress then answers this same
+  // message, so the customer never sees a gap. Flipping NABRAS_ENABLED=false
+  // is a complete rollback with no other change.
+  try {
+    const handled = await tryNabras(cwConvId, text, { name, userData }, {
+      deliver: deliverNabras,
+      handoff: (id, h) => performHandoff(id, h.team_id),
+    });
+    if (handled) return;
+  } catch (e) {
+    console.error('NABRAS router error — falling back to Botpress:', e.message);
+  }
+
   if (!bpConfigured()) {
     console.warn('SKIP Botpress (not configured) — set BOTPRESS_CHAT_WEBHOOK_ID');
     return;
   }
-  const status = await getConvStatus(cwConvId);
-  if (status === 'open') {
-    console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
-    return;
-  }
+  const status = status0;
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
 
