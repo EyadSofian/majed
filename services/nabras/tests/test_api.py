@@ -184,7 +184,10 @@ async def test_checkout_only_attaches_to_the_chosen_course(client_factory):
 
 
 # ================================================================ packages
-async def test_packages_are_offered_with_price_and_contents(client_factory):
+async def test_package_quotes_the_live_group_price_not_final_price(client_factory):
+    """The Interior Design track carries final_price 12,001 while its sellable
+    July group costs 31,440. Quoting final_price understates a live cohort ~2.6x
+    (up to ~6x for the onsite groups), so the group price must win."""
     script = [{"tool": "search_packages", "args": {"query": "interior"}},
               {"text": "في مسار كامل."}]
     client, _ = client_factory(script)
@@ -193,10 +196,63 @@ async def test_packages_are_offered_with_price_and_contents(client_factory):
         r = await _chat(client, tok, "مسار تصميم داخلي")
         events = parse_sse(r.text)
     pkgs = next(e for e in events if e["type"] == "packages")["package_cards"]
-    assert pkgs[0]["package_id"] == 5
-    assert pkgs[0]["price_display"] == "24,000 EGP"     # final_price, not total
-    assert pkgs[0]["discount"] == 20.0
-    assert pkgs[0]["url"].startswith("https://engosoft.com/training_package/")
+    idp = next(p for p in pkgs if p["package_id"] == 5)
+    assert idp["price_display"] == "31,440 EGP"
+    assert idp["price_basis"] == "group_online"
+    assert idp["next_group"] == "Group July 2026 (Zyad Mohamed - 5600)"
+    # the "was" price only applies to the recorded basis, so not shown here
+    assert idp["list_price_display"] is None
+    assert idp["discount"] is None
+
+
+async def test_started_groups_are_never_priced_or_offered(client_factory):
+    """Group 34 starts sooner but is already running (is_available_for_sale
+    false); selling a seat in it would be selling a course that began."""
+    script = [{"tool": "search_packages", "args": {"query": "interior"}},
+              {"text": "أهو."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "مسار تصميم داخلي")
+        events = parse_sse(r.text)
+    idp = next(p for p in next(e for e in events if e["type"] == "packages")
+               ["package_cards"] if p["package_id"] == 5)
+    assert "Amal Oraby" not in (idp["next_group"] or "")
+    assert idp["starts_at"].startswith("2026-07-26")
+
+
+async def test_recorded_package_uses_final_price(client_factory):
+    """No live groups -> final_price IS what the customer pays."""
+    script = [{"tool": "search_packages", "args": {"query": "infrastructure"}},
+              {"text": "أهو."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "مسار البنية التحتية")
+        events = parse_sse(r.text)
+    pkg = next(e for e in events if e["type"] == "packages")["package_cards"][0]
+    assert pkg["package_id"] == 15
+    assert pkg["price_display"] == "15,000 EGP"
+    assert pkg["price_basis"] == "recorded"
+    assert pkg["next_group"] is None
+
+
+async def test_package_card_carries_levels_contents_and_attendance(client_factory):
+    script = [{"tool": "search_packages", "args": {"query": "interior"}},
+              {"text": "أهو."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "مسار تصميم داخلي")
+        events = parse_sse(r.text)
+    idp = next(p for p in next(e for e in events if e["type"] == "packages")
+               ["package_cards"] if p["package_id"] == 5)
+    assert idp["levels"] == ["Level 1", "Level 2"]
+    assert "Interior Design Basics Using SketchUp" in idp["includes"]
+    assert idp["attendance"] == "أونلاين أو حضوري"
+    assert idp["courses_count"] == 6          # num_courses_display wins
+    assert idp["training_hours"] == 161       # 123 attendee + 38 recorded
+    assert idp["url"].startswith("https://engosoft.com/training_package/")
 
 
 async def test_missing_package_permission_degrades_quietly(client_factory, fake_odoo):

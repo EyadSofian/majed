@@ -57,14 +57,24 @@ class PackageCard(BaseModel):
     package_id: int
     title: str
     url: str
+    # A package carries THREE candidate numbers and they differ by up to 6x:
+    # `final_price` (the recorded track) and each live group's online / onsite
+    # total. `price_display` is whichever one actually applies to what is being
+    # offered, and `price_basis` says which, so the widget can label it.
     price_display: Optional[str] = None
+    price_basis: Optional[str] = None      # recorded | group_online | group_onsite
     currency: Optional[str] = None
+    list_price_display: Optional[str] = None   # struck-through "before" price
     discount: Optional[float] = None
     courses_count: Optional[int] = None
     training_hours: Optional[int] = None
+    attendance: Optional[str] = None       # أونلاين / حضوري / الاتنين
     rating: Optional[float] = None
     badge: Optional[str] = None
+    next_group: Optional[str] = None
     starts_at: Optional[str] = None
+    levels: list[str] = Field(default_factory=list)
+    includes: list[str] = Field(default_factory=list)
 
 
 class LeadPayload(BaseModel):

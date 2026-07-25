@@ -282,20 +282,24 @@ class Odoo:
                  "attendee_course_count", "recorded_course_count"])
             groups = await self.search_read(
                 "training.package.group", [],
-                ["id", "name", "full_display_name", "package_id", "sale_status",
-                 "is_available_for_sale", "first_event_date",
-                 "online_event_ids", "onsite_event_ids",
-                 "online_min_date_begin", "onsite_min_date_begin",
+                ["id", "name", "technical_name", "full_display_name",
+                 "package_id", "sale_status", "is_available_for_sale",
+                 "first_event_date", "online_event_ids", "onsite_event_ids",
+                 "online_min_date_begin", "online_max_date_end",
+                 "onsite_min_date_begin", "onsite_max_date_end",
                  "online_total_price", "onsite_total_price"])
+            outcomes = await self.search_read(
+                "learning.outcome", [], ["id", "name", "sequence"])
         except OdooAccessDenied as e:
             log.warning("packages unavailable — grant eLearning/Manager + "
                         "Operation Group to the bot user (%s)", e)
             return {"available": False, "reason": "access_denied",
-                    "packages": [], "lines": [], "levels": [], "groups": []}
+                    "packages": [], "lines": [], "levels": [], "groups": [],
+                    "outcomes": []}
         for p in packages:
             p["url"] = abs_url(p.get("website_url"))
         return {"available": True, "packages": packages, "lines": lines,
-                "levels": levels, "groups": groups}
+                "levels": levels, "groups": groups, "outcomes": outcomes}
 
     # ------------------------------------------------------------------ sell
     async def product_variant_id(self, template_id: int) -> int | None:

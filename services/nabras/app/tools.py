@@ -310,63 +310,111 @@ async def get_instructor(name: Optional[str] = None,
     } for e in rows[:12]], ensure_ascii=False)
 
 
+ATTENDANCE_LABELS = {
+    "both_attendees": "أونلاين أو حضوري",
+    "online_only": "أونلاين",
+    "onsite_only": "حضوري",
+}
+
+
+def _package_price(pkg: dict, groups: list[dict]) -> tuple:
+    """Pick the number the customer would actually pay, and say which it is.
+
+    A package carries three candidates and they are NOT interchangeable — for
+    the Interior Design track they run 12,001 / 31,440 / 78,150. `final_price`
+    prices the recorded track; a live cohort is priced by its own group. Quoting
+    `final_price` to someone booking an onsite group understates it ~6x.
+    """
+    cur = pkg["currency_id"][1] if isinstance(pkg.get("currency_id"), list) else CURRENCY.get()
+    for g in groups:                       # soonest sellable group wins
+        online = g.get("online_total_price") or 0
+        onsite = g.get("onsite_total_price") or 0
+        if online > 1:
+            return _fmt_price(online, cur), "group_online", cur, g
+        if onsite > 1:
+            return _fmt_price(onsite, cur), "group_onsite", cur, g
+    return _fmt_price(pkg.get("final_price"), cur), "recorded", cur, None
+
+
 @tool
 async def search_packages(query: Optional[str] = None) -> str:
-    """Training packages (المسارات / الباقات) — multi-course tracks that bundle
-    several courses at a package price. These are the highest-value offer, so
-    check for a relevant package before selling a single course."""
+    """Training packages (المسارات) — multi-course tracks sold as one bundle.
+
+    These are the highest-value offer, so check for a relevant package before
+    selling a single course. The returned `price_basis` says what the price
+    covers: 'recorded' (self-paced track) or 'group_online' / 'group_onsite'
+    (a specific live cohort). Quote the number WITH its basis — the recorded
+    price and the live-cohort price differ by several times.
+    """
     snap = await _ensure_catalog()
     data = snap.packages or {}
     if not data.get("available"):
         return json.dumps({"packages": [], "available": False,
                            "note": "package_data_unavailable"}, ensure_ascii=False)
 
-    q = catalog.tokens(query or "")
-    lines_by_pkg: dict[int, list] = {}
-    for ln in data.get("lines", []):
-        pid = ln.get("package_id")
-        if isinstance(pid, list):
-            lines_by_pkg.setdefault(pid[0], []).append(ln)
-    groups_by_pkg: dict[int, list] = {}
-    for g in data.get("groups", []):
-        pid = g.get("package_id")
-        if isinstance(pid, list):
-            groups_by_pkg.setdefault(pid[0], []).append(g)
+    def by_pkg(rows):
+        out: dict[int, list] = {}
+        for r in rows:
+            pid = r.get("package_id")
+            if isinstance(pid, list):
+                out.setdefault(pid[0], []).append(r)
+        return out
 
+    lines_by = by_pkg(data.get("lines", []))
+    levels_by = by_pkg(data.get("levels", []))
+    groups_by = by_pkg(data.get("groups", []))
+    outcomes = {o["id"]: o.get("name", "") for o in data.get("outcomes", [])}
+
+    q = catalog.tokens(query or "")
     out = []
     for p in data.get("packages", []):
+        lines = sorted(lines_by.get(p["id"], []), key=lambda x: x.get("sequence") or 0)
         blob = catalog.tokens(" ".join(
-            [p.get("name") or ""] +
-            [str(l.get("name") or "") for l in lines_by_pkg.get(p["id"], [])]))
+            [p.get("name") or ""] + [str(l.get("name") or "") for l in lines]))
         if q and not (q & blob):
             continue
-        groups = [g for g in groups_by_pkg.get(p["id"], [])
-                  if g.get("is_available_for_sale")]
+
+        groups = [g for g in groups_by.get(p["id"], []) if g.get("is_available_for_sale")]
         groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
-        cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
+        price_display, basis, cur, group = _package_price(p, groups)
+        hours = (p.get("training_hours_attendee") or 0) + (p.get("training_hours_recorded") or 0)
+        levels = [l.get("name", "") for l in
+                  sorted(levels_by.get(p["id"], []), key=lambda x: x.get("sequence") or 0)]
+        includes = [str(l.get("name") or "") for l in lines][:12]
+
         card = PackageCard(
-            package_id=p["id"], title=p.get("name") or "",
+            package_id=p["id"], title=(p.get("name") or "").strip(),
             url=p.get("url") or "",
-            price_display=_fmt_price(p.get("final_price") or p.get("total_price"), cur),
-            currency=cur, discount=p.get("discount") or None,
-            courses_count=p.get("num_courses_display") or len(lines_by_pkg.get(p["id"], [])),
-            training_hours=(p.get("training_hours_attendee") or 0) +
-                           (p.get("training_hours_recorded") or 0) or None,
+            price_display=price_display, price_basis=basis, currency=cur,
+            # Only show a struck-through "before" price when the discount is on
+            # the same basis as the price we are quoting.
+            list_price_display=(_fmt_price(p.get("total_price"), cur)
+                                if basis == "recorded" and (p.get("discount") or 0) > 0
+                                else None),
+            discount=round(p["discount"], 1) if basis == "recorded" and p.get("discount") else None,
+            courses_count=p.get("num_courses_display") or len(lines) or None,
+            training_hours=hours or None,
+            attendance=ATTENDANCE_LABELS.get(p.get("attendee_type")),
             rating=round(p.get("review_rating_avg") or 0, 1) or None,
             badge=p.get("badge_text") or None,
-            starts_at=str(groups[0].get("first_event_date")) if groups else None,
+            next_group=group.get("full_display_name") if group else None,
+            starts_at=str(group.get("first_event_date")) if group else None,
+            levels=[x for x in levels if x],
+            includes=includes,
         )
         _packages().append(card.model_dump())
         out.append({
             "package_id": p["id"], "title": card.title,
-            "price": card.price_display, "currency": cur,
-            "discount": card.discount, "courses": card.courses_count,
-            "hours": card.training_hours, "type": p.get("package_type"),
-            "attendee_type": p.get("attendee_type"),
-            "next_group": groups[0].get("full_display_name") if groups else None,
-            "starts": card.starts_at,
-            "includes": [str(l.get("name") or "")
-                         for l in lines_by_pkg.get(p["id"], [])][:12],
+            "price": card.price_display, "price_basis": basis,
+            "currency": cur, "was": card.list_price_display,
+            "discount_percent": card.discount,
+            "courses": card.courses_count, "hours": card.training_hours,
+            "attendance": card.attendance, "levels": card.levels,
+            "next_group": card.next_group, "starts": card.starts_at,
+            "sellable_groups": len(groups),
+            "includes": includes,
+            "outcomes": [outcomes[i] for i in (p.get("learning_outcomes_ids") or [])
+                         if i in outcomes][:6],
         })
     if not out:
         return json.dumps({"packages": [], "note": "no_match"}, ensure_ascii=False)

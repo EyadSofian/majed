@@ -28,6 +28,9 @@ customer, which is why they are called out here and covered by tests.
 | 84 of 85 upcoming batches are in Riyadh (`Asia/Riyadh`, SAR) | An Egyptian visitor asking about an attendance course is being offered Saudi Arabia. The bot says so up front instead of at checkout. |
 | Instructors are real records — `hr.employee` via `recorded_instructor_ids` / `attendance_instructor_ids` / `event.instructor_id` | Names also appear inside free text (`"July Group 2026 (Alaa Saleh - 5452)"`, `"E-Alaa Saleh"`). Parsing those would invent people. |
 | Packages are a full model family: `training.package` → `.level` → `.product.line` → `.group` → `event.event` | 70 of 85 upcoming batches belong to a package. This is the highest-value offer. |
+| **A package carries three different prices** — `final_price`, and each group's `online_total_price` / `onsite_total_price` | For the Interior Design track they are 12,001 / 31,440 / 78,150 EGP. Quoting `final_price` to someone booking an onsite cohort understates it ~6.5x. |
+| Groups have `is_available_for_sale` / `sale_status` (`active` \| `started` \| `no_events`) | A `started` group is already running; selling a seat in it sells a course that began. |
+| One package is `website_published: false`, and groups reference packages that are not published | Both must be filtered, and the second must not crash the join. |
 
 ### Catalogue size changed the architecture
 
@@ -125,7 +128,7 @@ onto `{type:'link'}` — a buy button, with no widget rewrite.
 | `get_upcoming_batches` | memory | Bookable runs with dates, timezone, location, seats left. |
 | `get_price` | **Odoo, live** | The only sanctioned source of a number. |
 | `get_instructor` | Odoo | Named instructors from `hr.employee`. |
-| `search_packages` | memory | Multi-course tracks with package price and discount. |
+| `search_packages` | memory | Multi-course tracks: correct price + `price_basis`, levels, contents, next sellable cohort. |
 | `build_checkout_link` | Odoo | Express add-to-cart → checkout, attached to the card. |
 | `create_lead` | Odoo | `crm.lead` for the sales advisor (`user_id=2`). |
 | `request_handoff` | — | Signals the bridge. Does not touch Chatwoot. |
@@ -196,6 +199,31 @@ Botpress's Chat API delivers whole messages, never tokens.)*
    there was no card for `build_checkout_link` to attach `checkout_url` to. It
    now materialises one. Same for `get_price`.
 
+### The package price is the sharpest edge in this service
+
+`training.package` exposes three numbers and they are not interchangeable:
+
+| Interior Design Professional Track | |
+|---|---|
+| `total_price` (sum of the courses) | 23,750 EGP |
+| `final_price` (self-paced recorded track) | 12,001 EGP |
+| July group, online (`online_total_price`) | 31,440 EGP |
+| Evening group, onsite (`onsite_total_price`) | 78,150 EGP |
+
+`_package_price()` picks the soonest **sellable** group and quotes that cohort's
+figure, falling back to `final_price` only when a package has no live groups
+(e.g. the recorded-only Infrastructure track). Every quote carries a
+`price_basis` so the reply and the card can say *what* the number covers, and
+the prompt forbids comparing across bases.
+
+This is also the reason the previous Majed prompt said "never state a price,
+send the URL" — that rule was not caution, it was the only safe answer without
+this distinction.
+
+> **Confirm before launch:** the recorded-vs-cohort reading above is inferred
+> from the data, not from Engosoft's pricing docs. Check it against a real
+> package page before the bot quotes package numbers to customers.
+
 ---
 
 ## 7. Models
@@ -220,6 +248,12 @@ GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`
 empty and the chat continues normally — packages are simply never offered, which
 costs the highest-value sale in the catalogue (70 of 85 upcoming batches belong
 to one).
+
+The package data used to build this was read through n8n, whose Odoo credential
+*does* have the rights — which confirms the gap is the bot user specifically,
+not the models. Routing the bot's package reads through n8n would work but is
+not recommended: it adds a hop to every request and puts an admin-rights
+credential in the request path of a public chatbot.
 
 **Grant on the bot user — recommended:** `eLearning / Manager` + `Operation Group`
 
