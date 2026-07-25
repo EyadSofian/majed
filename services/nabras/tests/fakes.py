@@ -275,11 +275,16 @@ PACKAGES = {
 }
 
 
-# Arabic titles as the shop renders them — the same records, another language.
-ARABIC_NAMES = {
-    2092: "دورة إدارة المشاريع الاحترافية (PMP)",
-    2107: "تنسيق أنظمة الميكانيكا (Navisworks MEP)",
-    2116: "تصميم الأنظمة الكهربائية باستخدام ريفيت (Revit Electrical)",
+# The same records in each language the shop serves. Odoo returns translatable
+# fields in the *reader's* language, which is the whole reason titles are read
+# per visitor rather than once.
+NAMES_BY_LANG = {
+    "ar_001": {
+        2092: "دورة إدارة المشاريع الاحترافية (PMP)",
+        2107: "تنسيق أنظمة الميكانيكا (Navisworks MEP)",
+        2116: "تصميم الأنظمة الكهربائية باستخدام ريفيت (Revit Electrical)",
+    },
+    "fr_FR": {2107: "Coordination MEP (Navisworks)"},
 }
 
 
@@ -290,6 +295,7 @@ class FakeOdoo:
                  no_translations: bool = False):
         self.packages_denied = packages_denied
         self.no_translations = no_translations
+        self.lang_calls: list[str] = []
         self.fail = fail
         self.leads: list = []
         self.price_calls: list = []
@@ -355,10 +361,11 @@ class FakeOdoo:
 
     async def read_in_language(self, model: str, ids, fields, lang: str) -> dict:
         self._boom()
+        self.lang_calls.append(lang)
         if not lang or self.no_translations:
             return {}
-        return {i: {"id": i, "name": ARABIC_NAMES[i]}
-                for i in ids if i in ARABIC_NAMES}
+        names = NAMES_BY_LANG.get(lang, {})
+        return {i: {"id": i, "name": names[i]} for i in ids if i in names}
 
     async def product_variant_id(self, template_id: int):
         self._boom()

@@ -13,6 +13,9 @@ class ChatRequest(BaseModel):
     # Drives which pricelist quotes the price. Sent by the widget from the
     # website's active currency; EGP if absent.
     currency: Optional[str] = None
+    # The visitor's Odoo language code (`ar_001`, `en_US`, …) — course titles
+    # are shown in it, so the chat names a course the way the page does.
+    lang: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 

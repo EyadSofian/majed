@@ -226,7 +226,7 @@ def build_events_data(env, uid):
 # 4. Full payload assembler
 # ------------------------------------------------------------------
 def build_shop_context(env):
-    """The currency the visitor is ACTUALLY being shown on the site.
+    """The currency AND language the visitor is actually being shown.
 
     Odoo already resolves this per visitor — website pricelist, which follows
     the visitor's country/geoip or their partner's pricelist. Guessing it in the
@@ -234,13 +234,18 @@ def build_shop_context(env):
     the page next to the chat shows riyals.
     """
     ctx = {'currency': '', 'pricelist_id': None, 'pricelist': '',
-           'website_id': None, 'country': ''}
+           'website_id': None, 'country': '', 'lang': ''}
     try:
         from odoo.http import request
         website = request.website if request else None
         if not website:
             return ctx
         ctx['website_id'] = website.id
+        # The language this visitor is reading the shop in. Course names are
+        # translated, so the bot needs the exact Odoo code (`ar_001`, `en_US`)
+        # to name a course the way the page in front of them does.
+        ctx['lang'] = (getattr(request.env, 'lang', '')
+                       or request.env.context.get('lang') or '')
         pricelist = None
         for getter in ('_get_current_pricelist', 'get_current_pricelist'):
             fn = getattr(website, getter, None)

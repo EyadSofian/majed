@@ -50,7 +50,6 @@ class Course:
     name: str                     # as the API user reads it (English)
     url: str
     image_url: str
-    name_ar: str = ""             # as the website shows it, when Odoo has it
     code: str = ""
     course_type: str = ""
     subtitle: str = ""
@@ -73,11 +72,9 @@ class Course:
 
     @property
     def display_name(self) -> str:
-        """What the customer is shown. The page beside the chat says
-        «تصميم أنظمة التيار الخفيف (Light Current)»; naming it
-        "Light Current Systems Design" in the same breath reads like two
-        different products."""
-        return self.name_ar or self.name
+        """The title in the site's default language. Per-visitor titles go
+        through `title_for(course, lang)` — see it for why."""
+        return title_for(self)
 
 
 @dataclass
@@ -88,6 +85,10 @@ class Snapshot:
     events_by_course: dict[int, list[dict]] = field(default_factory=dict)
     events_by_channel: dict[int, list[dict]] = field(default_factory=dict)
     packages: dict[str, Any] = field(default_factory=dict)
+    # Odoo lang code -> {course id: title in that language}. One entry per
+    # language a visitor has actually shown up in; an empty dict for a language
+    # means Odoo had nothing for it, and is cached so we stop asking.
+    names_by_lang: dict[str, dict[int, str]] = field(default_factory=dict)
     packages_source: str = "odoo"        # odoo | ingest
     packages_at: float = 0.0
     loaded_at: float = 0.0
@@ -128,6 +129,8 @@ async def refresh(full: bool = False) -> Snapshot:
         snap.packages = _snap.packages
         snap.packages_source = _snap.packages_source
         snap.packages_at = _snap.packages_at
+        # keep the languages already in play; _refresh_titles refills them
+        snap.names_by_lang = {k: {} for k in _snap.names_by_lang}
     else:
         snap = _snap
     if since and _snap.ready:
@@ -152,15 +155,18 @@ async def refresh(full: bool = False) -> Snapshot:
     if cat_ids:
         cats = await odoo.read("product.public.category", sorted(cat_ids), ["id", "name"])
         snap.categories.update({c["id"]: c["name"] for c in cats})
-    await _attach_arabic_names(snap, [r["id"] for r in rows])
+    await _refresh_titles(snap, [r["id"] for r in rows])
     for c in snap.courses.values():
         c.categories = [snap.categories.get(i, "") for i in c.category_ids]
         c.categories = [x for x in c.categories if x]
         # BOTH names go in the blob: the customer may type either, and an
         # Arabic-only blob would stop matching "navisworks".
         c._search_blob = tokens(" ".join(
-            [c.name, c.name_ar, c.subtitle, c.description[:600], c.duration_text,
+            [c.name, c.subtitle, c.description[:600], c.duration_text,
              c.delivery, c.instructor_tagline, *c.categories]))
+        for names in snap.names_by_lang.values():
+            if names.get(c.id):
+                c._search_blob |= tokens(names[c.id])
 
     if instr_ids:
         snap.instructors.update(await odoo.fetch_instructors(instr_ids))
@@ -205,36 +211,76 @@ def _to_course(r: dict) -> Course:
     )
 
 
-async def _attach_arabic_names(snap: Snapshot, ids: list[int]) -> None:
-    """Read the same courses again in the customer's language.
+_LANG = re.compile(r"^[a-z]{2}([_-][A-Za-z0-9]{2,4})?$")
+MAX_LANGS = 6          # bound on how many languages we will hold titles for
 
-    Odoo returns translatable fields in the API user's language, and the bot's
-    user is English — so without this the assistant quotes English titles at a
-    visitor reading an Arabic page. Best effort by design: an unknown language
-    code or a missing translation leaves the English name in place.
+
+def normalize_lang(lang: str) -> str:
+    """`ar-001` (what a browser reports) -> `ar_001` (what Odoo stores)."""
+    lang = (lang or "").strip()
+    return lang.replace("-", "_") if _LANG.match(lang) else ""
+
+
+def title_for(course: "Course", lang: str = "") -> str:
+    """The course title as THIS visitor's site is rendering it.
+
+    Odoo serves translatable fields in the API user's language, and the bot's
+    user is English. A visitor reading «تصميم أنظمة التيار الخفيف» must not be
+    answered about "Light Current Systems Design" — that reads like a different
+    product. Falls back to the site default, then to whatever Odoo gave us, so
+    a missing translation never blanks a title.
     """
-    lang = get_settings().odoo_lang
+    snap = _snap
+    for key in (normalize_lang(lang), get_settings().odoo_lang):
+        if key:
+            name = snap.names_by_lang.get(key, {}).get(course.id)
+            if name:
+                return name
+    return course.name
+
+
+async def ensure_language(lang: str) -> None:
+    """Make sure titles for `lang` are loaded. No-op after the first visitor."""
+    lang = normalize_lang(lang)
+    if not lang:
+        return
+    snap = _snap
+    if not snap.ready:                 # first request of a cold process
+        snap = await refresh(full=True)
+    if lang in snap.names_by_lang or len(snap.names_by_lang) >= MAX_LANGS:
+        return
+    await _load_titles(snap, lang, list(snap.courses))
+
+
+async def _load_titles(snap: Snapshot, lang: str, ids: list[int]) -> None:
     if not lang or not ids:
         return
     try:
         rows = await odoo.read_in_language(
-            "product.template", ids, ["id", "name", "course_subtitle"], lang)
+            "product.template", ids, ["id", "name"], lang)
     except Exception:  # noqa: BLE001
-        log.warning("arabic names unavailable (lang=%s) — keeping English", lang)
+        log.warning("titles unavailable for lang=%s — keeping the default", lang)
+        snap.names_by_lang.setdefault(lang, {})   # remember, stop retrying
         return
-    hits = 0
+    names = snap.names_by_lang.setdefault(lang, {})
     for cid, r in rows.items():
-        c = snap.courses.get(cid)
-        if c is None:
-            continue
         name = (r.get("name") or "").strip()
-        if name and name != c.name:
-            c.name_ar = name
-            hits += 1
-        sub = (r.get("course_subtitle") or "").strip()
-        if sub and not c.subtitle:
-            c.subtitle = sub
-    log.info("arabic names: %d/%d translated (lang=%s)", hits, len(ids), lang)
+        if not name:
+            continue
+        names[cid] = name
+        c = snap.courses.get(cid)
+        if c is not None:
+            # a customer may type either spelling, so both stay searchable
+            c._search_blob |= tokens(name)
+    log.info("titles: %d rows for lang=%s", len(rows), lang)
+
+
+async def _refresh_titles(snap: Snapshot, ids: list[int]) -> None:
+    """Re-read titles for every language already in play, for the rows that
+    just changed — otherwise a renamed course keeps its old title per language."""
+    langs = {get_settings().odoo_lang} | set(snap.names_by_lang)
+    for lang in sorted(x for x in langs if x):
+        await _load_titles(snap, lang, ids)
 
 
 async def _attach_channels(snap: Snapshot) -> None:
@@ -314,8 +360,8 @@ def catalog_digest(limit: int = 200) -> str:
     lines = []
     for c in sorted(snap.courses.values(), key=lambda x: x.name)[:limit]:
         bits = [f"#{c.id}", c.display_name]
-        if c.name_ar and c.name_ar != c.name:
-            bits.append(c.name)          # keep the English title searchable
+        if c.display_name != c.name:
+            bits.append(c.name)   # both names, so a reply can use either language
         if c.categories:
             bits.append("/".join(c.categories))
         if c.delivery:

@@ -60,6 +60,20 @@ function resolveCurrency(userData) {
   return SUPPORTED.includes(fallback) ? fallback : 'EGP';
 }
 
+/**
+ * Which language is this visitor reading the site in?
+ *
+ * Course names in Odoo are translated, so the answer decides whether the chat
+ * says «تصميم أنظمة التيار الخفيف» — the title on the page beside it — or
+ * "Light Current Systems Design". Odoo knows it exactly (it rendered the page),
+ * so we take its code; the widget's `<html lang>` is the fallback, and the
+ * browser writes that as `ar-001` where Odoo stores `ar_001`.
+ */
+function resolveLang(userData) {
+  const raw = String(userData?.shop?.lang || userData?.lang || '').trim();
+  return /^[a-z]{2}([_-][A-Za-z0-9]{2,4})?$/.test(raw) ? raw.replace('-', '_') : '';
+}
+
 // guest tokens are per-conversation and cheap; reuse until they expire
 const tokens = new Map(); // cwConvId -> { token, at }
 const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
@@ -186,7 +200,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     const res = await axios.post(
       `${c.base}/api/v1/ai-chat/chat/`,
       { message: text, fahem_session_id: `cw_${cwConvId}`, language: 'auto',
-        currency: resolveCurrency(userData),
+        currency: resolveCurrency(userData), lang: resolveLang(userData),
         page_type: pageType || undefined, slug: slug || undefined },
       { headers: { 'X-Guest-Token': token, 'Content-Type': 'application/json' },
         timeout: c.timeoutMs, responseType: 'text' });
@@ -247,4 +261,5 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   return true;
 }
 
-module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency, cfg };
+module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
+                   resolveLang, cfg };

@@ -802,3 +802,41 @@ async def test_missing_translation_leaves_the_english_name(fake_odoo):
     fake_odoo.no_translations = True
     snap = await catalog_mod.refresh(full=True)
     assert snap.courses[2107].display_name == "Navisworks MEP"
+
+
+async def test_title_follows_the_language_the_visitor_is_browsing_in(loaded_catalog):
+    """Two visitors, two languages, one catalogue: each is answered with the
+    title their own page is showing."""
+    await catalog_mod.ensure_language("fr_FR")
+    nav = loaded_catalog.courses[2107]
+    assert catalog_mod.title_for(nav, "fr_FR") == "Coordination MEP (Navisworks)"
+    assert catalog_mod.title_for(nav, "ar_001") == "تنسيق أنظمة الميكانيكا (Navisworks MEP)"
+    # a language Odoo has nothing for falls back to the site default, not blank
+    assert catalog_mod.title_for(nav, "de_DE") == nav.display_name
+    # browsers write ar-001, Odoo stores ar_001
+    assert catalog_mod.normalize_lang("ar-001") == "ar_001"
+    assert catalog_mod.normalize_lang("../etc") == ""
+
+
+async def test_cards_are_titled_in_the_requested_language(client_factory):
+    script = [{"tool": "search_courses", "args": {"query": "navisworks"}},
+              {"text": "Voilà."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "navisworks", lang="fr-FR")
+        events = parse_sse(r.text)
+    card = next(c for c in next(e for e in events if e["type"] == "cards")
+                ["course_cards"] if c["course_id"] == 2107)
+    assert card["title"] == "Coordination MEP (Navisworks)"
+
+
+async def test_a_language_is_read_once_not_every_turn(client_factory, fake_odoo):
+    script = [{"text": "أهلاً."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        for _ in range(3):
+            await _chat(client, tok, "هاي", lang="fr_FR")
+    # once for the request language; the rest come from the snapshot
+    assert fake_odoo.lang_calls.count("fr_FR") == 1

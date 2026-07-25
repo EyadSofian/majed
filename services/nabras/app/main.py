@@ -15,7 +15,8 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
-from .tools import CARD_SINK, CHIP_SINK, CURRENCY, HANDOFF_SINK, PACKAGE_SINK
+from .tools import (CARD_SINK, CHIP_SINK, CURRENCY, HANDOFF_SINK, LANG,
+                    PACKAGE_SINK)
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -150,6 +151,14 @@ async def chat(req: ChatRequest, request: Request,
     if currency not in s.supported_currencies:
         currency = s.default_currency
 
+    # Titles follow the site the visitor is reading, not a server default.
+    lang = catalog.normalize_lang(req.lang or "")
+    if lang:
+        try:
+            await catalog.ensure_language(lang)
+        except Exception:  # noqa: BLE001
+            log.exception("could not load titles for lang=%s", lang)
+
     async def sse():
         # Each sink is a mutable container the tools mutate in place; tools run
         # in child tasks whose context is a copy, so a rebind there is lost.
@@ -158,6 +167,7 @@ async def chat(req: ChatRequest, request: Request,
         hand_tok = HANDOFF_SINK.set({})
         chip_tok = CHIP_SINK.set([])
         cur_tok = CURRENCY.set(currency)
+        lang_tok = LANG.set(lang)
         try:
             async for chunk, meta in graph.astream(
                 {"messages": [HumanMessage(content=ctx)]},
@@ -196,6 +206,7 @@ async def chat(req: ChatRequest, request: Request,
             HANDOFF_SINK.reset(hand_tok)
             CHIP_SINK.reset(chip_tok)
             CURRENCY.reset(cur_tok)
+            LANG.reset(lang_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

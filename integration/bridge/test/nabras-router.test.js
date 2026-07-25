@@ -171,3 +171,25 @@ function delivered() {
 
   console.log('✅ currency: 9 cases — site first, then region, then default');
 })();
+
+// ---------------------------------------------------------------------------
+// Course names are translated in Odoo, so the reply must be titled in the same
+// language the page beside the chat is rendering.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  const { resolveLang } = require('../nabras');
+  const a = require('assert');
+
+  // 1. Odoo rendered the page and knows its own code — that wins
+  a.strictEqual(resolveLang({ shop: { lang: 'ar_001' } }), 'ar_001');
+  a.strictEqual(resolveLang({ shop: { lang: 'en_US' }, lang: 'ar-001' }), 'en_US');
+  // 2. otherwise <html lang>, which the browser writes with a dash
+  a.strictEqual(resolveLang({ lang: 'ar-001' }), 'ar_001');
+  a.strictEqual(resolveLang({ lang: 'fr' }), 'fr');
+  // 3. nothing usable -> say nothing and let the service keep its default
+  a.strictEqual(resolveLang({}), '');
+  a.strictEqual(resolveLang({ lang: '../../etc/passwd' }), '');
+  a.strictEqual(resolveLang(null), '');
+
+  console.log('✅ language: 7 cases — the shop decides, never the server');
+})();

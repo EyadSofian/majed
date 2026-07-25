@@ -41,6 +41,8 @@ CHIP_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
     "nabras_chips", default=None)
 CURRENCY: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_currency", default="EGP")
+LANG: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "nabras_lang", default="")
 
 
 def _cards() -> list:
@@ -106,7 +108,7 @@ async def _card_for(course: "catalog.Course", price: Optional[dict]) -> dict:
     cur = price.get("currency") if price else CURRENCY.get()
     return CourseCard(
         course_id=course.id,
-        title=course.display_name,
+        title=catalog.title_for(course, LANG.get()),
         url=course.url,
         image_url=course.image_url,
         price_display=_fmt_price(price.get("price") if price else None, cur or ""),
@@ -130,7 +132,7 @@ def _brief(course: "catalog.Course", card: dict) -> dict:
     carries only what a recommendation decision needs."""
     batches = _open_batches(course.id)
     return {
-        "course_id": course.id, "title": course.display_name,
+        "course_id": course.id, "title": catalog.title_for(course, LANG.get()),
         "price": card["price_display"], "currency": card["currency"],
         "delivery": course.delivery, "duration": course.duration_text,
         "categories": course.categories, "rating": card["rating"],
@@ -624,7 +626,7 @@ async def list_specializations() -> str:
             "specialization": name,
             "label": SPEC_LABELS.get(name, name),
             "courses": len(courses),
-            "examples": [c.display_name for c in courses[:3]],
+            "examples": [catalog.title_for(c, LANG.get()) for c in courses[:3]],
             "tracks": [p.get("name") for p in packages][:4],
         })
         _chips().append({"title": SPEC_LABELS.get(name, name),

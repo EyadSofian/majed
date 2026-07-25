@@ -299,20 +299,36 @@ reports `packages_source`, `packages_count` and `packages_age_seconds`.
 This is a bridge, not the destination: once the bot user has eLearning/Manager +
 Operation Group, it reads packages directly and the workflow can be switched off.
 
-### Course names the customer recognises
+### Course names follow the visitor, not the server
 
 Odoo serves translatable fields in the API *user's* language, and the bot's user
 reads English — so the assistant would answer "Light Current Systems Design"
-while the page beside it says «تصميم أنظمة التيار الخفيف». Course names are
-therefore re-read with a language context (`ODOO_LANG`, default `ar_001`) and
-shown in that language, with the English title kept in the search index so both
-spellings still match. An unknown language code or an untranslated course simply
-leaves the English name in place — nothing blanks out.
+while the page beside it says «تصميم أنظمة التيار الخفيف»: two names for one
+product, in one screen.
 
-If the chips or titles come back English in production, the language code is
-wrong for this database: read one course with a `context` of `{"lang": "..."}`
-in n8n, try `ar_001` / `ar_EG` / `ar_SA`, and set `ODOO_LANG` to whichever
-returns Arabic.
+So the title is resolved per visitor:
+
+```
+Odoo website  ──shop.lang──►  /ai_webhook/user_context
+                                     │  (fallback: the widget's <html lang>)
+                                     ▼
+                              bridge resolveLang()  ──lang──►  POST /chat
+                                                                  │
+                                             titles for that language, loaded
+                                             once and cached with the catalogue
+```
+
+Loading is bounded and lazy: the first visitor in a language costs one read of
+75 rows, everyone after reads from memory, and at most `MAX_LANGS` languages are
+held. Titles are re-read for every language in play whenever the catalogue
+refreshes, so a rename in Odoo shows up in all of them. Every language's title
+goes into the search index, so "navisworks" and «تنسيق أنظمة الميكانيكا» find
+the same course. A language Odoo has nothing for falls back to `ODOO_LANG`
+(default `ar_001`) and then to the raw name — a missing translation never blanks
+a title.
+
+`ODOO_LANG` only sets that fallback. If Arabic titles come back English, the
+code is wrong for this database: try `ar_001` / `ar_EG` / `ar_SA`.
 
 ## 8. Models
 

@@ -1356,6 +1356,12 @@
         }
         var u = ctx.user || {}, lp = ctx.learning_progress || {};
         var out = {
+          // the shop's own language code, so the bot names courses the way
+          // the page does ('ar-001' here, 'ar_001' in Odoo)
+          lang: (function () {
+            try { return document.documentElement.getAttribute('lang') || ''; }
+            catch (e) { return ''; }
+          })(),
           name: u.name || '', email: u.email || '',
           odoo_user_id: String(u.user_id || ''),
           enrolled_courses: String(lp.total_courses_enrolled || 0),
