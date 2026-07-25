@@ -184,10 +184,10 @@ async def test_checkout_only_attaches_to_the_chosen_course(client_factory):
 
 
 # ================================================================ packages
-async def test_package_quotes_the_live_group_price_not_final_price(client_factory):
-    """The Interior Design track carries final_price 12,001 while its sellable
-    July group costs 31,440. Quoting final_price understates a live cohort ~2.6x
-    (up to ~6x for the onsite groups), so the group price must win."""
+async def test_package_returns_every_buyable_option_not_one_price(client_factory):
+    """A package is a recorded track PLUS an online and an onsite figure per
+    cohort — same shape as a course. Collapsing that to one number misquotes by
+    multiples (12,001 recorded vs 45,475 for an onsite August cohort)."""
     script = [{"tool": "search_packages", "args": {"query": "interior"}},
               {"text": "في مسار كامل."}]
     client, _ = client_factory(script)
@@ -195,14 +195,27 @@ async def test_package_quotes_the_live_group_price_not_final_price(client_factor
         tok = await _token(client)
         r = await _chat(client, tok, "مسار تصميم داخلي")
         events = parse_sse(r.text)
-    pkgs = next(e for e in events if e["type"] == "packages")["package_cards"]
-    idp = next(p for p in pkgs if p["package_id"] == 5)
-    assert idp["price_display"] == "31,440 EGP"
-    assert idp["price_basis"] == "group_online"
-    assert idp["next_group"] == "Group July 2026 (Zyad Mohamed - 5600)"
-    # the "was" price only applies to the recorded basis, so not shown here
-    assert idp["list_price_display"] is None
-    assert idp["discount"] is None
+    idp = next(p for p in next(e for e in events if e["type"] == "packages")
+               ["package_cards"] if p["package_id"] == 5)
+    by_mode = {}
+    for o in idp["price_options"]:
+        by_mode.setdefault(o["mode"], []).append(o)
+
+    # recorded: total_price * (1 - discount) == final_price, exactly
+    rec = by_mode["recorded"][0]
+    assert rec["price_display"] == "12,001 EGP"
+    assert rec["was_display"] == "23,750 EGP"
+
+    # attendance is priced per cohort, per mode
+    online = by_mode["attendance_online"]
+    assert [o["price_display"] for o in online] == ["15,000 EGP"]
+    assert online[0]["group_name"] == "Group July 2026 (Zyad Mohamed - 5600)"
+
+    onsite = by_mode["attendance_onsite"]
+    assert [o["price_display"] for o in onsite] == ["33,750 EGP"]
+
+    # the headline is the cheapest, never a merged or averaged figure
+    assert idp["price_from_display"] == "12,001 EGP"
 
 
 async def test_started_groups_are_never_priced_or_offered(client_factory):
@@ -217,12 +230,13 @@ async def test_started_groups_are_never_priced_or_offered(client_factory):
         events = parse_sse(r.text)
     idp = next(p for p in next(e for e in events if e["type"] == "packages")
                ["package_cards"] if p["package_id"] == 5)
-    assert "Amal Oraby" not in (idp["next_group"] or "")
+    names = " ".join(str(o.get("group_name")) for o in idp["price_options"])
+    assert "Amal Oraby" not in names       # group 34 is `started`, not sellable
     assert idp["starts_at"].startswith("2026-07-26")
 
 
-async def test_recorded_package_uses_final_price(client_factory):
-    """No live groups -> final_price IS what the customer pays."""
+async def test_recorded_only_package_offers_just_the_recorded_option(client_factory):
+    """No live cohorts -> the recorded track is the only thing to sell."""
     script = [{"tool": "search_packages", "args": {"query": "infrastructure"}},
               {"text": "أهو."}]
     client, _ = client_factory(script)
@@ -232,9 +246,9 @@ async def test_recorded_package_uses_final_price(client_factory):
         events = parse_sse(r.text)
     pkg = next(e for e in events if e["type"] == "packages")["package_cards"][0]
     assert pkg["package_id"] == 15
-    assert pkg["price_display"] == "15,000 EGP"
-    assert pkg["price_basis"] == "recorded"
-    assert pkg["next_group"] is None
+    assert [o["mode"] for o in pkg["price_options"]] == ["recorded"]
+    assert pkg["price_from_display"] == "15,000 EGP"
+    assert pkg["price_options"][0]["was_display"] is None   # discount is 0
 
 
 async def test_package_card_carries_levels_contents_and_attendance(client_factory):

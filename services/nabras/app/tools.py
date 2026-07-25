@@ -19,7 +19,8 @@ from langchain_core.tools import tool
 from . import catalog
 from .config import get_settings
 from .odoo import OdooAccessDenied, abs_url, odoo
-from .schemas import Batch, CourseCard, Instructor, PackageCard
+from .schemas import (Batch, CourseCard, Instructor, PackageCard,
+                      PriceOption)
 
 log = logging.getLogger("nabras.tools")
 
@@ -313,38 +314,70 @@ async def get_instructor(name: Optional[str] = None,
 ATTENDANCE_LABELS = {
     "both_attendees": "أونلاين أو حضوري",
     "online_only": "أونلاين",
-    "onsite_only": "حضوري",
+    "onsite_only": "حضوري بالمقر",
+}
+MODE_LABELS = {
+    "recorded": "مسجّل",
+    "attendance_online": "حضوري أونلاين",
+    "attendance_onsite": "حضوري بالمقر",
 }
 
 
-def _package_price(pkg: dict, groups: list[dict]) -> tuple:
-    """Pick the number the customer would actually pay, and say which it is.
+def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
+    """Every way this package can actually be bought.
 
-    A package carries three candidates and they are NOT interchangeable — for
-    the Interior Design track they run 12,001 / 31,440 / 78,150. `final_price`
-    prices the recorded track; a live cohort is priced by its own group. Quoting
-    `final_price` to someone booking an onsite group understates it ~6x.
+    Verified against the live data: `final_price == total_price * (1 - discount/100)`
+    holds exactly for all six discounted packages. The attendance modes follow
+    the same shape, priced per cohort — the group carries the list price and the
+    package carries the per-mode discount, so each cohort ends up with its own
+    figure (Interior Design: 15,000 online, 32,004 / 33,750 / 45,475 onsite).
+    Returning one number for all of that is what misquotes by multiples.
     """
-    cur = pkg["currency_id"][1] if isinstance(pkg.get("currency_id"), list) else CURRENCY.get()
-    for g in groups:                       # soonest sellable group wins
-        online = g.get("online_total_price") or 0
-        onsite = g.get("onsite_total_price") or 0
-        if online > 1:
-            return _fmt_price(online, cur), "group_online", cur, g
-        if onsite > 1:
-            return _fmt_price(onsite, cur), "group_onsite", cur, g
-    return _fmt_price(pkg.get("final_price"), cur), "recorded", cur, None
+    opts: list[dict] = []
+
+    def add(mode, label, gross, discount, group=None):
+        if not gross or gross <= 1:
+            return
+        net = gross * (1 - (discount or 0) / 100.0)
+        disp = _fmt_price(net, cur)
+        if not disp:
+            return
+        opts.append(PriceOption(
+            mode=mode, label=label, price=round(net, 2), price_display=disp,
+            was_display=_fmt_price(gross, cur) if (discount or 0) > 0 else None,
+            discount=round(discount, 1) if discount else None,
+            group_id=group.get("id") if group else None,
+            group_name=group.get("full_display_name") if group else None,
+            starts_at=str(group.get("first_event_date")) if group else None,
+        ).model_dump())
+
+    # 1) the self-paced recorded track
+    if (pkg.get("package_type") or "") in ("recorded", "both"):
+        add("recorded", MODE_LABELS["recorded"],
+            pkg.get("total_price"), pkg.get("discount"))
+
+    # 2+3) one option per sellable cohort, per attendance mode
+    for g in groups:
+        starts = str(g.get("first_event_date") or "")[:10]
+        name = g.get("full_display_name") or g.get("name") or ""
+        add("attendance_online",
+            f"{MODE_LABELS['attendance_online']} — {name}".strip(" —"),
+            g.get("online_total_price"), pkg.get("attendee_online_discount"), g)
+        add("attendance_onsite",
+            f"{MODE_LABELS['attendance_onsite']} — {name}".strip(" —"),
+            g.get("onsite_total_price"), pkg.get("attendee_onsite_discount"), g)
+    return opts
 
 
 @tool
 async def search_packages(query: Optional[str] = None) -> str:
     """Training packages (المسارات) — multi-course tracks sold as one bundle.
 
-    These are the highest-value offer, so check for a relevant package before
-    selling a single course. The returned `price_basis` says what the price
-    covers: 'recorded' (self-paced track) or 'group_online' / 'group_onsite'
-    (a specific live cohort). Quote the number WITH its basis — the recorded
-    price and the live-cohort price differ by several times.
+    The highest-value offer, so check for a relevant package before selling a
+    single course. Each package returns `price_options`: the self-paced recorded
+    track, plus an online and an onsite figure for EVERY upcoming cohort, each
+    with its own date and discount. Present the options and let the trainee
+    choose the mode and the cohort — never merge them into one price.
     """
     snap = await _ensure_catalog()
     data = snap.packages or {}
@@ -376,7 +409,9 @@ async def search_packages(query: Optional[str] = None) -> str:
 
         groups = [g for g in groups_by.get(p["id"], []) if g.get("is_available_for_sale")]
         groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
-        price_display, basis, cur, group = _package_price(p, groups)
+        cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
+        options = _price_options(p, groups, cur)
+        cheapest = min(options, key=lambda o: o["price"]) if options else None
         hours = (p.get("training_hours_attendee") or 0) + (p.get("training_hours_recorded") or 0)
         levels = [l.get("name", "") for l in
                   sorted(levels_by.get(p["id"], []), key=lambda x: x.get("sequence") or 0)]
@@ -385,33 +420,30 @@ async def search_packages(query: Optional[str] = None) -> str:
         card = PackageCard(
             package_id=p["id"], title=(p.get("name") or "").strip(),
             url=p.get("url") or "",
-            price_display=price_display, price_basis=basis, currency=cur,
-            # Only show a struck-through "before" price when the discount is on
-            # the same basis as the price we are quoting.
-            list_price_display=(_fmt_price(p.get("total_price"), cur)
-                                if basis == "recorded" and (p.get("discount") or 0) > 0
-                                else None),
-            discount=round(p["discount"], 1) if basis == "recorded" and p.get("discount") else None,
+            price_options=options,
+            price_from_display=cheapest["price_display"] if cheapest else None,
+            currency=cur,
             courses_count=p.get("num_courses_display") or len(lines) or None,
             training_hours=hours or None,
             attendance=ATTENDANCE_LABELS.get(p.get("attendee_type")),
             rating=round(p.get("review_rating_avg") or 0, 1) or None,
             badge=p.get("badge_text") or None,
-            next_group=group.get("full_display_name") if group else None,
-            starts_at=str(group.get("first_event_date")) if group else None,
+            next_group=groups[0].get("full_display_name") if groups else None,
+            starts_at=str(groups[0].get("first_event_date")) if groups else None,
             levels=[x for x in levels if x],
             includes=includes,
         )
         _packages().append(card.model_dump())
         out.append({
             "package_id": p["id"], "title": card.title,
-            "price": card.price_display, "price_basis": basis,
-            "currency": cur, "was": card.list_price_display,
-            "discount_percent": card.discount,
+            "price_from": card.price_from_display, "currency": cur,
+            "price_options": [
+                {k: o[k] for k in ("mode", "label", "price_display",
+                                   "was_display", "discount", "starts_at")}
+                for o in options],
             "courses": card.courses_count, "hours": card.training_hours,
             "attendance": card.attendance, "levels": card.levels,
-            "next_group": card.next_group, "starts": card.starts_at,
-            "sellable_groups": len(groups),
+            "sellable_cohorts": len(groups),
             "includes": includes,
             "outcomes": [outcomes[i] for i in (p.get("learning_outcomes_ids") or [])
                          if i in outcomes][:6],

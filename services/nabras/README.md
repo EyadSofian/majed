@@ -28,7 +28,7 @@ customer, which is why they are called out here and covered by tests.
 | 84 of 85 upcoming batches are in Riyadh (`Asia/Riyadh`, SAR) | An Egyptian visitor asking about an attendance course is being offered Saudi Arabia. The bot says so up front instead of at checkout. |
 | Instructors are real records — `hr.employee` via `recorded_instructor_ids` / `attendance_instructor_ids` / `event.instructor_id` | Names also appear inside free text (`"July Group 2026 (Alaa Saleh - 5452)"`, `"E-Alaa Saleh"`). Parsing those would invent people. |
 | Packages are a full model family: `training.package` → `.level` → `.product.line` → `.group` → `event.event` | 70 of 85 upcoming batches belong to a package. This is the highest-value offer. |
-| **A package carries three different prices** — `final_price`, and each group's `online_total_price` / `onsite_total_price` | For the Interior Design track they are 12,001 / 31,440 / 78,150 EGP. Quoting `final_price` to someone booking an onsite cohort understates it ~6.5x. |
+| **A package has no single price** — it is a recorded track, plus an online and an onsite figure for *every* cohort | Interior Design: 12,001 recorded · 15,000 online · 32,004–45,475 onsite depending on the cohort. Same shape as a course, not one number. |
 | Groups have `is_available_for_sale` / `sale_status` (`active` \| `started` \| `no_events`) | A `started` group is already running; selling a seat in it sells a course that began. |
 | One package is `website_published: false`, and groups reference packages that are not published | Both must be filtered, and the second must not crash the join. |
 
@@ -199,32 +199,41 @@ Botpress's Chat API delivers whole messages, never tokens.)*
    there was no card for `build_checkout_link` to attach `checkout_url` to. It
    now materialises one. Same for `get_price`.
 
-### The package price is the sharpest edge in this service
+### Package pricing is the sharpest edge in this service
 
-`training.package` exposes three numbers and they are not interchangeable:
+A package is priced exactly like a course: a delivery mode times a cohort. The
+formula was derived from the live data and verified exactly on all six
+discounted packages:
 
-| Interior Design Professional Track | |
-|---|---|
-| `total_price` (sum of the courses) | 23,750 EGP |
-| `final_price` (self-paced recorded track) | 12,001 EGP |
-| July group, online (`online_total_price`) | 31,440 EGP |
-| Evening group, onsite (`onsite_total_price`) | 78,150 EGP |
+```
+recorded          = total_price          × (1 − discount            /100)
+attendance_online = group.online_total   × (1 − attendee_online_disc /100)
+attendance_onsite = group.onsite_total   × (1 − attendee_onsite_disc /100)
+```
 
-`_package_price()` picks the soonest **sellable** group and quotes that cohort's
-figure, falling back to `final_price` only when a package has no live groups
-(e.g. the recorded-only Infrastructure track). Every quote carries a
-`price_basis` so the reply and the card can say *what* the number covers, and
-the prompt forbids comparing across bases.
+`final_price` is just the computed recorded figure — `23,750 × (1−49.47%) =
+12,000.875`, matching to the cent on every package. Applying the same shape to
+the Interior Design track:
 
-This is also the reason the previous Majed prompt said "never state a price,
-send the URL" — that rule was not caution, it was the only safe answer without
-this distinction.
+| Option | List | Discount | Price |
+|---|---|---|---|
+| Recorded track | 23,750 | 49.47% | **12,001** |
+| Online — July cohort | 31,440 | 52.29% | **15,000** |
+| Onsite — July morning | 55,000 | 41.81% | **32,004** |
+| Onsite — July evening | 58,000 | 41.81% | **33,750** |
+| Onsite — August evening | 78,150 | 41.81% | **45,475** |
 
-> **Confirm before launch:** the recorded-vs-cohort reading above is inferred
-> from the data, not from Engosoft's pricing docs. Check it against a real
-> package page before the bot quotes package numbers to customers.
+`_price_options()` returns all of them; `price_from_display` is only a headline.
+The prompt makes the agent ask *mode, then cohort* before quoting, and forbids
+merging or cross-comparing two bases. Cohorts whose `sale_status` is `started`
+are excluded — selling a seat there sells a course that already began.
 
----
+This is also why the previous Majed prompt said "never state a price, send the
+URL": without the mode-and-cohort split there is no single correct number.
+
+> **Still unknown:** `training.package.attendee.product.line` (the attendance
+> side of the course list) has never been read, and the site reportedly lets a
+> trainee buy *part* of a package. Neither is modelled yet.
 
 ## 7. Models
 

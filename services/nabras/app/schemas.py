@@ -53,19 +53,34 @@ class CourseCard(BaseModel):
     checkout_url: Optional[str] = None      # the sell edge over Fahym
 
 
+class PriceOption(BaseModel):
+    """One buyable variant of a package.
+
+    A package is not one price. It is a recorded track plus, for every live
+    cohort, an online figure and an onsite figure — each with its own list price
+    and its own discount. Collapsing them to a single number misquotes by
+    multiples.
+    """
+    mode: str                              # recorded | attendance_online | attendance_onsite
+    label: str                             # مسجّل / حضوري أونلاين — دفعة أغسطس
+    price: float
+    price_display: str
+    was_display: Optional[str] = None      # struck-through list price
+    discount: Optional[float] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    starts_at: Optional[str] = None
+
+
 class PackageCard(BaseModel):
     package_id: int
     title: str
     url: str
-    # A package carries THREE candidate numbers and they differ by up to 6x:
-    # `final_price` (the recorded track) and each live group's online / onsite
-    # total. `price_display` is whichever one actually applies to what is being
-    # offered, and `price_basis` says which, so the widget can label it.
-    price_display: Optional[str] = None
-    price_basis: Optional[str] = None      # recorded | group_online | group_onsite
+    # Never one price: the recorded track plus an online and an onsite figure
+    # for every sellable cohort. `price_from_display` is only the headline.
+    price_options: list[PriceOption] = Field(default_factory=list)
+    price_from_display: Optional[str] = None   # cheapest option, for the headline
     currency: Optional[str] = None
-    list_price_display: Optional[str] = None   # struck-through "before" price
-    discount: Optional[float] = None
     courses_count: Optional[int] = None
     training_hours: Optional[int] = None
     attendance: Optional[str] = None       # أونلاين / حضوري / الاتنين
