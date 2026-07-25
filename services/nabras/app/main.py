@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
+from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
-from .tools import CARD_SINK
+from .tools import CARD_SINK, CURRENCY, HANDOFF_SINK, PACKAGE_SINK
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -85,7 +86,14 @@ def _text(content) -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "nabras"}
+    snap = catalog.snapshot()
+    return {
+        "status": "ok", "service": "nabras",
+        "courses": len(snap.courses),
+        "batches": sum(len(v) for v in snap.events_by_course.values()),
+        "packages_available": bool((snap.packages or {}).get("available")),
+        "catalog_age_seconds": round(time.time() - snap.loaded_at, 1) if snap.loaded_at else None,
+    }
 
 
 @app.post("/api/v1/user/guest-session/create/")
@@ -110,8 +118,17 @@ async def chat(req: ChatRequest, request: Request,
     if req.page_type:
         ctx += f"\n\n[context] page={req.page_type} slug={req.slug or ''}"
 
+    currency = (req.currency or s.default_currency).upper()
+    if currency not in s.supported_currencies:
+        currency = s.default_currency
+
     async def sse():
-        token = CARD_SINK.set([])            # fresh card sink for this turn
+        # Each sink is a mutable container the tools mutate in place; tools run
+        # in child tasks whose context is a copy, so a rebind there is lost.
+        cards_tok = CARD_SINK.set([])
+        pkgs_tok = PACKAGE_SINK.set([])
+        hand_tok = HANDOFF_SINK.set({})
+        cur_tok = CURRENCY.set(currency)
         try:
             async for chunk, meta in graph.astream(
                 {"messages": [HumanMessage(content=ctx)]},
@@ -125,15 +142,27 @@ async def chat(req: ChatRequest, request: Request,
                 text = _text(chunk.content)
                 if text:
                     yield _ev("token", {"content": text})
+
             cards = CARD_SINK.get() or []
             if cards:
-                yield _ev("cards", {"course_cards": cards})
+                yield _ev("cards", {"course_cards": cards, "currency": currency})
+            packages = PACKAGE_SINK.get() or []
+            if packages:
+                yield _ev("packages", {"package_cards": packages,
+                                       "currency": currency})
+            handoff = HANDOFF_SINK.get()
+            if handoff and handoff.get("requested"):
+                # The bridge owns Chatwoot; we only signal.
+                yield _ev("handoff", handoff)
             yield _ev("done", {})
         except Exception:  # noqa: BLE001
             log.exception("chat stream failed for session=%s", req.session_id)
             yield _ev("error", {"message": "upstream_error"})
         finally:
-            CARD_SINK.reset(token)
+            CARD_SINK.reset(cards_tok)
+            PACKAGE_SINK.reset(pkgs_tok)
+            HANDOFF_SINK.reset(hand_tok)
+            CURRENCY.reset(cur_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

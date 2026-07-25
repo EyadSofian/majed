@@ -1,231 +1,416 @@
-"""Agent tools.
+"""Agent tools, bound to the real Engosoft Odoo schema.
 
-Cards are captured out-of-band through a ContextVar sink so the model can
-stream natural language while the structured `course_cards` ride along in the
-response metadata. That decouples card data from token generation — faster to
-render and impossible for the model to garble.
+Cards and handoff requests are captured out-of-band through ContextVars so the
+model can stream natural language while structured payloads ride along in the
+SSE metadata. That keeps card data out of the token path — faster to render and
+impossible for the model to garble.
+
+Prices are never cached: every quote goes to Odoo's pricelist for the visitor's
+currency, because `list_price` is 0 on the whole catalogue and a wrong number
+loses a sale.
 """
-import asyncio
 import contextvars
 import json
 import logging
 from typing import Any, Optional
 
-import httpx
 from langchain_core.tools import tool
 
+from . import catalog
 from .config import get_settings
-from .odoo import odoo
-from .schemas import CourseCard
+from .odoo import OdooAccessDenied, abs_url, odoo
+from .schemas import Batch, CourseCard, Instructor, PackageCard
 
 log = logging.getLogger("nabras.tools")
 
-# Per-request card sink. `None` default means "no active request" — tools then
-# simply skip publishing cards instead of mutating a shared module-level list.
 CARD_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
     "nabras_cards", default=None)
+PACKAGE_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "nabras_packages", default=None)
+# NOTE: every sink must be a *mutable container that we mutate in place*.
+# LangGraph runs tools in child tasks, which get a COPY of the context: a
+# `ContextVar.set()` there is invisible to the SSE generator that reads it back.
+# Appending to a shared list / updating a shared dict is visible; rebinding is
+# not. Handing off silently stopped working the one time this was a plain set().
+HANDOFF_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "nabras_handoff", default=None)
+CURRENCY: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "nabras_currency", default="EGP")
 
 
-def _sink() -> list:
+def _cards() -> list:
     cur = CARD_SINK.get()
     return cur if cur is not None else []
 
 
-# --------------------------------------------------------------------------
-# Lazy clients — importing this module must not require credentials (tests,
-# `--help`, image build). Everything is created on first real use.
-# --------------------------------------------------------------------------
-_oai = None
-_index = None
+def _packages() -> list:
+    cur = PACKAGE_SINK.get()
+    return cur if cur is not None else []
 
 
-def _openai():
-    global _oai
-    if _oai is None:
-        from openai import AsyncOpenAI
-        _oai = AsyncOpenAI(api_key=get_settings().openai_api_key)
-    return _oai
+async def _ensure_catalog() -> "catalog.Snapshot":
+    """Tools can fire before any search in a cold process; load on demand."""
+    snap = catalog.snapshot()
+    if not snap.ready:
+        snap = await catalog.refresh(full=True)
+    return snap
 
 
-def _pinecone_index():
-    global _index
-    if _index is None:
-        from pinecone import Pinecone
-        s = get_settings()
-        _index = Pinecone(api_key=s.pinecone_api_key).Index(s.pinecone_index)
-    return _index
-
-
-def _course_url(slug: str) -> str:
-    return f"{get_settings().shop_base}/courses/{slug}"
-
-
-async def _embed(text: str) -> list[float]:
-    r = await _openai().embeddings.create(model=get_settings().embed_model, input=text)
-    return r.data[0].embedding
-
-
-def _matches(res: Any) -> list[dict]:
-    """Pinecone returns an OpenAPI model in some versions and a plain dict in
-    others. Normalise both to a list of dicts."""
-    raw = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", None)
-    out = []
-    for m in raw or []:
-        if isinstance(m, dict):
-            out.append(m)
-        else:
-            out.append({"id": getattr(m, "id", None),
-                        "score": getattr(m, "score", None),
-                        "metadata": getattr(m, "metadata", None) or {}})
-    return out
-
-
-def _as_float(v: Any) -> Optional[float]:
+def _fmt_price(value: Any, currency: str) -> Optional[str]:
+    if value is None:
+        return None
     try:
-        return float(v) if v is not None else None
+        n = float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _as_int(v: Any) -> Optional[int]:
-    try:
-        return int(v) if v is not None else None
-    except (TypeError, ValueError):
+    if n <= 1:            # 0 and the 1-unit placeholders are not real prices
         return None
+    return f"{n:,.0f} {currency}"
 
 
-# --------------------------------------------------------------------------
-# Tools
-# --------------------------------------------------------------------------
+def _batch(e: dict) -> Batch:
+    loc = e.get("address_id")
+    return Batch(
+        event_id=e["id"],
+        starts_at=str(e.get("date_begin") or ""),
+        ends_at=str(e.get("date_end") or "") or None,
+        timezone=e.get("date_tz") or None,
+        location=loc[1] if isinstance(loc, list) else None,
+        seats_available=e.get("seats_available"),
+        seats_max=e.get("seats_max"),
+        registration_open=bool(e.get("registration_open")),
+        url=e.get("url") or None,
+    )
+
+
+def _open_batches(course_id: int) -> list[dict]:
+    """Only future runs that are actually bookable. `event_registrations_open`
+    is computed, so this filter has to happen here, not in the Odoo domain."""
+    rows = catalog.snapshot().events_by_course.get(course_id, [])
+    return [e for e in rows if e.get("registration_open")]
+
+
+async def _card_for(course: "catalog.Course", price: Optional[dict]) -> dict:
+    snap = catalog.snapshot()
+    batches = _open_batches(course.id)
+    cur = price.get("currency") if price else CURRENCY.get()
+    return CourseCard(
+        course_id=course.id,
+        title=course.name,
+        url=course.url,
+        image_url=course.image_url,
+        price_display=_fmt_price(price.get("price") if price else None, cur or ""),
+        currency=cur,
+        rating=round(course.rating, 1) if course.rating else None,
+        delivery=course.delivery or None,
+        duration_text=course.duration_text or None,
+        categories=course.categories,
+        instructors=[
+            Instructor(id=i, name=snap.instructors[i].get("name", ""),
+                       title=snap.instructors[i].get("job_title") or None)
+            for i in course.instructor_ids if i in snap.instructors
+        ],
+        next_batch=_batch(batches[0]) if batches else None,
+        batches_count=len(batches),
+    ).model_dump()
+
+
+# ==========================================================================
 @tool
-async def search_courses(query: str, top_k: int = 5) -> str:
-    """Semantic search over the Engosoft course catalog.
+async def search_courses(query: str, top_k: int = 4,
+                         category: Optional[str] = None,
+                         delivery: Optional[str] = None) -> str:
+    """Search the Engosoft course catalogue.
 
-    Use for any 'recommend / find / do you have' request. Returns matching
-    courses with title, price, rating and slug. Never invent courses that this
-    tool did not return.
+    Use for any 'recommend / find / do you have' request. `category` may be one
+    of: BIM, Electrical, Mechanical, Civil and Structural, Interior Design and
+    Decoration, Management and Safety, Best Seller. `delivery` may be
+    'recorded', 'attendance', 'attendance_recorded' or 'exam_simulator'.
+    Returns real courses with live prices. Never invent a course this did not
+    return; the matching cards are shown to the user automatically.
     """
-    s = get_settings()
-    try:
-        vec = await _embed(query)
-        # Pinecone's sync client would block the event loop; push it to a thread.
-        res = await asyncio.to_thread(
-            _pinecone_index().query,
-            vector=vec, top_k=max(1, min(top_k, 10)),
-            namespace=s.pinecone_namespace, include_metadata=True,
-        )
-    except Exception as e:  # noqa: BLE001 - surfaced to the model, not the user
-        log.exception("search_courses failed")
-        return json.dumps({"error": "search_unavailable", "detail": str(e)[:200]})
+    snap = catalog.snapshot()
+    if not snap.ready:
+        try:
+            await catalog.refresh(full=True)
+        except Exception as e:  # noqa: BLE001
+            log.exception("catalogue unavailable")
+            return json.dumps({"error": "catalog_unavailable", "detail": str(e)[:200]})
 
-    cards, brief = [], []
-    for m in _matches(res):
-        md = m.get("metadata") or {}
-        slug = md.get("slug", "")
-        card = CourseCard(
-            course_id=_as_int(md.get("course_id")),
-            title=md.get("title", ""),
-            slug=slug,
-            url=md.get("url") or _course_url(slug),
-            thumbnail_url=md.get("thumbnail_url"),
-            rating=_as_float(md.get("rating")),
-            price_display=md.get("price_display"),
-        )
-        cards.append(card.model_dump())
-        brief.append({"course_id": card.course_id, "title": card.title,
-                      "slug": card.slug, "price": card.price_display,
-                      "rating": card.rating,
-                      "why": (md.get("summary") or "")[:160]})
-
-    _sink().extend(cards)   # surfaces as metadata.course_cards
-    if not brief:
+    found = catalog.search(query, top_k=max(1, min(top_k, 8)),
+                           category=category, delivery=delivery)
+    if not found:
         return json.dumps({"results": [], "note": "no_match"}, ensure_ascii=False)
+
+    currency = CURRENCY.get()
+    try:
+        prices = await odoo.fetch_prices([c.id for c in found], currency)
+    except Exception:  # noqa: BLE001
+        log.exception("price lookup failed")
+        prices = {}
+
+    brief = []
+    for c in found:
+        card = await _card_for(c, prices.get(c.id))
+        _cards().append(card)
+        batches = _open_batches(c.id)
+        brief.append({
+            "course_id": c.id, "title": c.name,
+            "price": card["price_display"], "currency": card["currency"],
+            "delivery": c.delivery, "duration": c.duration_text,
+            "categories": c.categories, "rating": card["rating"],
+            "open_batches": len(batches),
+            "next_start": batches[0]["date_begin"] if batches else None,
+            "seats_left": batches[0].get("seats_available") if batches else None,
+            "why": (c.subtitle or c.description)[:180],
+        })
     return json.dumps(brief, ensure_ascii=False)
 
 
 @tool
-async def get_course_live(course_id: int) -> str:
-    """Fetch REAL-TIME price and availability for one course from Odoo 17.
+async def get_course_details(course_id: int) -> str:
+    """Full detail for one course: live price, delivery format, duration,
+    certificate, instructors, and every upcoming bookable batch with its dates
+    and remaining seats. Call before recommending a specific course strongly."""
+    snap = await _ensure_catalog()
+    c = snap.courses.get(course_id)
+    if not c:
+        return json.dumps({"error": "not_found", "course_id": course_id})
 
-    Call this at the money-moment (right before offering checkout). Do not
-    trust the cached price on the card.
-    """
+    currency = CURRENCY.get()
     try:
-        recs = await odoo.read_courses(
-            [course_id], ["name", "list_price", "currency_id", "sale_ok"])
+        price = (await odoo.fetch_prices([course_id], currency)).get(course_id)
+    except Exception:  # noqa: BLE001
+        log.exception("price lookup failed")
+        price = None
+
+    card = await _card_for(c, price)
+    _cards().append(card)
+    batches = _open_batches(course_id)
+    return json.dumps({
+        "course_id": c.id, "title": c.name, "url": c.url,
+        "price": card["price_display"], "currency": card["currency"],
+        "delivery": c.delivery, "duration": c.duration_text,
+        "certificate": c.certificate_text, "categories": c.categories,
+        "lessons": c.total_slides, "rating": card["rating"],
+        "enrolled": c.members,
+        "instructors": card["instructors"],
+        "instructor_tagline": c.instructor_tagline,
+        "summary": (c.subtitle or c.description)[:700],
+        "batches": [{
+            "event_id": b["id"], "starts": b["date_begin"], "ends": b.get("date_end"),
+            "timezone": b.get("date_tz"),
+            "location": b["address_id"][1] if isinstance(b.get("address_id"), list) else None,
+            "seats_left": b.get("seats_available"), "seats_max": b.get("seats_max"),
+        } for b in batches[:6]],
+    }, ensure_ascii=False)
+
+
+@tool
+async def get_upcoming_batches(course_id: Optional[int] = None,
+                               limit: int = 8) -> str:
+    """Upcoming bookable batches — dates, location, timezone and remaining
+    seats. Omit `course_id` for the soonest batches across the whole catalogue.
+    Use the remaining-seats number honestly; never inflate scarcity."""
+    snap = await _ensure_catalog()
+    if course_id:
+        rows = _open_batches(course_id)
+    else:
+        rows = [e for lst in snap.events_by_course.values() for e in lst
+                if e.get("registration_open")]
+        rows.sort(key=lambda e: str(e.get("date_begin")))
+    if not rows:
+        return json.dumps({"batches": [], "note": "no_open_batches"}, ensure_ascii=False)
+
+    by_channel = {c.channel_id: c for c in snap.courses.values() if c.channel_id}
+    out = []
+    for b in rows[:max(1, min(limit, 20))]:
+        ch = b.get("course_id")
+        course = by_channel.get(ch[0]) if isinstance(ch, list) else None
+        out.append({
+            "event_id": b["id"], "title": b.get("name"),
+            "course_id": course.id if course else None,
+            "course_title": course.name if course else None,
+            "starts": b.get("date_begin"), "ends": b.get("date_end"),
+            "timezone": b.get("date_tz"),
+            "location": b["address_id"][1] if isinstance(b.get("address_id"), list) else None,
+            "seats_left": b.get("seats_available"), "seats_max": b.get("seats_max"),
+            "sessions": b.get("total_lectures_number"),
+            "url": b.get("url"),
+        })
+    return json.dumps(out, ensure_ascii=False)
+
+
+@tool
+async def get_price(course_id: int, currency: Optional[str] = None) -> str:
+    """Live price for a course, in the visitor's currency (EGP, USD, AED, SAR).
+
+    Always call this before stating any number. Engosoft prices are per-region
+    and are NOT on the product record — quoting anything else will be wrong.
+    """
+    s = get_settings()
+    cur = (currency or CURRENCY.get() or s.default_currency).upper()
+    if cur not in s.supported_currencies:
+        return json.dumps({"error": "unsupported_currency",
+                           "supported": s.supported_currencies})
+    try:
+        price = (await odoo.fetch_prices([course_id], cur)).get(course_id)
     except Exception as e:  # noqa: BLE001
-        log.exception("get_course_live failed")
+        log.exception("price lookup failed")
         return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
-    if not recs:
-        return json.dumps({"error": "not_found"})
-    r = recs[0]
-    cur = r["currency_id"][1] if isinstance(r.get("currency_id"), list) else "USD"
-    return json.dumps({"course_id": course_id, "title": r.get("name"),
-                       "price": r.get("list_price"), "currency": cur,
-                       "available": bool(r.get("sale_ok"))}, ensure_ascii=False)
+    if not price:
+        return json.dumps({"error": "no_price_rule", "course_id": course_id,
+                           "currency": cur,
+                           "hint": "send the course URL instead of a number"})
+    display = _fmt_price(price.get("price"), price.get("currency") or cur)
+    updated = False
+    for card in _cards():
+        if card.get("course_id") == course_id:
+            card["price_display"] = display
+            card["currency"] = price.get("currency") or cur
+            updated = True
+    if not updated:
+        snap = await _ensure_catalog()
+        course = snap.courses.get(course_id)
+        if course:
+            _cards().append(await _card_for(course, price))
+    return json.dumps({"course_id": course_id, "price": price.get("price"),
+                       "currency": price.get("currency") or cur,
+                       "display": display}, ensure_ascii=False)
+
+
+@tool
+async def get_instructor(name: Optional[str] = None,
+                         course_id: Optional[int] = None) -> str:
+    """Look up an instructor by name, or list the instructors of a course.
+    Returns only what Engosoft records — never invent a biography."""
+    snap = await _ensure_catalog()
+    if course_id:
+        c = snap.courses.get(course_id)
+        if not c:
+            return json.dumps({"error": "not_found"})
+        rows = [snap.instructors[i] for i in c.instructor_ids if i in snap.instructors]
+        if not rows:
+            return json.dumps({"instructors": [], "note": "not_recorded"})
+    else:
+        try:
+            everyone = await odoo.fetch_all_instructors()
+        except Exception as e:  # noqa: BLE001
+            log.exception("instructor lookup failed")
+            return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
+        needle = (name or "").strip().lower()
+        rows = [e for e in everyone
+                if not needle or needle in (e.get("name") or "").lower()]
+        if not rows:
+            return json.dumps({"instructors": [], "note": "not_found"})
+    return json.dumps([{
+        "id": e["id"], "name": e.get("name"),
+        "title": e.get("job_title"),
+        "department": e["department_id"][1] if isinstance(e.get("department_id"), list) else None,
+    } for e in rows[:12]], ensure_ascii=False)
+
+
+@tool
+async def search_packages(query: Optional[str] = None) -> str:
+    """Training packages (المسارات / الباقات) — multi-course tracks that bundle
+    several courses at a package price. These are the highest-value offer, so
+    check for a relevant package before selling a single course."""
+    snap = await _ensure_catalog()
+    data = snap.packages or {}
+    if not data.get("available"):
+        return json.dumps({"packages": [], "available": False,
+                           "note": "package_data_unavailable"}, ensure_ascii=False)
+
+    q = catalog.tokens(query or "")
+    lines_by_pkg: dict[int, list] = {}
+    for ln in data.get("lines", []):
+        pid = ln.get("package_id")
+        if isinstance(pid, list):
+            lines_by_pkg.setdefault(pid[0], []).append(ln)
+    groups_by_pkg: dict[int, list] = {}
+    for g in data.get("groups", []):
+        pid = g.get("package_id")
+        if isinstance(pid, list):
+            groups_by_pkg.setdefault(pid[0], []).append(g)
+
+    out = []
+    for p in data.get("packages", []):
+        blob = catalog.tokens(" ".join(
+            [p.get("name") or ""] +
+            [str(l.get("name") or "") for l in lines_by_pkg.get(p["id"], [])]))
+        if q and not (q & blob):
+            continue
+        groups = [g for g in groups_by_pkg.get(p["id"], [])
+                  if g.get("is_available_for_sale")]
+        groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
+        cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
+        card = PackageCard(
+            package_id=p["id"], title=p.get("name") or "",
+            url=p.get("url") or "",
+            price_display=_fmt_price(p.get("final_price") or p.get("total_price"), cur),
+            currency=cur, discount=p.get("discount") or None,
+            courses_count=p.get("num_courses_display") or len(lines_by_pkg.get(p["id"], [])),
+            training_hours=(p.get("training_hours_attendee") or 0) +
+                           (p.get("training_hours_recorded") or 0) or None,
+            rating=round(p.get("review_rating_avg") or 0, 1) or None,
+            badge=p.get("badge_text") or None,
+            starts_at=str(groups[0].get("first_event_date")) if groups else None,
+        )
+        _packages().append(card.model_dump())
+        out.append({
+            "package_id": p["id"], "title": card.title,
+            "price": card.price_display, "currency": cur,
+            "discount": card.discount, "courses": card.courses_count,
+            "hours": card.training_hours, "type": p.get("package_type"),
+            "attendee_type": p.get("attendee_type"),
+            "next_group": groups[0].get("full_display_name") if groups else None,
+            "starts": card.starts_at,
+            "includes": [str(l.get("name") or "")
+                         for l in lines_by_pkg.get(p["id"], [])][:12],
+        })
+    if not out:
+        return json.dumps({"packages": [], "note": "no_match"}, ensure_ascii=False)
+    return json.dumps(out, ensure_ascii=False)
 
 
 @tool
 async def build_checkout_link(course_id: int) -> str:
-    """Build an express add-to-cart -> checkout deep link for a course.
-
-    Also attaches `checkout_url` onto that course's card so the CTA can sell.
-    """
+    """Build an express add-to-cart -> checkout link for a course, and attach it
+    to that course's card so the buy button appears. Confirm the live price with
+    get_price first."""
     s = get_settings()
+    snap = await _ensure_catalog()
+    course = snap.courses.get(course_id)
     try:
         variant = await odoo.product_variant_id(course_id)
     except Exception as e:  # noqa: BLE001
-        log.exception("build_checkout_link failed")
+        log.exception("checkout link failed")
         return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
     if not variant:
-        return json.dumps({"error": "variant_not_found"})
+        return json.dumps({"error": "variant_not_found", "course_id": course_id})
 
     url = (f"{s.shop_base}/shop/cart/update"
            f"?product_id={variant}&add_qty=1&express=1")
-    sink = _sink()
     attached = False
-    for c in sink:
-        if c.get("course_id") == course_id:
-            c["checkout_url"] = url
+    for card in _cards():
+        if card.get("course_id") == course_id:
+            card["checkout_url"] = url
             attached = True
-
-    # Closing turns usually skip search_courses (the course is already known
-    # from earlier context), so there would be no card to hang the CTA on and
-    # the widget would render a "buy" line with no button. Materialise one.
-    if not attached:
-        card = await _card_from_odoo(course_id, url)
-        if card:
-            sink.append(card)
-            attached = True
-
-    return json.dumps({"checkout_url": url, "attached_to_card": attached},
+    # A closing turn usually skips search_courses, so there would be no card to
+    # hang the CTA on and the widget would render a "buy" line with no button.
+    if not attached and course:
+        cur = CURRENCY.get()
+        try:
+            price = (await odoo.fetch_prices([course_id], cur)).get(course_id)
+        except Exception:  # noqa: BLE001
+            price = None
+        card = await _card_for(course, price)
+        card["checkout_url"] = url
+        _cards().append(card)
+        attached = True
+    return json.dumps({"checkout_url": url, "attached_to_card": attached,
+                       "course_url": course.url if course else abs_url("")},
                       ensure_ascii=False)
-
-
-async def _card_from_odoo(course_id: int, checkout_url: str) -> Optional[dict]:
-    """Minimal card built straight from Odoo, for close-only turns."""
-    s = get_settings()
-    try:
-        recs = await odoo.read_courses(
-            [course_id], ["name", "list_price", "currency_id", "website_url"])
-    except Exception:  # noqa: BLE001
-        log.exception("_card_from_odoo failed")
-        return None
-    if not recs:
-        return None
-    r = recs[0]
-    cur = r["currency_id"][1] if isinstance(r.get("currency_id"), list) else "USD"
-    path = r.get("website_url") or ""
-    url = path if path.startswith("http") else f"{s.shop_base}{path}"
-    price = r.get("list_price")
-    return CourseCard(
-        course_id=course_id,
-        title=r.get("name") or "",
-        slug=path.rsplit("/", 1)[-1] if path else "",
-        url=url,
-        price_display=f"{price:g} {cur}" if price is not None else None,
-        checkout_url=checkout_url,
-    ).model_dump()
 
 
 @tool
@@ -233,22 +418,23 @@ async def create_lead(name: str, phone: Optional[str] = None,
                       email: Optional[str] = None,
                       course_interest: Optional[str] = None,
                       notes: Optional[str] = None) -> str:
-    """Create a CRM lead in Odoo assigned to the sales advisor.
-
-    Call once per session, when the user hesitates or asks for a human.
-    """
+    """Create a CRM lead in Odoo for the sales advisor. Call once per session,
+    when the visitor hesitates or asks to speak to someone. A name plus one
+    contact method is enough — never ask for anything more sensitive."""
     if not (phone or email):
         return json.dumps({"error": "need_contact",
-                           "detail": "ask for a phone or an email first"})
+                           "detail": "ask for a phone number or an email first"})
     s = get_settings()
     payload = {
-        "name": f"[Nabras] {course_interest or 'Course inquiry'} — {name}",
+        "name": f"[نبراس] {course_interest or 'استفسار عن كورس'} — {name}",
         "contact_name": name, "type": "lead",
         "user_id": s.sales_advisor_id,
         "description": notes or "", "phone": phone or "", "email_from": email or "",
     }
     try:
         lead_id = await odoo.create_lead(payload)
+    except OdooAccessDenied as e:
+        return json.dumps({"error": "access_denied", "detail": str(e)[:200]})
     except Exception as e:  # noqa: BLE001
         log.exception("create_lead failed")
         return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
@@ -256,31 +442,22 @@ async def create_lead(name: str, phone: Optional[str] = None,
 
 
 @tool
-async def escalate_to_chatwoot(session_id: str, summary: str,
-                               contact: Optional[str] = None) -> str:
-    """Hand a hot or hesitant conversation to a human agent via Chatwoot."""
-    s = get_settings()
-    if not s.chatwoot_api_token:
-        return json.dumps({"status": "chatwoot_not_configured"})
-    base = f"{s.chatwoot_url}/api/v1/accounts/{s.chatwoot_account_id}"
-    hdr = {"api_access_token": s.chatwoot_api_token}
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            src = await c.post(f"{base}/inboxes/{s.chatwoot_inbox_id}/contacts",
-                               headers=hdr, json={"name": contact or session_id})
-            src.raise_for_status()
-            cid = (src.json().get("payload", {}).get("contact", {}) or {}).get("id")
-            conv = await c.post(f"{base}/conversations", headers=hdr, json={
-                "source_id": session_id, "inbox_id": s.chatwoot_inbox_id,
-                "contact_id": cid,
-                "additional_attributes": {"nabras_summary": summary}})
-            conv.raise_for_status()
-    except Exception as e:  # noqa: BLE001
-        log.exception("escalate_to_chatwoot failed")
-        return json.dumps({"status": "escalation_failed", "detail": str(e)[:200]})
-    return json.dumps({"status": "escalated",
-                       "conversation": conv.json().get("id")})
+async def request_handoff(summary: str, reason: str = "customer_request") -> str:
+    """Ask for a human agent to take over.
+
+    This only raises a signal on the response stream — the bridge owns Chatwoot
+    (conversation status, team assignment, auto-return), so Nabras must not
+    write there itself or the two would fight over the same state.
+    """
+    sink = HANDOFF_SINK.get()
+    if sink is None:
+        # No active request context (direct tool call); nothing to signal to.
+        return json.dumps({"status": "handoff_unavailable"})
+    # Mutate in place — a rebind here would not reach the streaming generator.
+    sink.update({"requested": True, "reason": reason, "summary": summary[:1000]})
+    return json.dumps({"status": "handoff_requested", "reason": reason})
 
 
-TOOLS = [search_courses, get_course_live, build_checkout_link,
-         create_lead, escalate_to_chatwoot]
+TOOLS = [search_courses, get_course_details, get_upcoming_batches, get_price,
+         get_instructor, search_packages, build_checkout_link, create_lead,
+         request_handoff]

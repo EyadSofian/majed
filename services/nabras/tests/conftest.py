@@ -6,20 +6,21 @@ from pathlib import Path
 import pytest
 
 # Settings are read at import time, so pin a deterministic test env first.
-os.environ.setdefault("JWT_SECRET", "test-secret")
+os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-32")
 os.environ.setdefault("DATABASE_URL", "")          # -> InMemorySaver
 os.environ.setdefault("SHOP_BASE", "https://engosoft.com")
 os.environ.setdefault("OPENAI_API_KEY", "sk-test")
-os.environ.setdefault("PINECONE_API_KEY", "pc-test")
+os.environ.setdefault("ODOO_API_KEY", "odoo-test")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 
 from app import agent as agent_mod  # noqa: E402
+from app import catalog as catalog_mod  # noqa: E402
 from app import tools as tools_mod  # noqa: E402
 
-from .fakes import FakeOdoo, FakePineconeIndex, ScriptedModel  # noqa: E402
+from .fakes import FakeOdoo, ScriptedModel  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -32,46 +33,40 @@ def reset_rate_limits():
 
 
 @pytest.fixture
-def fake_index(monkeypatch):
-    idx = FakePineconeIndex()
-    monkeypatch.setattr(tools_mod, "_pinecone_index", lambda: idx)
-
-    async def _embed(_text):
-        return [0.0] * 8
-    monkeypatch.setattr(tools_mod, "_embed", _embed)
-    return idx
-
-
-@pytest.fixture
 def fake_odoo(monkeypatch):
+    """Installs a fake Odoo everywhere it is imported, and clears the snapshot
+    so each test rebuilds the catalogue from scratch."""
     od = FakeOdoo()
+    monkeypatch.setattr(catalog_mod, "odoo", od)
     monkeypatch.setattr(tools_mod, "odoo", od)
-    return od
+    monkeypatch.setattr(catalog_mod, "_snap", catalog_mod.Snapshot())
+    yield od
+    monkeypatch.setattr(catalog_mod, "_snap", catalog_mod.Snapshot())
 
 
 @pytest.fixture
-def make_app(fake_index, fake_odoo):
+async def loaded_catalog(fake_odoo):
+    await catalog_mod.refresh(full=True)
+    return catalog_mod.snapshot()
+
+
+@pytest.fixture
+def client_factory(fake_odoo):
     """Builds the ASGI app with a scripted model wired into the real graph."""
-    def _make(script):
-        model = ScriptedModel(script=script, cursor=0, calls=[])
-        graph = agent_mod.build_graph(InMemorySaver(), model=model)
-        agent_mod.set_graph(graph)
-        from app.main import app
-        return app, model
-    yield _make
-    agent_mod.set_graph(None)
-
-
-@pytest.fixture
-def client_factory(make_app):
     import httpx
 
-    def _factory(script):
-        app, model = make_app(script)
+    def _factory(script, currency="EGP"):
+        model = ScriptedModel(script=script, cursor=0, calls=[])
+        graph = agent_mod.build_graph(InMemorySaver(), model=model,
+                                      system_prompt="SYS")
+        agent_mod.set_graph(graph)
+        from app.main import app
         transport = httpx.ASGITransport(app=app)
         return httpx.AsyncClient(transport=transport,
                                  base_url="http://test"), model
-    return _factory
+
+    yield _factory
+    agent_mod.set_graph(None)
 
 
 def parse_sse(body: str) -> list[dict]:

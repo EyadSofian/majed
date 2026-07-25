@@ -10,49 +10,67 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     agent_model: str = "gpt-5.6-terra"    # main sales agent (tool-use / price balance)
     router_model: str = "gpt-5.6-luna"    # cheap intent/format/summaries
-    embed_model: str = "text-embedding-3-large"   # 3072 dims
-    embed_dim: int = 3072
     # Some reasoning-tier models reject `temperature`; set to -1 to omit it.
     agent_temperature: float = 0.3
 
-    # ---- Pinecone (hot read layer) ----
-    pinecone_api_key: str = ""
-    pinecone_index: str = "engosoft-courses"
-    pinecone_namespace: str = "prod"
-
-    # ---- Odoo 17 (source of truth) ----
+    # ---- Odoo 17 ----
     odoo_url: str = "https://engosoft.com"
     odoo_db: str = "EngoSoft"
     odoo_uid: int = 15577
     odoo_api_key: str = ""                         # <- .env, never hardcode
-    odoo_course_model: str = "product.template"    # confirm: product.template vs slide.channel
+    odoo_timeout: float = 20.0
+
+    # Courses are product.template rows of this type (custom Engosoft type).
+    course_product_type: str = "course"
     sales_advisor_id: int = 2                      # Majid (Odoo CRM)
 
-    # ---- Checkout (Odoo eCommerce) ----
+    # ---- Catalogue cache ----
+    # The whole sellable catalogue is ~75 rows, so it lives in memory and is
+    # refreshed by polling write_date. No vector DB needed at this size.
+    catalog_refresh_seconds: int = 300
+    events_horizon_days: int = 240
+
+    # ---- Pricing ----
+    # website-linked pricelists discovered in Odoo: currency -> pricelist id
+    pricelist_egp: int = 28
+    pricelist_usd: int = 27
+    pricelist_aed: int = 29
+    pricelist_sar: int = 9
+    default_currency: str = "EGP"
+
+    # ---- Checkout ----
     shop_base: str = "https://engosoft.com"
 
-    # ---- Chatwoot (HITL handoff) ----
-    chatwoot_url: str = "https://chat.engosoft.com"
-    chatwoot_account_id: int = 1
-    chatwoot_inbox_id: int = 1
-    chatwoot_api_token: str = ""
+    # ---- Chatwoot handoff ----
+    # Nabras does NOT write to Chatwoot: the bridge owns that conversation
+    # state. We only emit a handoff signal on the SSE stream.
+    handoff_enabled: bool = True
 
     # ---- State / memory ----
     # Empty -> in-memory checkpointer (dev only, memory dies with the process).
     database_url: str = ""
     jwt_secret: str = "change-me"
     jwt_ttl_hours: int = 12
-    guest_rate_per_min: int = 20          # fixes Fahym's open-endpoint gap
-    guest_mint_per_hour: int = 30         # per-IP cap on minting guest tokens
+    guest_rate_per_min: int = 20
+    guest_mint_per_hour: int = 30
 
     # ---- CORS ----
-    # Comma-separated. Defaults to the shop origin only.
     cors_origins: str = ""
 
     @property
     def allowed_origins(self) -> list[str]:
         raw = self.cors_origins or self.shop_base
         return [o.strip() for o in raw.split(",") if o.strip()]
+
+    def pricelist_for(self, currency: str) -> int:
+        return {
+            "EGP": self.pricelist_egp, "USD": self.pricelist_usd,
+            "AED": self.pricelist_aed, "SAR": self.pricelist_sar,
+        }.get((currency or self.default_currency).upper(), self.pricelist_egp)
+
+    @property
+    def supported_currencies(self) -> list[str]:
+        return ["EGP", "USD", "AED", "SAR"]
 
 
 @lru_cache
