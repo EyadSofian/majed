@@ -35,6 +35,10 @@ PACKAGE_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
 # not. Handing off silently stopped working the one time this was a plain set().
 HANDOFF_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "nabras_handoff", default=None)
+# Specializations the visitor can tap instead of typing. Same mutate-in-place
+# rule as every sink above.
+CHIP_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "nabras_chips", default=None)
 CURRENCY: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_currency", default="EGP")
 
@@ -46,6 +50,11 @@ def _cards() -> list:
 
 def _packages() -> list:
     cur = PACKAGE_SINK.get()
+    return cur if cur is not None else []
+
+
+def _chips() -> list:
+    cur = CHIP_SINK.get()
     return cur if cur is not None else []
 
 
@@ -116,6 +125,42 @@ async def _card_for(course: "catalog.Course", price: Optional[dict]) -> dict:
     ).model_dump()
 
 
+def _brief(course: "catalog.Course", card: dict) -> dict:
+    """The compact row the model reads. The card carries the display data; this
+    carries only what a recommendation decision needs."""
+    batches = _open_batches(course.id)
+    return {
+        "course_id": course.id, "title": course.name,
+        "price": card["price_display"], "currency": card["currency"],
+        "delivery": course.delivery, "duration": course.duration_text,
+        "categories": course.categories, "rating": card["rating"],
+        "open_batches": len(batches),
+        "next_start": batches[0]["date_begin"] if batches else None,
+        "seats_left": batches[0].get("seats_available") if batches else None,
+        "why": (course.subtitle or course.description)[:180],
+    }
+
+
+async def _emit_courses(courses: list["catalog.Course"]) -> list[dict]:
+    """Price a set of courses in ONE Odoo round-trip, push their cards, and
+    return the briefs. A track is 6-10 courses; pricing them one by one would
+    put ten sequential calls in the reply path."""
+    if not courses:
+        return []
+    currency = CURRENCY.get()
+    try:
+        prices = await odoo.fetch_prices([c.id for c in courses], currency)
+    except Exception:  # noqa: BLE001
+        log.exception("price lookup failed")
+        prices = {}
+    out = []
+    for c in courses:
+        card = await _card_for(c, prices.get(c.id))
+        _cards().append(card)
+        out.append(_brief(c, card))
+    return out
+
+
 # ==========================================================================
 @tool
 async def search_courses(query: str, top_k: int = 4,
@@ -154,17 +199,7 @@ async def search_courses(query: str, top_k: int = 4,
     for c in found:
         card = await _card_for(c, prices.get(c.id))
         _cards().append(card)
-        batches = _open_batches(c.id)
-        brief.append({
-            "course_id": c.id, "title": c.name,
-            "price": card["price_display"], "currency": card["currency"],
-            "delivery": c.delivery, "duration": c.duration_text,
-            "categories": c.categories, "rating": card["rating"],
-            "open_batches": len(batches),
-            "next_start": batches[0]["date_begin"] if batches else None,
-            "seats_left": batches[0].get("seats_available") if batches else None,
-            "why": (c.subtitle or c.description)[:180],
-        })
+        brief.append(_brief(c, card))
     return json.dumps(brief, ensure_ascii=False)
 
 
@@ -369,6 +404,85 @@ def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
     return opts
 
 
+def _by_package(rows: list[dict]) -> dict[int, list]:
+    out: dict[int, list] = {}
+    for r in rows:
+        pid = r.get("package_id")
+        if isinstance(pid, list):
+            out.setdefault(pid[0], []).append(r)
+    return out
+
+
+def _package_index(data: dict) -> dict:
+    """Group every child model by package once, so both package tools read the
+    same structure instead of re-deriving it."""
+    return {
+        "lines": _by_package(data.get("lines", [])),
+        "levels": _by_package(data.get("levels", [])),
+        "groups": _by_package(data.get("groups", [])),
+        "outcomes": {o["id"]: o.get("name", "") for o in data.get("outcomes", [])},
+    }
+
+
+def _package_lines(pkg_id: int, idx: dict) -> list[dict]:
+    """The track in teaching order: by level first, then the line sequence —
+    which is the order a trainee is meant to take the courses in."""
+    levels = {l["id"]: l for l in idx["levels"].get(pkg_id, [])}
+
+    def key(line: dict):
+        lv = line.get("level_id")
+        seq = levels.get(lv[0], {}).get("sequence", 9999) if isinstance(lv, list) else 9999
+        return (seq, line.get("sequence") or 0)
+
+    return sorted(idx["lines"].get(pkg_id, []), key=key)
+
+
+def _build_package(p: dict, idx: dict) -> tuple[PackageCard, dict]:
+    """One package -> (card pushed to the widget, brief the model reads)."""
+    lines = _package_lines(p["id"], idx)
+    groups = [g for g in idx["groups"].get(p["id"], []) if g.get("is_available_for_sale")]
+    groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
+    cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
+    options = _price_options(p, groups, cur)
+    cheapest = min(options, key=lambda o: o["price"]) if options else None
+    hours = (p.get("training_hours_attendee") or 0) + (p.get("training_hours_recorded") or 0)
+    levels = [l.get("name", "") for l in
+              sorted(idx["levels"].get(p["id"], []), key=lambda x: x.get("sequence") or 0)]
+    includes = [str(l.get("name") or "") for l in lines][:12]
+
+    card = PackageCard(
+        package_id=p["id"], title=(p.get("name") or "").strip(),
+        url=p.get("url") or "",
+        price_options=options,
+        price_from_display=cheapest["price_display"] if cheapest else None,
+        currency=cur,
+        courses_count=p.get("num_courses_display") or len(lines) or None,
+        training_hours=hours or None,
+        attendance=ATTENDANCE_LABELS.get(p.get("attendee_type")),
+        rating=round(p.get("review_rating_avg") or 0, 1) or None,
+        badge=p.get("badge_text") or None,
+        next_group=groups[0].get("full_display_name") if groups else None,
+        starts_at=str(groups[0].get("first_event_date")) if groups else None,
+        levels=[x for x in levels if x],
+        includes=includes,
+    )
+    brief = {
+        "package_id": p["id"], "title": card.title,
+        "price_from": card.price_from_display, "currency": cur,
+        "price_options": [
+            {k: o[k] for k in ("mode", "label", "price_display",
+                               "was_display", "discount", "starts_at")}
+            for o in options],
+        "courses": card.courses_count, "hours": card.training_hours,
+        "attendance": card.attendance, "levels": card.levels,
+        "sellable_cohorts": len(groups),
+        "includes": includes,
+        "outcomes": [idx["outcomes"][i] for i in (p.get("learning_outcomes_ids") or [])
+                     if i in idx["outcomes"]][:6],
+    }
+    return card, brief
+
+
 @tool
 async def search_packages(query: Optional[str] = None) -> str:
     """Training packages (المسارات) — multi-course tracks sold as one bundle.
@@ -385,72 +499,270 @@ async def search_packages(query: Optional[str] = None) -> str:
         return json.dumps({"packages": [], "available": False,
                            "note": "package_data_unavailable"}, ensure_ascii=False)
 
-    def by_pkg(rows):
-        out: dict[int, list] = {}
-        for r in rows:
-            pid = r.get("package_id")
-            if isinstance(pid, list):
-                out.setdefault(pid[0], []).append(r)
-        return out
-
-    lines_by = by_pkg(data.get("lines", []))
-    levels_by = by_pkg(data.get("levels", []))
-    groups_by = by_pkg(data.get("groups", []))
-    outcomes = {o["id"]: o.get("name", "") for o in data.get("outcomes", [])}
-
+    idx = _package_index(data)
     q = catalog.tokens(query or "")
     out = []
     for p in data.get("packages", []):
-        lines = sorted(lines_by.get(p["id"], []), key=lambda x: x.get("sequence") or 0)
         blob = catalog.tokens(" ".join(
-            [p.get("name") or ""] + [str(l.get("name") or "") for l in lines]))
+            [p.get("name") or ""] +
+            [str(l.get("name") or "") for l in idx["lines"].get(p["id"], [])]))
         if q and not (q & blob):
             continue
-
-        groups = [g for g in groups_by.get(p["id"], []) if g.get("is_available_for_sale")]
-        groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
-        cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
-        options = _price_options(p, groups, cur)
-        cheapest = min(options, key=lambda o: o["price"]) if options else None
-        hours = (p.get("training_hours_attendee") or 0) + (p.get("training_hours_recorded") or 0)
-        levels = [l.get("name", "") for l in
-                  sorted(levels_by.get(p["id"], []), key=lambda x: x.get("sequence") or 0)]
-        includes = [str(l.get("name") or "") for l in lines][:12]
-
-        card = PackageCard(
-            package_id=p["id"], title=(p.get("name") or "").strip(),
-            url=p.get("url") or "",
-            price_options=options,
-            price_from_display=cheapest["price_display"] if cheapest else None,
-            currency=cur,
-            courses_count=p.get("num_courses_display") or len(lines) or None,
-            training_hours=hours or None,
-            attendance=ATTENDANCE_LABELS.get(p.get("attendee_type")),
-            rating=round(p.get("review_rating_avg") or 0, 1) or None,
-            badge=p.get("badge_text") or None,
-            next_group=groups[0].get("full_display_name") if groups else None,
-            starts_at=str(groups[0].get("first_event_date")) if groups else None,
-            levels=[x for x in levels if x],
-            includes=includes,
-        )
+        card, brief = _build_package(p, idx)
         _packages().append(card.model_dump())
-        out.append({
-            "package_id": p["id"], "title": card.title,
-            "price_from": card.price_from_display, "currency": cur,
-            "price_options": [
-                {k: o[k] for k in ("mode", "label", "price_display",
-                                   "was_display", "discount", "starts_at")}
-                for o in options],
-            "courses": card.courses_count, "hours": card.training_hours,
-            "attendance": card.attendance, "levels": card.levels,
-            "sellable_cohorts": len(groups),
-            "includes": includes,
-            "outcomes": [outcomes[i] for i in (p.get("learning_outcomes_ids") or [])
-                         if i in outcomes][:6],
-        })
+        out.append(brief)
     if not out:
         return json.dumps({"packages": [], "note": "no_match"}, ensure_ascii=False)
     return json.dumps(out, ensure_ascii=False)
+
+
+# --------------------------------------------------------------- the track
+# What a trainee actually types, mapped to the Odoo product.public.category it
+# belongs to. Odoo's category names are English only, so "أنا في تخصص ميكانيكا"
+# matches nothing without this table — and the tool would answer a mechanical
+# engineer with interior design courses.
+TRACK_ALIASES: dict[str, tuple[str, ...]] = {
+    "BIM": ("bim", "بيم", "نمذجة", "نمذجة المعلومات", "revit", "ريفيت",
+            "navisworks", "نافيسوركس", "تنسيق"),
+    "Mechanical": ("mechanical", "ميكانيكا", "ميكانيكال", "ميكانيكي", "ميكانيكية",
+                   "hvac", "تكييف", "تبريد", "plumbing", "صحية", "سباكة",
+                   "firefighting", "حريق", "mep"),
+    "Electrical": ("electrical", "كهرباء", "كهربا", "كهربائي", "كهربائية",
+                   "الكتريكال", "dialux", "etap", "جهد", "اضاءة"),
+    "Civil and Structural": ("civil", "structural", "مدني", "مدنية", "انشائي",
+                             "انشائية", "انشاءات", "خرسانة", "خرسانية", "staad",
+                             "etabs", "sap", "safe", "تنفيذ"),
+    "Interior Design and Decoration": ("interior", "decoration", "ديكور",
+                                       "تشطيبات", "داخلي", "داخلية", "sketchup",
+                                       "3ds", "max"),
+    "Management and Safety": ("management", "safety", "ادارة", "اداري", "سلامة",
+                              "امن", "pmp", "primavera", "بريمافيرا", "مشاريع",
+                              "مشروعات", "تخطيط"),
+}
+_ALIAS_TOKENS = {cat: catalog.tokens(" ".join(words))
+                 for cat, words in TRACK_ALIASES.items()}
+
+# Odoo stores category names in English. A visitor picking their field should
+# read it in their own language, so the chip carries the Arabic label and the
+# English name stays the key everything else matches on.
+SPEC_LABELS = {
+    "BIM": "BIM — نمذجة المعلومات",
+    "Electrical": "كهرباء",
+    "Mechanical": "ميكانيكا",
+    "Civil and Structural": "مدني وإنشائي",
+    "Interior Design and Decoration": "تصميم داخلي وديكور",
+    "Management and Safety": "إدارة وسلامة",
+}
+# A merchandising tag, not a field of engineering — offering it as a
+# "specialization" tells a mechanical engineer nothing about where they belong.
+NOT_SPECIALIZATIONS = {"Best Seller", "Best Sellers", "All Courses"}
+
+
+def _spec_packages(data: dict, spec: str) -> list[dict]:
+    """Tracks that belong to a specialization — by Odoo category when the data
+    has one, else by the specialization's words appearing in the track name."""
+    if not spec or not data.get("available"):
+        return []
+    categories = catalog.snapshot().categories
+    words = _ALIAS_TOKENS.get(spec, set()) | catalog.tokens(spec)
+    out = []
+    for p in data.get("packages", []):
+        by_categ = spec in [categories.get(i) for i in (p.get("public_categ_ids") or [])]
+        if by_categ or (words & catalog.tokens(p.get("name") or "")):
+            out.append(p)
+    return out
+
+
+@tool
+async def list_specializations() -> str:
+    """Every specialization (تخصص) Engosoft trains in, and what is inside each.
+
+    Use when the trainee asks what fields you cover, or has not said where they
+    belong yet — "أنا مهندس، عندكم إيه؟". Returns each specialization with how
+    many courses it has, sample course names, and the tracks (باقات) inside it.
+    The visitor also gets them as tappable chips, so don't list them twice:
+    say one line and let them pick.
+    """
+    snap = await _ensure_catalog()
+    data = snap.packages or {}
+    by_cat: dict[str, list] = {}
+    for c in snap.courses.values():
+        for name in c.categories:
+            by_cat.setdefault(name, []).append(c)
+
+    out = []
+    for name, courses in sorted(by_cat.items(), key=lambda kv: -len(kv[1])):
+        if name in NOT_SPECIALIZATIONS:
+            continue
+        packages = _spec_packages(data, name)
+        out.append({
+            "specialization": name,
+            "label": SPEC_LABELS.get(name, name),
+            "courses": len(courses),
+            "examples": [c.name for c in courses[:3]],
+            "tracks": [p.get("name") for p in packages][:4],
+        })
+        _chips().append({"title": SPEC_LABELS.get(name, name),
+                         "value": f"أنا في تخصص {name}"})
+    return json.dumps({"specializations": out,
+                       "packages_loaded": bool(data.get("available"))},
+                      ensure_ascii=False)
+
+
+def resolve_specialization(query: str) -> Optional[str]:
+    """Map free text to a live catalogue category. Checks the real category
+    names too, so a category added in Odoo works without editing the table."""
+    q = catalog.tokens(query)
+    if not q:
+        return None
+    best, score = None, 0
+    for cat, words in _ALIAS_TOKENS.items():
+        hit = len(q & words)
+        if hit > score:
+            best, score = cat, hit
+    for name in catalog.snapshot().categories.values():
+        hit = len(q & catalog.tokens(name))
+        if hit > score:
+            best, score = name, hit
+    return best
+
+
+def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Optional[dict]:
+    """The package a trainee means by "أنا في باقة كذا".
+
+    Title words weigh most: "باقة الميكانيكا" is the track named that, not every
+    track that happens to contain one mechanical course. The specialization is
+    scored too, because package names in Odoo are English while the question is
+    usually Arabic — "باقة الكهربا" has zero words in common with "Electrical
+    Design Professional Track" and would otherwise match nothing.
+    """
+    q = catalog.tokens(query)
+    if not q or not data.get("available"):
+        return None
+    lines_by = _by_package(data.get("lines", []))
+    spec_tokens = _ALIAS_TOKENS.get(spec or "", set()) | catalog.tokens(spec or "")
+    categories = catalog.snapshot().categories
+    best, best_score = None, 0.0
+    for p in data.get("packages", []):
+        name_tok = catalog.tokens(p.get("name") or "")
+        line_hits = len(q & catalog.tokens(" ".join(
+            str(l.get("name") or "") for l in lines_by.get(p["id"], []))))
+        in_spec = spec and spec in [categories.get(i) for i in
+                                    (p.get("public_categ_ids") or [])]
+        score = (2.0 * len(q & name_tok) + 0.5 * line_hits
+                 + 1.5 * len(spec_tokens & name_tok) + (2.0 if in_spec else 0))
+        if score > best_score:
+            best, best_score = p, score
+    return best
+
+
+def _level_name(line: dict) -> Optional[str]:
+    lv = line.get("level_id")
+    return lv[1] if isinstance(lv, list) and len(lv) > 1 else None
+
+
+def _level_matches(line: dict, wanted: str) -> bool:
+    name = (_level_name(line) or "").lower()
+    want = wanted.strip().lower()
+    digits = "".join(ch for ch in want if ch.isdigit())
+    if digits:                       # "ليفل ٢" / "level 2" / "المستوى 2"
+        return digits in name
+    return bool(want) and want in name
+
+
+@tool
+async def recommend_track(track: str, level: Optional[str] = None,
+                          top_k: int = 6) -> str:
+    """Courses recommended inside one track or specialization.
+
+    Call this the moment the trainee places themselves — "أنا في باقة كذا",
+    "أنا في تخصص ميكانيكا", "I'm on the BIM track". `track` is their own words;
+    `level` optionally narrows to one level of the package ("Level 2").
+
+    Returns the package's courses in teaching order grouped by level, each with
+    a live price and its next bookable batch, plus related courses in the same
+    specialization. If no package matches, it still recommends the right
+    courses from that specialization. Cards render automatically.
+    """
+    snap = await _ensure_catalog()
+    limit = max(1, min(top_k, 12))
+    spec = resolve_specialization(track)
+    pkg = _match_package(snap.packages or {}, track, spec)
+
+    if not pkg:
+        # No single track owns the question ("أنا في تخصص ميكانيكا"), so answer
+        # with the specialization itself: its courses AND the tracks inside it,
+        # which is what the trainee is really choosing between.
+        found = catalog.search(track, top_k=limit, category=spec)
+        if not found and spec:
+            found = catalog.search(spec, top_k=limit, category=spec)
+        if not found:
+            found = catalog.search(track, top_k=limit)
+        idx = _package_index(snap.packages or {})
+        tracks = []
+        for p in _spec_packages(snap.packages or {}, spec or "")[:3]:
+            card, brief = _build_package(p, idx)
+            _packages().append(card.model_dump())
+            tracks.append(brief)
+        return json.dumps({
+            "track": None, "specialization": spec,
+            "label": SPEC_LABELS.get(spec or "", spec),
+            "note": "no_package_matched" if (snap.packages or {}).get("available")
+                    else "package_data_unavailable",
+            "courses": await _emit_courses(found),
+            "tracks_in_specialization": tracks,
+        }, ensure_ascii=False)
+
+    idx = _package_index(snap.packages)
+    card, brief = _build_package(pkg, idx)
+    _packages().append(card.model_dump())
+
+    lines = _package_lines(pkg["id"], idx)
+    if level:
+        picked = [l for l in lines if _level_matches(l, level)]
+        lines = picked or lines
+    spec = spec or resolve_specialization(pkg.get("name") or "")
+
+    ordered: list[catalog.Course] = []
+    level_of: dict[int, Optional[str]] = {}
+    missing: list[str] = []
+    for line in lines:
+        pid = line.get("product_id")
+        course = snap.courses.get(pid[0]) if isinstance(pid, list) else None
+        if course is None:
+            # A track line whose product is not in the published catalogue: it
+            # is part of the path but cannot be bought on its own. Say so
+            # instead of dropping it, or the path looks shorter than it is.
+            missing.append(str(line.get("name") or ""))
+            continue
+        if course.id not in level_of:
+            level_of[course.id] = _level_name(line)
+            ordered.append(course)
+
+    briefs = await _emit_courses(ordered[:limit])
+    path: list[dict] = []
+    for b in briefs:
+        name = level_of.get(b["course_id"])
+        if not path or path[-1]["level"] != name:
+            path.append({"level": name, "courses": []})
+        path[-1]["courses"].append(b)
+
+    # Same specialization, not in the track: the natural next sale once the
+    # path is done, and the honest answer to "وبعد الباقة أعمل إيه؟".
+    extra: list[catalog.Course] = []
+    if spec and len(briefs) < limit:
+        in_track = {c.id for c in ordered}
+        extra = [c for c in catalog.search(spec, top_k=len(in_track) + 3,
+                                           category=spec)
+                 if c.id not in in_track][:2]
+
+    return json.dumps({
+        "track": brief, "specialization": spec,
+        "level_filter": level or None,
+        "path": path,
+        "not_sold_separately": missing[:8],
+        "also_recommended": await _emit_courses(extra),
+    }, ensure_ascii=False)
 
 
 @tool
@@ -546,5 +858,5 @@ async def request_handoff(summary: str, reason: str = "customer_request") -> str
 
 
 TOOLS = [search_courses, get_course_details, get_upcoming_batches, get_price,
-         get_instructor, search_packages, build_checkout_link, create_lead,
-         request_handoff]
+         get_instructor, search_packages, list_specializations, recommend_track,
+         build_checkout_link, create_lead, request_handoff]

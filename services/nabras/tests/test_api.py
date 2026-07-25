@@ -1,5 +1,7 @@
 """End-to-end tests over the real ASGI app + real LangGraph agent + real
 catalogue logic. Only the model and Odoo are faked."""
+import json
+
 import pytest
 
 from app import catalog as catalog_mod
@@ -285,6 +287,134 @@ async def test_missing_package_permission_degrades_quietly(client_factory, fake_
     assert "packages" not in [e["type"] for e in events]
 
 
+# ============================================================ track / تخصص
+async def _track(**args) -> tuple[dict, list, list]:
+    """Run the tool exactly as a turn does — with the sinks the SSE layer
+    installs — and hand back what the model reads plus what the widget shows."""
+    from app import tools as tools_mod
+    cards: list = []
+    packages: list = []
+    ct = tools_mod.CARD_SINK.set(cards)
+    pt = tools_mod.PACKAGE_SINK.set(packages)
+    cu = tools_mod.CURRENCY.set("EGP")
+    try:
+        raw = await tools_mod.recommend_track.ainvoke(args)
+    finally:
+        tools_mod.CARD_SINK.reset(ct)
+        tools_mod.PACKAGE_SINK.reset(pt)
+        tools_mod.CURRENCY.reset(cu)
+    return json.loads(raw), cards, packages
+
+
+async def test_track_lists_the_package_courses_in_teaching_order(loaded_catalog):
+    """"أنا في باقة كذا" has to answer with the path itself: the track's own
+    courses, level by level and priced — not a generic search."""
+    payload, cards, packages = await _track(track="باقة التصميم الداخلي")
+
+    # the track itself is shown, so the trainee sees what they are on
+    assert [p["package_id"] for p in packages] == [5]
+    assert payload["track"]["package_id"] == 5
+
+    # and its courses come back as real, priced, buyable cards
+    assert payload["path"][0]["level"] == "Level 2"
+    assert payload["path"][0]["courses"][0]["course_id"] == 2107
+    nav = next(c for c in cards if c["course_id"] == 2107)
+    assert nav["price_display"] == "4,815 EGP"      # live pricelist, not list_price
+
+    # lines that are part of the path but are not published products must be
+    # named, not silently dropped — otherwise the path looks shorter than it is
+    assert "Interior Design Basics Using SketchUp" in payload["not_sold_separately"]
+
+
+async def test_track_level_filter_narrows_to_that_level(loaded_catalog):
+    payload, cards, _ = await _track(
+        track="Interior Design Professional Track", level="Level 1")
+    assert payload["level_filter"] == "Level 1"
+    # Level 1's only line is not a published product -> report it and recommend
+    # nothing false
+    assert payload["path"] == []
+    assert "Interior Design Basics Using SketchUp" in payload["not_sold_separately"]
+    assert [c["course_id"] for c in cards] == []
+
+
+async def test_specialization_without_a_package_still_recommends(loaded_catalog):
+    """"أنا في تخصص إدارة مشاريع" must work even with no matching package — and
+    the Arabic word has to reach the English Odoo category."""
+    payload, cards, packages = await _track(track="أنا في تخصص إدارة مشاريع")
+    assert payload["track"] is None
+    assert payload["specialization"] == "Management and Safety"
+    assert [c["course_id"] for c in payload["courses"]] == [2092]      # PMP
+    assert [c["course_id"] for c in cards] == [2092]
+    assert packages == []
+
+
+async def test_specialization_aliases_cover_the_words_trainees_type(loaded_catalog):
+    from app.tools import resolve_specialization
+    assert resolve_specialization("أنا في تخصص ميكانيكا") == "Mechanical"
+    assert resolve_specialization("باقة الكهربا") == "Electrical"
+    assert resolve_specialization("I'm on the BIM track") == "BIM"
+    assert resolve_specialization("مسار الديكور") == "Interior Design and Decoration"
+    assert resolve_specialization("عايز أتعلم طبخ") is None
+
+
+async def test_track_degrades_to_courses_when_packages_are_denied(fake_odoo):
+    """Package permission is still missing in production, so the feature has to
+    work today from the catalogue alone."""
+    fake_odoo.packages_denied = True
+    await catalog_mod.refresh(full=True)
+    payload, cards, packages = await _track(track="BIM")
+    assert payload["track"] is None
+    assert payload["note"] == "package_data_unavailable"
+    assert payload["courses"]                      # still recommends something
+    assert cards and packages == []
+
+
+async def test_specializations_list_what_is_inside_each_field(loaded_catalog):
+    from app import tools as tools_mod
+    chips: list = []
+    ct = tools_mod.CHIP_SINK.set(chips)
+    try:
+        payload = json.loads(await tools_mod.list_specializations.ainvoke({}))
+    finally:
+        tools_mod.CHIP_SINK.reset(ct)
+    names = [s["specialization"] for s in payload["specializations"]]
+    assert "BIM" in names and "Management and Safety" in names
+    # a merchandising tag is not a field of engineering
+    assert "Best Seller" not in names
+    bim = next(s for s in payload["specializations"] if s["specialization"] == "BIM")
+    assert bim["courses"] == 2 and bim["examples"]
+    # the visitor picks in Arabic; the value the bot receives stays the Odoo name
+    assert {"title": "BIM — نمذجة المعلومات", "value": "أنا في تخصص BIM"} in chips
+
+
+async def test_specialization_chips_reach_the_widget(client_factory):
+    script = [{"tool": "list_specializations", "args": {}},
+              {"text": "اختار تخصصك."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "أنا مهندس، عندكم إيه؟")
+        events = parse_sse(r.text)
+    chips = next(e for e in events if e["type"] == "chips")["chips"]
+    assert any(c["title"] == "ميكانيكا" or c["title"] == "إدارة وسلامة" for c in chips)
+
+
+async def test_track_reaches_the_widget_as_cards_and_a_package(client_factory):
+    """End to end: one turn, and the widget gets both the track and its
+    courses."""
+    script = [{"tool": "recommend_track", "args": {"track": "التصميم الداخلي"}},
+              {"text": "دي خطة المسار."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "أنا في باقة التصميم الداخلي، أعمل إيه؟")
+        events = parse_sse(r.text)
+    assert next(e for e in events if e["type"] == "packages")[
+        "package_cards"][0]["package_id"] == 5
+    assert 2107 in [c["course_id"] for c in
+                    next(e for e in events if e["type"] == "cards")["course_cards"]]
+
+
 # ================================================================= handoff
 async def test_handoff_is_signalled_not_written_to_chatwoot(client_factory):
     """The bridge owns Chatwoot state; Nabras must only raise a signal."""
@@ -549,3 +679,87 @@ async def test_lead_name_is_tagged_majed_not_the_codename(client_factory, fake_o
         tok = await _token(client)
         await _chat(client, tok, "كلموني")
     assert fake_odoo.leads[0]["name"].startswith("[ماجد]")
+
+
+# =========================================================== model request
+def test_reasoning_effort_is_sent_only_where_it_is_legal():
+    """OpenAI refuses function tools + reasoning on chat-completions for gpt-5:
+    "set reasoning_effort to 'none'". Sending the same field to gpt-4.1 or the
+    o-series just trades that 400 for another one, so it is family-gated."""
+    from app.agent import reasoning_effort_for as eff
+    assert eff("gpt-5.6-terra", "none") == "none"
+    assert eff("gpt-5.6-luna", "low") == "low"
+    assert eff("gpt-4.1", "none") is None          # field unknown there
+    assert eff("o3", "none") is None               # no "none" level there
+    assert eff("gpt-5.6-terra", "") is None        # explicit opt-out
+    assert eff("gpt-5.6-terra", "  NONE ") == "none"
+
+
+def test_model_kwargs_pins_the_flag_for_the_configured_model(monkeypatch):
+    from app import agent as agent_mod
+    from app.config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "agent_model", "gpt-5.6-terra")
+    monkeypatch.setattr(s, "agent_reasoning_effort", "none")
+    kw = agent_mod.model_kwargs()
+    assert kw["reasoning_effort"] == "none"
+    assert kw["model"] == "gpt-5.6-terra"
+    assert kw["streaming"] is True
+
+
+class _Rejects:
+    """A model that 400s on one parameter, the way OpenAI does."""
+
+    def __init__(self, kw, bad):
+        self.kw, self.bad = kw, bad
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        if self.bad in self.kw:
+            err = Exception(f"400 unsupported parameter: '{self.bad}'")
+            err.body = {"param": self.bad, "type": "invalid_request_error"}
+            raise err
+        return "ok"
+
+
+async def test_boot_drops_the_parameter_openai_names_instead_of_serving_400s():
+    """A model swap must not turn every customer message into silence: the
+    probe finds the illegal field at boot and retries without it."""
+    from app import agent as agent_mod
+    built = []
+
+    def build(kw):
+        built.append(dict(kw))
+        return _Rejects(kw, "temperature")
+
+    model = await agent_mod.negotiate_model(build=build)
+    assert isinstance(model, _Rejects)
+    assert "temperature" in built[0]                 # first attempt as configured
+    assert "temperature" not in built[-1]            # retried without it
+    assert built[-1]["model"]                        # everything else intact
+
+
+async def test_boot_does_not_strip_anything_for_an_unrelated_failure():
+    """A quota or network error is not a request-shape problem; stripping
+    sampling fields would hide it and change behaviour for no reason."""
+    from app import agent as agent_mod
+    built = []
+
+    class _Down:
+        def __init__(self, kw):
+            self.kw = kw
+
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            raise Exception("Connection error")
+
+    def build(kw):
+        built.append(dict(kw))
+        return _Down(kw)
+
+    await agent_mod.negotiate_model(build=build)
+    assert len(built) == 1

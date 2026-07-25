@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     router_model: str = "gpt-5.6-luna"    # cheap intent/format/summaries
     # Some reasoning-tier models reject `temperature`; set to -1 to omit it.
     agent_temperature: float = 0.3
+    # gpt-5.x refuses function tools on /v1/chat/completions unless reasoning is
+    # switched off, and every turn here carries 9 tools. Empty string = never
+    # send the field. See agent.reasoning_effort_for.
+    agent_reasoning_effort: str = "none"
 
     # ---- Odoo 17 ----
     odoo_url: str = "https://engosoft.com"

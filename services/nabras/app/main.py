@@ -15,7 +15,7 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
-from .tools import CARD_SINK, CURRENCY, HANDOFF_SINK, PACKAGE_SINK
+from .tools import CARD_SINK, CHIP_SINK, CURRENCY, HANDOFF_SINK, PACKAGE_SINK
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -156,6 +156,7 @@ async def chat(req: ChatRequest, request: Request,
         cards_tok = CARD_SINK.set([])
         pkgs_tok = PACKAGE_SINK.set([])
         hand_tok = HANDOFF_SINK.set({})
+        chip_tok = CHIP_SINK.set([])
         cur_tok = CURRENCY.set(currency)
         try:
             async for chunk, meta in graph.astream(
@@ -178,6 +179,9 @@ async def chat(req: ChatRequest, request: Request,
             if packages:
                 yield _ev("packages", {"package_cards": packages,
                                        "currency": currency})
+            chips = CHIP_SINK.get() or []
+            if chips:
+                yield _ev("chips", {"chips": chips})
             handoff = HANDOFF_SINK.get()
             if handoff and handoff.get("requested"):
                 # The bridge owns Chatwoot; we only signal.
@@ -190,6 +194,7 @@ async def chat(req: ChatRequest, request: Request,
             CARD_SINK.reset(cards_tok)
             PACKAGE_SINK.reset(pkgs_tok)
             HANDOFF_SINK.reset(hand_tok)
+            CHIP_SINK.reset(chip_tok)
             CURRENCY.reset(cur_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",

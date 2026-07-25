@@ -32,8 +32,16 @@ _AR_NORM = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": 
 
 
 def tokens(text: str) -> set[str]:
-    return {w.translate(_AR_NORM).lower()
+    return {_ar_stem(w.translate(_AR_NORM).lower())
             for w in _WORD.findall(text or "") if len(w) > 1}
+
+
+def _ar_stem(word: str) -> str:
+    """Drop the Arabic definite article. Customers type "الكهربا" and
+    "التصميم"; without this they match neither the alias table nor a package
+    named "التصميم الداخلي". The length guard keeps short real words
+    ("الف", "الي") intact."""
+    return word[2:] if len(word) > 4 and word.startswith("ال") else word
 
 
 @dataclass

@@ -510,6 +510,52 @@
     '.mjd-card .mjd-ct{padding:11px 13px}.mjd-card .mjd-ct b{font-size:14px;display:block}.mjd-card .mjd-ct span{font-size:12px;color:var(--muted)}',
     '.mjd-card a,.mjd-card button{display:flex;align-items:center;gap:8px;padding:11px 13px;font:inherit;font-size:13px;font-weight:700;color:#7c5cff;text-decoration:none;cursor:pointer;border:0;background:transparent;border-top:1px solid var(--line);width:100%;text-align:start}',
     '.mjd-card a:hover,.mjd-card button:hover{background:var(--surf2)}',
+    '/* course & track cards — a price is not a sentence, so each fact gets its own slot */',
+    '.mjd-crs,.mjd-pkg{align-self:stretch;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;',
+    'overflow:hidden;animation:mjdRise .32s cubic-bezier(.2,.9,.3,1.1) both;box-shadow:0 6px 18px rgba(15,30,66,.06)}',
+    '#mjd-panel[data-theme="dark"] .mjd-crs,#mjd-panel[data-theme="dark"] .mjd-pkg{box-shadow:none}',
+    '.mjd-crs:hover,.mjd-pkg:hover{border-color:rgba(124,92,255,.35);box-shadow:0 10px 26px rgba(124,92,255,.14)}',
+    '.mjd-crs-top{display:flex;gap:11px;padding:12px 13px 0}',
+    '.mjd-crs-th{width:66px;height:66px;flex:0 0 66px;border-radius:13px;object-fit:cover;background:',
+    'linear-gradient(135deg,rgba(124,92,255,.18),rgba(6,182,212,.18));display:block}',
+    '.mjd-crs-hd{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;padding-top:1px}',
+    '.mjd-crs-t{font-size:14px;font-weight:800;line-height:1.45;color:var(--text);',
+    'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+    '.mjd-crs-by{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:var(--muted)}',
+    '.mjd-crs-by .mjd-in{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;',
+    'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mjd-rt{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-weight:800;font-size:12px}',
+    '.mjd-tags{display:flex;flex-wrap:wrap;gap:6px;padding:10px 13px 0}',
+    '.mjd-tag{font-size:11.5px;font-weight:700;line-height:1;padding:6px 9px;border-radius:8px;',
+    'background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}',
+    '.mjd-tag.mjd-tag-b{background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.24);color:#7c5cff}',
+    '.mjd-tag.mjd-tag-hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:#d97706}',
+    '.mjd-crs-ft{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-top:11px;border-top:1px solid var(--line)}',
+    '.mjd-price{font-size:16.5px;font-weight:800;line-height:1.1;color:#7c5cff;white-space:nowrap}',
+    '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin-inline-start:3px}',
+    '.mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}',
+    '.mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}',
+    '.mjd-cta{display:flex;gap:7px;margin-inline-start:auto}',
+    '.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:10px;font:inherit;font-size:12.5px;',
+    'font-weight:800;text-decoration:none;padding:9px 13px;cursor:pointer;border:1px solid transparent;white-space:nowrap}',
+    '.mjd-buy{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;box-shadow:0 6px 16px rgba(124,92,255,.3)}',
+    '.mjd-buy:hover{filter:brightness(1.07)}',
+    '.mjd-det{background:var(--surf2);color:var(--text);border-color:var(--line)}',
+    '.mjd-det:hover{border-color:rgba(124,92,255,.4);color:#7c5cff}',
+    '/* track card */',
+    '.mjd-pkg-hd{display:flex;align-items:center;gap:8px;padding:11px 13px;',
+    'background:linear-gradient(135deg,rgba(124,92,255,.14),rgba(6,182,212,.14));border-bottom:1px solid var(--line)}',
+    '.mjd-pkg-hd b{font-size:14px;font-weight:800;line-height:1.4;color:var(--text);min-width:0}',
+    '.mjd-pkg-kd{font-size:10.5px;font-weight:800;color:#7c5cff;background:var(--surf);border:1px solid rgba(124,92,255,.3);',
+    'border-radius:999px;padding:4px 8px;white-space:nowrap;flex:0 0 auto}',
+    '.mjd-pkg-op{display:flex;flex-direction:column;gap:1px;padding:8px 13px 0}',
+    '.mjd-pkg-op div{display:flex;align-items:baseline;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line)}',
+    '.mjd-pkg-op div:last-child{border-bottom:0}',
+    '.mjd-pkg-op span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mjd-pkg-op b{margin-inline-start:auto;font-weight:800;color:var(--text);white-space:nowrap}',
+    '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:600}',
+    '.mjd-crs-by svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}',
+    '.mjd-buy svg{width:14px;height:14px;flex:0 0 14px}',
     '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
     '.mjd-opt:hover{background:var(--surf2)}',
@@ -680,7 +726,9 @@
     pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
     hide: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></svg>',
-    expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'
+    expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    cart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>'
   };
 
   // ---------- build DOM ----------
@@ -1100,19 +1148,111 @@
     try { url = URL.createObjectURL(blob); } catch (e) {}
     if (url) addAttachment({ file_type: 'audio', data_url: url }, true);
   }
+  // ---------- course / track cards ----------
+  var AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+                   'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  // "2026-08-20 16:00:00" → "20 أغسطس". Formatted here, not in the bridge, so
+  // the customer always reads Arabic months whatever the server's locale is.
+  function fmtDay(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return '';
+    return Number(m[3]) + ' ' + (AR_MONTHS[Number(m[2]) - 1] || '');
+  }
+  function tag(text, cls) {
+    return text ? '<span class="mjd-tag' + (cls ? ' ' + cls : '') + '">' + esc(text) + '</span>' : '';
+  }
+  // The price is the one number a customer scans for, so it gets its own slot
+  // and its own weight instead of being buried in a run-on grey line.
+  function priceBlock(main, note, was) {
+    if (!main) return '<div class="mjd-price"><em>' + esc(note || 'اسأل عن السعر') + '</em></div>';
+    var parts = String(main).split(' ');
+    var num = parts.shift(), cur = parts.join(' ');
+    return '<div class="mjd-price">' + esc(num) + (cur ? '<i>' + esc(cur) + '</i>' : '') +
+      (was ? '<s>' + esc(was) + '</s>' : '') + (note ? '<em>' + esc(note) + '</em>' : '') + '</div>';
+  }
+  function courseCardHtml(it) {
+    var h = '<div class="mjd-crs-top">';
+    if (it.media_url) h += '<img class="mjd-crs-th" src="' + esc(it.media_url) + '" alt="" ' +
+      'onerror="this.style.display=\'none\'"/>';
+    h += '<div class="mjd-crs-hd"><b class="mjd-crs-t">' + esc(it.title) + '</b>';
+    var by = '';
+    if (it.instructor) {
+      by += '<span class="mjd-in">' + I.user + esc(it.instructor) +
+        (it.instructors_count > 1 ? ' +' + (it.instructors_count - 1) : '') + '</span>';
+    }
+    if (it.rating) by += '<span class="mjd-rt">★ ' + esc(String(it.rating)) + '</span>';
+    if (by) h += '<div class="mjd-crs-by">' + by + '</div>';
+    h += '</div></div>';
+
+    var tags = tag(it.delivery, 'mjd-tag-b') + tag(it.duration_text);
+    if (it.starts_at) tags += tag('تبدأ ' + fmtDay(it.starts_at));
+    if (it.seats_available != null && it.seats_available >= 0) {
+      tags += it.seats_available <= 5
+        ? tag('آخر ' + it.seats_available + ' مقاعد', 'mjd-tag-hot')
+        : tag(it.seats_available + ' مقعد متاح');
+    }
+    if (tags) h += '<div class="mjd-tags">' + tags + '</div>';
+
+    h += '<div class="mjd-crs-ft">' + priceBlock(it.price_display) + '<div class="mjd-cta">';
+    if (it.checkout_url) h += '<a class="mjd-buy" href="' + esc(it.checkout_url) +
+      '" target="_blank" rel="noopener">' + I.cart + 'اشترِ الآن</a>';
+    if (it.url) h += '<a class="mjd-det" href="' + esc(it.url) +
+      '" target="_blank" rel="noopener">التفاصيل</a>';
+    return h + '</div></div>';
+  }
+  function packageCardHtml(it) {
+    var h = '<div class="mjd-pkg-hd"><span class="mjd-pkg-kd">مسار متكامل</span><b>' +
+      esc(it.title) + '</b></div>';
+    var tags = '';
+    if (it.courses_count) tags += tag(it.courses_count + ' كورس', 'mjd-tag-b');
+    if (it.training_hours) tags += tag(it.training_hours + ' ساعة');
+    if (it.attendance) tags += tag(it.attendance);
+    if (it.starts_at) tags += tag('أقرب دفعة ' + fmtDay(it.starts_at));
+    if (it.badge) tags += tag(it.badge, 'mjd-tag-hot');
+    if (tags) h += '<div class="mjd-tags">' + tags + '</div>';
+    // every buyable option, listed: a track has no single price, and showing
+    // one number quotes the recorded track to someone asking about onsite
+    if ((it.options || []).length) {
+      h += '<div class="mjd-pkg-op">';
+      it.options.forEach(function (o) {
+        h += '<div><span>' + esc(o.label) + '</span><b>' + esc(o.price_display) +
+          (o.was_display ? ' <s>' + esc(o.was_display) + '</s>' : '') + '</b></div>';
+      });
+      h += '</div>';
+    }
+    h += '<div class="mjd-crs-ft">' +
+      priceBlock(it.price_from_display, (it.options || []).length > 1 ? 'يبدأ من' : '') +
+      '<div class="mjd-cta">';
+    if (it.url) h += '<a class="mjd-buy" href="' + esc(it.url) +
+      '" target="_blank" rel="noopener">' + I.cart + 'شوف المسار</a>';
+    return h + '</div></div>';
+  }
   function addCard(attrs) {
     var items = (attrs && attrs.items) || [];
     items.forEach(function (it) {
-      var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +
-        '<div class="mjd-ct"><b>' + esc(it.title) + '</b>' + (it.description ? '<span>' + esc(it.description) + '</span>' : '') + '</div>';
-      (it.actions || []).forEach(function (a) {
-        if (a.type === 'link') h += '<a href="' + esc(a.uri) + '" target="_blank" rel="noopener">' + esc(a.text) + '</a>';
-        else h += '<button data-pb="' + esc(a.payload || a.text) + '">' + esc(a.text) + '</button>';
-      });
-      var card = inject('div', { class: 'mjd-card' }, h);
+      var card;
+      if (it.kind === 'course' || it.kind === 'package') {
+        card = inject('div', { class: it.kind === 'course' ? 'mjd-crs' : 'mjd-pkg' },
+          it.kind === 'course' ? courseCardHtml(it) : packageCardHtml(it));
+      } else {
+        // Botpress cards keep the original renderer, unchanged
+        var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +
+          '<div class="mjd-ct"><b>' + esc(it.title) + '</b>' + (it.description ? '<span>' + esc(it.description) + '</span>' : '') + '</div>';
+        (it.actions || []).forEach(function (a) {
+          if (a.type === 'link') h += '<a href="' + esc(a.uri) + '" target="_blank" rel="noopener">' + esc(a.text) + '</a>';
+          else h += '<button data-pb="' + esc(a.payload || a.text) + '">' + esc(a.text) + '</button>';
+        });
+        card = inject('div', { class: 'mjd-card' }, h);
+      }
       card.querySelectorAll('button[data-pb]').forEach(function (btn) {
         // send the postback value to the bot, but show the human label in the bubble
         btn.addEventListener('click', function () { sendMessage(btn.getAttribute('data-pb'), btn.textContent); });
+      });
+      // Leaving for the course page must never cost the conversation: the link
+      // opens a new tab, and rememberOpen() makes the chat come back already
+      // open there, with the transcript restored.
+      card.querySelectorAll('a[target="_blank"]').forEach(function (a) {
+        a.addEventListener('click', rememberOpen);
       });
       bd.appendChild(card); scrollDown();
     });
@@ -1952,11 +2092,32 @@
   });
 
   // ===== فتح/إغلاق/إخفاء =====
+  // ===== استمرارية الشات عبر الصفحات =====
+  // A course link opens a new tab; that tab used to load with the panel closed,
+  // so the customer had to click ماجد again and lost the thread visually. We
+  // remember "the panel was open" for a short window and reopen it on load —
+  // the conversation id is already stored, so the transcript comes back with it.
+  var OPEN_KEY = 'majed:open:' + BRIDGE;
+  var OPEN_TTL = 30 * 60 * 1000;
+  function rememberOpen() {
+    try { localStorage.setItem(OPEN_KEY, String(Date.now())); } catch (e) {}
+  }
+  function forgetOpen() {
+    try { localStorage.removeItem(OPEN_KEY); } catch (e) {}
+  }
+  function wasOpenRecently() {
+    try {
+      var t = Number(localStorage.getItem(OPEN_KEY) || 0);
+      return t > 0 && Date.now() - t < OPEN_TTL;
+    } catch (e) { return false; }
+  }
+
   function openPanel() {
     hideTeaser();
     panel.classList.add('mjd-open');
     requestAnimationFrame(applyPos); // النافذة دلوقتي ليها ارتفاع حقيقي → نضمن إنها جوة الشاشة
     startSession();
+    rememberOpen();
     setTimeout(function () { input.focus(); }, 200);
   }
   // يفتح الشات ويبعت رسالة جاهزة للبوت (مستخدَم من زرار التيزر «ساعدني في الشراء»).
@@ -1965,6 +2126,7 @@
     hideTeaser();
     panel.classList.add('mjd-open');
     requestAnimationFrame(applyPos);
+    rememberOpen();
     setTimeout(function () { input.focus(); }, 200);
     startSession().then(function () { sendMessage(text, label || text); });
   }
@@ -1975,6 +2137,7 @@
     if (!forced && panel.classList.contains('mjd-open') && live && showSubscribeCard('exit')) return;
     removeSubscribeCard();
     panel.classList.remove('mjd-open');
+    forgetOpen();   // closing is a decision — it must survive the next page too
     if (!live) showTeaser(1500); // رجّع التيزر بعد قفل النافذة
   }
   fab.addEventListener('click', function () {
@@ -2032,6 +2195,16 @@
   document.getElementById('mjd-hist-x').addEventListener('click', closeHistory);
   document.getElementById('mjd-new').addEventListener('click', newConversation);
 
-  // أول ظهور — التيزر بيظهر للكل (الترحيب)، وعرض الكورس بس للزوار قبل اللوجين
-  ensureCtx().then(function () { showTeaser(); });
+  // أول ظهور — التيزر بيظهر للكل (الترحيب)، وعرض الكورس بس للزوار قبل اللوجين.
+  // ولو العميل كان فاتح الشات وراح يفتح صفحة كورس: الشات يفتح لوحده بالمحادثة
+  // كاملة بدل ما يدوّر على الزر تاني. على الموبايل النافذة بتغطي الصفحة، فبنسيبه
+  // مقفول ونكتفي بالتيزر — هو راح يقرأ الكورس مش الشات.
+  ensureCtx().then(function () {
+    if (wasOpenRecently() && window.innerWidth >= 768 &&
+        !root.classList.contains('mjd-hidden')) {
+      openPanel();
+      return;
+    }
+    showTeaser();
+  });
 })();

@@ -19,6 +19,21 @@ const OK_SSE = [
   'data: {"type":"done"}', '',
 ].join('\n');
 
+const TRACK_SSE = [
+  'data: {"type":"token","content":"دي مسارات الميكانيكا."}',
+  'data: {"type":"cards","course_cards":[{"course_id":2107,"title":"Navisworks MEP",' +
+    '"url":"https://engosoft.com/shop/navisworks-mep-2107","price_display":"4,815 EGP"}]}',
+  'data: {"type":"packages","package_cards":[{"package_id":5,"title":"Mechanical Track",' +
+    '"url":"https://engosoft.com/training_package/mechanical-5","price_from_display":"12,001 EGP",' +
+    '"courses_count":6,"training_hours":161,"attendance":"أونلاين أو حضوري",' +
+    '"price_options":[{"mode":"recorded","label":"مسجّل","price_display":"12,001 EGP",' +
+    '"was_display":"23,750 EGP"},{"mode":"attendance_online","label":"أونلاين — دفعة يوليو",' +
+    '"price_display":"15,000 EGP"}]}]}',
+  'data: {"type":"chips","chips":[{"title":"ميكانيكا","value":"أنا في تخصص Mechanical"},' +
+    '{"title":"كهرباء","value":"أنا في تخصص Electrical"}]}',
+  'data: {"type":"done"}', '',
+].join('\n');
+
 let mode = 'ok';
 const server = http.createServer((req, res) => {
   if (req.url.includes('guest-session')) {
@@ -29,7 +44,7 @@ const server = http.createServer((req, res) => {
   if (mode === 'chat_fail') { res.writeHead(502); return res.end('bad gateway'); }
   if (mode === 'empty') { res.writeHead(200); return res.end('data: {"type":"done"}\n\n'); }
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  res.end(OK_SSE);
+  res.end(mode === 'track' ? TRACK_SSE : OK_SSE);
 });
 
 function delivered() {
@@ -80,8 +95,16 @@ function delivered() {
     assert.ok(d.out[0].content.includes('Navisworks MEP'));
     const items = d.out[1].content_attributes.items;
     assert.strictEqual(items.length, 1);
+    // Each fact travels in its own field — the widget cannot lay out a price,
+    // a seat count and a date that were already glued into one string.
+    assert.strictEqual(items[0].kind, 'course');
+    assert.strictEqual(items[0].price_display, '4,815 EGP');
+    assert.strictEqual(items[0].seats_available, 3);
+    assert.strictEqual(items[0].delivery, 'مسجّل');
+    assert.strictEqual(items[0].starts_at, '2026-08-20 16:00:00');
+    assert.ok(items[0].checkout_url.includes('product_id=2059'));
+    // and the flattened line stays, so a cached older widget still renders
     assert.ok(items[0].description.includes('4,815 EGP'));
-    assert.ok(items[0].description.includes('متبقٍ 3 مقعد'));
     assert.strictEqual(items[0].actions[0].text, 'اشترِ الآن');
   })();
 
@@ -102,8 +125,23 @@ function delivered() {
       await t(6, 'hi', { userData: { email: 'customer@example.com' } }, delivered()), true);
   })();
 
+  // 7) a track and its courses in one turn -> the track is shown FIRST, and
+  //    the specializations arrive as tappable choices, not as more prose
+  mode = 'track';
+  await withEnv(ON, async (t) => {
+    const d = delivered();
+    assert.strictEqual(await t(7, 'أنا في تخصص ميكانيكا', { userData: me }, d), true);
+    const items = d.out.find((m) => m.content_type === 'cards').content_attributes.items;
+    assert.deepStrictEqual(items.map((i) => i.kind), ['package', 'course']);
+    assert.strictEqual(items[0].price_from_display, '12,001 EGP');
+    assert.strictEqual(items[0].options.length, 2);
+    const chips = d.out.find((m) => m.content_type === 'input_select');
+    assert.deepStrictEqual(chips.content_attributes.items.map((c) => c.title),
+                           ['ميكانيكا', 'كهرباء']);
+  })();
+
   server.close();
-  console.log('✅ nabras router: 8 cases passed — every failure path falls back to Botpress');
+  console.log('✅ nabras router: 9 cases passed — every failure path falls back to Botpress');
 })().catch((e) => { server.close(); console.error('❌', e); process.exit(1); });
 
 // ---------------------------------------------------------------------------

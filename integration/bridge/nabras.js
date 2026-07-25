@@ -84,34 +84,77 @@ async function guestToken(cwConvId) {
   return token;
 }
 
-/** Course cards -> the shape majed-widget.js `addCard()` already renders. */
+/**
+ * Cards -> what the widget renders.
+ *
+ * Fields are passed STRUCTURED (price, rating, instructor, seats as their own
+ * keys) instead of pre-joined into one grey line: a price is not a sentence,
+ * and the widget cannot lay out what it cannot tell apart. `description` and
+ * `actions` are still filled so a cached older widget keeps working.
+ *
+ * Tracks come before courses — the track is the headline the courses sit under.
+ */
 function toWidgetCards(courseCards = [], packageCards = []) {
   const items = [];
-  for (const c of courseCards) {
-    const bits = [];
-    if (c.price_display) bits.push(c.price_display);
-    if (c.delivery) bits.push(c.delivery);
-    if (c.duration_text) bits.push(c.duration_text);
-    const nb = c.next_batch;
-    if (nb?.starts_at) {
-      const seats = nb.seats_available != null ? ` — متبقٍ ${nb.seats_available} مقعد` : '';
-      bits.push(`الدفعة القادمة ${String(nb.starts_at).slice(0, 10)}${seats}`);
-    }
-    const actions = [];
-    if (c.checkout_url) actions.push({ type: 'link', text: 'اشترِ الآن', uri: c.checkout_url });
-    if (c.url) actions.push({ type: 'link', text: 'تفاصيل الكورس', uri: c.url });
-    items.push({ title: c.title, description: bits.join(' · '),
-                 media_url: c.image_url || '', actions });
-  }
   for (const p of packageCards) {
     const bits = [];
     if (p.price_from_display) bits.push(`يبدأ من ${p.price_from_display}`);
     if (p.courses_count) bits.push(`${p.courses_count} كورس`);
     if (p.training_hours) bits.push(`${p.training_hours} ساعة`);
     if (p.attendance) bits.push(p.attendance);
-    items.push({ title: `مسار: ${p.title}`, description: bits.join(' · '),
-                 media_url: '',
-                 actions: p.url ? [{ type: 'link', text: 'تفاصيل المسار', uri: p.url }] : [] });
+    items.push({
+      kind: 'package',
+      package_id: p.package_id,
+      title: p.title,
+      price_from_display: p.price_from_display || '',
+      currency: p.currency || '',
+      courses_count: p.courses_count || 0,
+      training_hours: p.training_hours || 0,
+      attendance: p.attendance || '',
+      rating: p.rating || 0,
+      badge: p.badge || '',
+      levels: p.levels || [],
+      starts_at: p.starts_at || '',
+      options: (p.price_options || []).slice(0, 4).map((o) => ({
+        label: o.label, price_display: o.price_display,
+        was_display: o.was_display || '',
+      })),
+      url: p.url || '',
+      // legacy fallback
+      description: bits.join(' · '), media_url: '',
+      actions: p.url ? [{ type: 'link', text: 'تفاصيل المسار', uri: p.url }] : [],
+    });
+  }
+  for (const c of courseCards) {
+    const nb = c.next_batch || null;
+    const bits = [];
+    if (c.price_display) bits.push(c.price_display);
+    if (c.delivery) bits.push(c.delivery);
+    if (c.duration_text) bits.push(c.duration_text);
+    if (nb?.starts_at) bits.push(`الدفعة القادمة ${String(nb.starts_at).slice(0, 10)}`);
+    const actions = [];
+    if (c.checkout_url) actions.push({ type: 'link', text: 'اشترِ الآن', uri: c.checkout_url });
+    if (c.url) actions.push({ type: 'link', text: 'تفاصيل الكورس', uri: c.url });
+    items.push({
+      kind: 'course',
+      course_id: c.course_id,
+      title: c.title,
+      media_url: c.image_url || '',
+      price_display: c.price_display || '',
+      currency: c.currency || '',
+      rating: c.rating || 0,
+      instructor: (c.instructors || [])[0]?.name || '',
+      instructors_count: (c.instructors || []).length,
+      delivery: c.delivery || '',
+      duration_text: c.duration_text || '',
+      starts_at: nb?.starts_at || '',
+      seats_available: nb && nb.seats_available != null ? nb.seats_available : null,
+      location: nb?.location || '',
+      url: c.url || '',
+      checkout_url: c.checkout_url || '',
+      // legacy fallback
+      description: bits.join(' · '), actions,
+    });
   }
   return items;
 }
@@ -136,6 +179,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   let reply = '';
   let courseCards = [];
   let packageCards = [];
+  let chips = [];
   let handoff = null;
 
   try {
@@ -157,6 +201,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
       if (ev.type === 'token') reply += ev.content || '';
       else if (ev.type === 'cards') courseCards = ev.course_cards || [];
       else if (ev.type === 'packages') packageCards = ev.package_cards || [];
+      else if (ev.type === 'chips') chips = ev.chips || [];
       else if (ev.type === 'handoff') handoff = ev;
       else if (ev.type === 'error') throw new Error('upstream_error');
     }
@@ -165,7 +210,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     return false;
   }
 
-  if (!reply.trim() && !courseCards.length && !packageCards.length) {
+  if (!reply.trim() && !courseCards.length && !packageCards.length && !chips.length) {
     console.warn(`NABRAS returned nothing (conv ${cwConvId}) — falling back`);
     return false;
   }
@@ -181,6 +226,14 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     await deps.deliver(cwConvId, {
       id: `nb-${stamp}-c`, content: '', content_type: 'cards',
       content_attributes: { items },
+    });
+  }
+  if (chips.length) {
+    // `input_select` is the type the widget already renders as tappable
+    // choices — picking one sends its value as the next message.
+    await deps.deliver(cwConvId, {
+      id: `nb-${stamp}-s`, content: '', content_type: 'input_select',
+      content_attributes: { items: chips.slice(0, 8) },
     });
   }
   if (handoff?.requested && deps.handoff) {

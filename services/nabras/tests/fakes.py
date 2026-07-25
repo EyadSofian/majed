@@ -208,6 +208,14 @@ PACKAGES = {
          "package_id": [5, "Interior Design Professional Track"],
          "level_id": [2, "Level 2"], "product_id": [1093, "[36] 3ds Max"],
          "sequence": 11, "sale_ok": True, "website_published": True},
+        # A line whose product IS in the published catalogue. In the live
+        # database most lines resolve like this; the two above resolve to
+        # nothing here, which is exactly the "part of the path but not sold
+        # separately" case the track tool has to report instead of hiding.
+        {"id": 54, "name": "Navisworks MEP",
+         "package_id": [5, "Interior Design Professional Track"],
+         "level_id": [2, "Level 2"], "product_id": [2107, "[873] Navisworks MEP"],
+         "sequence": 12, "sale_ok": True, "website_published": True},
         {"id": 60, "name": "SewerGEMS Program",
          "package_id": [15, "Infrastructure Professional Track"],
          "level_id": False, "product_id": [1241, "[88] SewerGEMS"],
