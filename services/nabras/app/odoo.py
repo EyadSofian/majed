@@ -262,11 +262,16 @@ class Odoo:
         return {r["id"]: r for r in rows}
 
     async def fetch_all_instructors(self) -> list[dict]:
-        """Everyone whose job title mentions instructor, plus anyone sitting in
-        the two instructor departments."""
+        """Everyone who teaches: by job title (English or Arabic) or by sitting
+        in an instructor department. Titles are free text in this database, so
+        the net is deliberately wide — a trainer missing from here is a customer
+        being told their trainer does not exist."""
         return await self.search_read(
             "hr.employee",
-            ["|", ["job_title", "ilike", "instructor"],
+            ["|", "|", "|",
+             ["job_title", "ilike", "instructor"],
+             ["job_title", "ilike", "trainer"],
+             ["job_title", "ilike", "مدرب"],
              ["department_id.name", "ilike", "INSTRUCTORS"]],
             EMPLOYEE_FIELDS, order="name asc")
 

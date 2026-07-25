@@ -325,7 +325,16 @@ async def get_price(course_id: int, currency: Optional[str] = None) -> str:
 async def get_instructor(name: Optional[str] = None,
                          course_id: Optional[int] = None) -> str:
     """Look up an instructor by name, or list the instructors of a course.
-    Returns only what Engosoft records — never invent a biography."""
+
+    Names are stored in Odoo in English; customers type them in Arabic. The
+    match is done on the spelling-independent form of the name, so «عمرو كمال»
+    finds "Amr Kamal". If `matched` comes back false these are only *similar*
+    names — ask which course they mean. Never state that an instructor does not
+    exist: this reads employees, and a spelling you cannot match is not proof.
+
+    Returns only what Engosoft records — job title, department, and the courses
+    they actually teach. Never invent a biography or a credential.
+    """
     snap = await _ensure_catalog()
     if course_id:
         c = snap.courses.get(course_id)
@@ -334,22 +343,68 @@ async def get_instructor(name: Optional[str] = None,
         rows = [snap.instructors[i] for i in c.instructor_ids if i in snap.instructors]
         if not rows:
             return json.dumps({"instructors": [], "note": "not_recorded"})
-    else:
-        try:
-            everyone = await odoo.fetch_all_instructors()
-        except Exception as e:  # noqa: BLE001
-            log.exception("instructor lookup failed")
-            return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
-        needle = (name or "").strip().lower()
-        rows = [e for e in everyone
-                if not needle or needle in (e.get("name") or "").lower()]
-        if not rows:
-            return json.dumps({"instructors": [], "note": "not_found"})
-    return json.dumps([{
+        return json.dumps({"matched": True,
+                           "instructors": [_instructor_brief(e, snap) for e in rows]},
+                          ensure_ascii=False)
+
+    try:
+        everyone = await odoo.fetch_all_instructors()
+    except Exception as e:  # noqa: BLE001
+        log.exception("instructor lookup failed")
+        return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
+    # Anyone attached to a live course is a teacher of ours whatever their job
+    # title says, so they are searchable even if the directory filter missed them.
+    seen = {e["id"] for e in everyone}
+    everyone = everyone + [e for i, e in snap.instructors.items() if i not in seen]
+
+    needle = (name or "").strip()
+    if not needle:
+        return json.dumps({"matched": True, "instructors": [
+            _instructor_brief(e, snap) for e in everyone[:12]]}, ensure_ascii=False)
+
+    wanted = catalog.name_keys(needle)
+    scored = []
+    for e in everyone:
+        keys = catalog.name_keys(e.get("name") or "")
+        hits = len(wanted & keys)
+        if needle.lower() in (e.get("name") or "").lower():
+            hits += len(wanted) + 1          # a literal match outranks everything
+        if hits:
+            scored.append((hits, e))
+    scored.sort(key=lambda x: -x[0])
+    best = scored[0][0] if scored else 0
+    # every part of the typed name accounted for = we found the person
+    confident = bool(wanted) and best >= len(wanted)
+    rows = [e for h, e in scored if h == best][:6] if confident else \
+           [e for _, e in scored[:4]]
+    if not rows:
+        return json.dumps({"matched": False, "instructors": [],
+                           "note": "no_similar_name_ask_which_course"},
+                          ensure_ascii=False)
+    return json.dumps({
+        "matched": confident,
+        "note": None if confident else "similar_names_only_confirm_the_course",
+        "instructors": [_instructor_brief(e, snap) for e in rows],
+    }, ensure_ascii=False)
+
+
+def _instructor_brief(e: dict, snap: "catalog.Snapshot") -> dict:
+    """What Odoo holds about this person, plus what they actually teach.
+
+    The courses are the honest version of "what is he specialised in" — the
+    alternative is the model inferring a speciality, which is how a trainer
+    acquires a credential nobody gave them.
+    """
+    teaches = [catalog.title_for(c, LANG.get()) for c in snap.courses.values()
+               if e["id"] in c.instructor_ids]
+    dept = e.get("department_id")
+    return {
         "id": e["id"], "name": e.get("name"),
-        "title": e.get("job_title"),
-        "department": e["department_id"][1] if isinstance(e.get("department_id"), list) else None,
-    } for e in rows[:12]], ensure_ascii=False)
+        "title": e.get("job_title") or None,
+        "department": dept[1] if isinstance(dept, list) else None,
+        "teaches": teaches[:8],
+        "courses_count": len(teaches),
+    }
 
 
 ATTENDANCE_LABELS = {

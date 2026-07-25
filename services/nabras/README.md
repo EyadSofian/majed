@@ -354,6 +354,24 @@ terms, refunds, invoices, corporate deals, an existing order, certificate
 equivalence, careers. It is not an escape hatch for course questions — those
 have tools, and the tools are the answer.
 
+### Instructor names cross scripts
+
+A customer asked about «عمرو كمال» and was told no instructor of that name is in
+the database — then, one message later, was told he teaches the CFM course. The
+lookup was `needle in name.lower()` against records Odoo stores in English:
+Arabic input could never match, and "no result" was reported as "no such
+person".
+
+Names are now matched on their consonant skeleton, which is what survives
+transliteration — `عمرو → mr → Amr`, `كمال → kml → Kamal`, `محمد → mhmd →
+Mohamed`. The tool returns `matched: true` only when every part of the typed
+name is accounted for; otherwise it returns *similar* names with
+`matched: false`, and the prompt requires asking which course rather than
+denying the person exists. Anyone attached to a live course is searchable
+regardless of their job title, and every result carries the courses they
+actually teach — the honest answer to "what is he specialised in", instead of a
+credential the model made up.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.

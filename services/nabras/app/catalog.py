@@ -36,6 +36,46 @@ def tokens(text: str) -> set[str]:
             for w in _WORD.findall(text or "") if len(w) > 1}
 
 
+# Arabic letter -> its usual Latin spelling in an Engosoft instructor name.
+_TRANSLIT = {
+    "ا": "a", "أ": "a", "إ": "a", "آ": "a", "ء": "a", "ى": "a", "ع": "a",
+    "ب": "b", "ت": "t", "ة": "h", "ث": "th", "ج": "g", "ح": "h", "خ": "kh",
+    "د": "d", "ذ": "z", "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s",
+    "ض": "d", "ط": "t", "ظ": "z", "غ": "gh", "ف": "f", "ق": "q", "ك": "k",
+    "ل": "l", "م": "m", "ن": "n", "ه": "h", "و": "w", "ي": "y", "ئ": "y",
+    "ؤ": "w",
+}
+_WEAK = set("aeiouwy")
+
+
+def name_key(word: str) -> str:
+    """The consonant skeleton of a name, in either script.
+
+    People type «عمرو كمال»; Odoo stores "Amr Kamal". Matching the two as
+    strings finds nothing, and the bot then tells a customer that a real
+    instructor does not exist. Vowels and the weak letters (و / ي) are exactly
+    what differs between spellings, so both sides collapse to what is stable:
+        عمرو → amrw → mr   ·   Amr → mr
+        كمال → kmal → kml  ·   Kamal → kml
+    """
+    latin = "".join(_TRANSLIT.get(ch, ch) for ch in (word or "").lower())
+    out: list[str] = []
+    for ch in latin:
+        if not ch.isalnum() or ch in _WEAK:
+            continue
+        if not out or out[-1] != ch:      # "abbas" and "abas" are one name
+            out.append(ch)
+    return "".join(out)
+
+
+def name_keys(text: str) -> set[str]:
+    """Skeletons of every meaningful word, minus the honorifics that are not
+    part of anyone's name."""
+    drop = {"", "d", "dr", "ng", "eng", "mr", "ms", "prof", "m"}
+    keys = {name_key(w) for w in _WORD.findall(text or "")}
+    return {k for k in keys if k and k not in drop and len(k) > 1}
+
+
 def _ar_stem(word: str) -> str:
     """Drop the Arabic definite article. Customers type "الكهربا" and
     "التصميم"; without this they match neither the alias table nor a package

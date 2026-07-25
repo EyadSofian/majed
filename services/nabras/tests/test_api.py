@@ -878,3 +878,40 @@ async def test_deferring_discards_the_turn_so_the_other_bot_can_answer(
     assert kinds[-1] == "done"
     assert "cards" not in kinds and "packages" not in kinds
     assert next(e for e in events if e["type"] == "defer")["reason"] == "instalment terms"
+
+
+# ============================================================== instructors
+async def _ask_instructor(**args) -> dict:
+    from app import tools as tools_mod
+    return json.loads(await tools_mod.get_instructor.ainvoke(args))
+
+
+async def test_arabic_spelling_finds_the_english_record(loaded_catalog):
+    """A customer asked about «عمرو كمال» and was told no such instructor is in
+    the database — while he teaches a course on the site. Names are stored in
+    English; a substring match can never bridge that."""
+    from app.catalog import name_key
+    assert name_key("عمرو") == name_key("Amr")
+    assert name_key("كمال") == name_key("Kamal")
+    assert name_key("محمد") == name_key("Mohamed")
+
+    out = await _ask_instructor(name="أيمن عاطف")
+    assert out["matched"] is True
+    assert out["instructors"][0]["name"] == "Dr.Ayman Atef Ali Fawzi"
+    # what he teaches, instead of the model inventing a speciality
+    assert out["instructors"][0]["teaches"]
+    assert out["instructors"][0]["title"] == "PRIMAVERA & PMP Instructor"
+
+
+async def test_an_unmatched_name_is_never_reported_as_nonexistent(loaded_catalog):
+    out = await _ask_instructor(name="خالد الشناوي")
+    assert out["matched"] is False
+    # the tool tells the model what to do instead of denying the person exists
+    assert "ask_which_course" in out["note"] or "confirm_the_course" in out["note"]
+
+
+async def test_asking_by_course_is_the_exact_answer(loaded_catalog):
+    out = await _ask_instructor(course_id=2092)
+    assert out["matched"] is True
+    assert {i["name"] for i in out["instructors"]} == {
+        "Dr.Ayman Atef Ali Fawzi", "Eng.Mohamed Hamdy"}
