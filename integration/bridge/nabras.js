@@ -108,8 +108,24 @@ async function guestToken(cwConvId) {
  *
  * Tracks come before courses — the track is the headline the courses sit under.
  */
-function toWidgetCards(courseCards = [], packageCards = []) {
+function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []) {
   const items = [];
+  for (const i of instructorCards) {
+    items.push({
+      kind: 'instructor',
+      instructor_id: i.id,
+      title: i.name,
+      job_title: i.title || '',
+      department: i.department || '',
+      media_url: i.image_url || '',
+      courses_count: i.courses_count || 0,
+      teaches: (i.teaches || []).slice(0, 4),
+      // legacy fallback
+      description: [i.title, i.courses_count ? `${i.courses_count} كورس` : '']
+        .filter(Boolean).join(' · '),
+      actions: [],
+    });
+  }
   for (const p of packageCards) {
     const bits = [];
     if (p.price_from_display) bits.push(`يبدأ من ${p.price_from_display}`);
@@ -194,6 +210,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   let courseCards = [];
   let packageCards = [];
   let chips = [];
+  let instructorCards = [];
   let handoff = null;
   let deferred = null;
 
@@ -217,6 +234,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
       else if (ev.type === 'cards') courseCards = ev.course_cards || [];
       else if (ev.type === 'packages') packageCards = ev.package_cards || [];
       else if (ev.type === 'chips') chips = ev.chips || [];
+      else if (ev.type === 'instructors') instructorCards = ev.instructor_cards || [];
       else if (ev.type === 'defer') deferred = ev;
       else if (ev.type === 'handoff') handoff = ev;
       else if (ev.type === 'error') throw new Error('upstream_error');
@@ -235,7 +253,8 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     return false;
   }
 
-  if (!reply.trim() && !courseCards.length && !packageCards.length && !chips.length) {
+  if (!reply.trim() && !courseCards.length && !packageCards.length &&
+      !chips.length && !instructorCards.length) {
     console.warn(`NABRAS returned nothing (conv ${cwConvId}) — falling back`);
     return false;
   }
@@ -246,7 +265,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
       id: `nb-${stamp}-t`, content: reply.trim(), content_type: 'text',
     });
   }
-  const items = toWidgetCards(courseCards, packageCards);
+  const items = toWidgetCards(courseCards, packageCards, instructorCards);
   if (items.length) {
     await deps.deliver(cwConvId, {
       id: `nb-${stamp}-c`, content: '', content_type: 'cards',

@@ -947,3 +947,20 @@ async def test_an_id_that_is_not_a_person_does_not_pretend_to_be_one(
     out = await _ask_instructor(instructor_id=999999)
     assert out["matched"] is False
     assert out["instructors"] == []
+
+
+async def test_instructor_answers_carry_a_card_with_a_photo(client_factory):
+    """A trainer is a face and a track record; a paragraph of text is not the
+    same thing to someone deciding whether to pay."""
+    script = [{"tool": "get_instructor", "args": {"instructor_id": 4129}},
+              {"text": "ده المدرب."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "مين مدرب PMP؟")
+        events = parse_sse(r.text)
+    card = next(e for e in events if e["type"] == "instructors")["instructor_cards"][0]
+    assert card["name"] == "Dr.Ayman Atef Ali Fawzi"
+    assert card["image_url"] == (
+        "https://engosoft.com/web/image/hr.employee/4129/image_512")
+    assert card["teaches"] and card["courses_count"] >= 1

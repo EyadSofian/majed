@@ -57,48 +57,65 @@ header p{margin:0;color:var(--dim);font-size:14.5px;max-width:62ch}
   color:#7c5cff;text-decoration:none;border-top:1px solid var(--line);width:100%}
 
 /* ---- الشكل الجديد: منقول حرفيًا من majed-widget.js ---- */
-.mjd-crs,.mjd-pkg{align-self:stretch;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;
+.mjd-crs,.mjd-pkg,.mjd-ins{align-self:stretch;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;
   overflow:hidden;box-shadow:0 6px 18px rgba(15,30,66,.06)}
-.stage[data-theme="dark"] .mjd-crs,.stage[data-theme="dark"] .mjd-pkg{box-shadow:none}
-.mjd-crs-top{display:flex;gap:11px;padding:12px 13px 0}
-.mjd-crs-th{width:66px;height:66px;flex:0 0 66px;border-radius:13px;object-fit:cover;
+.stage[data-theme="dark"] .mjd-crs,.stage[data-theme="dark"] .mjd-pkg,.stage[data-theme="dark"] .mjd-ins{box-shadow:none}
+.mjd-crs-top{display:flex;gap:10px;padding:10px 11px 0}
+.mjd-crs-th{width:52px;height:52px;flex:0 0 52px;border-radius:11px;object-fit:cover;
   background:linear-gradient(135deg,rgba(124,92,255,.18),rgba(6,182,212,.18));display:block}
 .mjd-crs-hd{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;padding-top:1px}
-.mjd-crs-t{font-size:14px;font-weight:800;line-height:1.45;color:var(--text);
+.mjd-crs-t{font-size:13.5px;font-weight:800;line-height:1.4;color:var(--text);
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mjd-crs-by{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .mjd-crs-by .mjd-in{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mjd-rt{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-weight:800;font-size:12px}
-.mjd-tags{display:flex;flex-wrap:wrap;gap:6px;padding:10px 13px 0}
-.mjd-tag{font-size:11.5px;font-weight:700;line-height:1;padding:6px 9px;border-radius:8px;
+.mjd-tags{display:flex;flex-wrap:wrap;gap:5px;padding:8px 11px 0}
+.mjd-tag{font-size:11px;font-weight:700;line-height:1;padding:5px 8px;border-radius:7px;
   background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
 .mjd-tag.mjd-tag-b{background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.24);color:#7c5cff}
 .mjd-tag.mjd-tag-hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:#d97706}
-.mjd-crs-ft{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-top:11px;border-top:1px solid var(--line)}
-.mjd-price{font-size:16.5px;font-weight:800;line-height:1.1;color:#7c5cff;white-space:nowrap;
+.mjd-crs-ft{display:flex;align-items:center;gap:9px;padding:9px 11px;margin-top:9px;border-top:1px solid var(--line)}
+.mjd-price{font-size:15px;font-weight:800;line-height:1.15;color:#7c5cff;white-space:nowrap;
   font-variant-numeric:tabular-nums}
 .mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin-inline-start:3px}
 .mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}
 .mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}
 .mjd-cta{display:flex;gap:7px;margin-inline-start:auto}
-.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:10px;font:inherit;font-size:12.5px;
-  font-weight:800;text-decoration:none;padding:9px 13px;cursor:pointer;border:1px solid transparent;white-space:nowrap}
+.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:9px;font:inherit;font-size:12px;
+  font-weight:800;text-decoration:none;padding:8px 11px;cursor:pointer;border:1px solid transparent;white-space:nowrap}
 .mjd-buy{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;box-shadow:0 6px 16px rgba(124,92,255,.3)}
 .mjd-det{background:var(--surf2);color:var(--text);border-color:var(--line)}
-.mjd-pkg-hd{display:flex;align-items:center;gap:8px;padding:11px 13px;
+.mjd-pkg-hd{display:flex;align-items:center;gap:8px;padding:9px 11px;
   background:linear-gradient(135deg,rgba(124,92,255,.14),rgba(6,182,212,.14));border-bottom:1px solid var(--line)}
 .mjd-pkg-hd b{font-size:14px;font-weight:800;line-height:1.4;color:var(--text);min-width:0}
 .mjd-pkg-kd{font-size:10.5px;font-weight:800;color:#7c5cff;background:var(--surf);border:1px solid rgba(124,92,255,.3);
   border-radius:999px;padding:4px 8px;white-space:nowrap;flex:0 0 auto}
-.mjd-pkg-op{display:flex;flex-direction:column;gap:1px;padding:8px 13px 0}
-.mjd-pkg-op div{display:flex;align-items:baseline;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.mjd-pkg-op{display:flex;flex-direction:column;gap:1px;padding:7px 11px 0}
+.mjd-pkg-op div{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--line)}
 .mjd-pkg-op div:last-child{border-bottom:0}
 .mjd-pkg-op span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mjd-pkg-op b{margin-inline-start:auto;font-weight:800;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}
 .mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:600}
 .mjd-crs-by svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}
 .mjd-buy svg{width:14px;height:14px;flex:0 0 14px}
+.mjd-ins{display:flex;gap:10px;align-items:flex-start;padding:10px 11px}
+.mjd-ins-ph{width:46px;height:46px;flex:0 0 46px;border-radius:50%;object-fit:cover;
+  background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;display:grid;place-items:center;
+  font-size:15px;font-weight:800;border:1.5px solid rgba(124,92,255,.25)}
+.mjd-ins-in{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.mjd-ins-in b{font-size:13.5px;font-weight:800;line-height:1.4;color:var(--text)}
+.mjd-ins-in s{text-decoration:none;font-size:11.5px;color:var(--muted);line-height:1.5}
+.mjd-ins-cs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.mjd-ins-cs span{font-size:10.5px;font-weight:700;padding:4px 7px;border-radius:6px;
+  background:var(--surf2);border:1px solid var(--line);color:var(--muted);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* the phone stage mirrors the widget's own narrow-screen rules */
+.stage.phone{width:330px;margin-inline:auto}
+.stage.phone .mjd-crs-th{width:46px;height:46px;flex:0 0 46px}
+.stage.phone .mjd-crs-ft{flex-wrap:wrap;gap:8px}
+.stage.phone .mjd-cta{margin-inline-start:0;width:100%}
+.stage.phone .mjd-buy,.stage.phone .mjd-det{flex:1;justify-content:center}
 .mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:92%}
 .mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;
   padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
@@ -137,7 +154,21 @@ header p{margin:0;color:var(--dim);font-size:14.5px;max-width:62ch}
     <section class="col">
       <h2><i class="dot new"></i>بعد <s>الشكل الجديد</s></h2>
       <div class="stage" data-theme="light">
-        <div class="bub">دي خطة مسار التصميم الداخلي — وابتدي من الكورس ده.</div>
+        <div class="bub">أيوة، ده مدرب PMP عندنا 👇</div>
+        <div class="mjd-ins">
+          <div class="mjd-ins-ph">AA</div>
+          <div class="mjd-ins-in">
+            <b>Dr. Ayman Atef Ali Fawzi</b>
+            <s>PRIMAVERA &amp; PMP Instructor · 3 كورسات</s>
+            <div class="mjd-ins-cs">
+              <span>PMP Preparation Course</span>
+              <span>Primavera P6</span>
+              <span>CAPM</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bub">ودي خطة مسار التصميم الداخلي — ابتدي من الكورس ده.</div>
 
         <div class="mjd-pkg">
           <div class="mjd-pkg-hd"><span class="mjd-pkg-kd">مسار متكامل</span><b>Interior Design Professional Track</b></div>
@@ -255,6 +286,44 @@ header p{margin:0;color:var(--dim);font-size:14.5px;max-width:62ch}
     </div>
   </section>
 
+  <section class="col">
+    <h2><i class="dot new"></i>موبايل <s>عرض ضيّق — الأزرار بتاخد سطر لوحدها</s></h2>
+    <div class="stage phone" data-theme="light">
+      <div class="bub">دي أقرب دفعة متاحة 👇</div>
+      <div class="mjd-crs">
+        <div class="mjd-crs-top">
+          <div class="mjd-crs-th"></div>
+          <div class="mjd-crs-hd">
+            <b class="mjd-crs-t">PMP Preparation Course - 8th Edition</b>
+            <div class="mjd-crs-by">
+              <span class="mjd-in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Dr. Ayman Atef</span>
+              <span class="mjd-rt">★ 5.0</span>
+            </div>
+          </div>
+        </div>
+        <div class="mjd-tags">
+          <span class="mjd-tag mjd-tag-b">حضوري + تسجيل</span>
+          <span class="mjd-tag">36 ساعة</span>
+          <span class="mjd-tag mjd-tag-hot">آخر 4 مقاعد</span>
+        </div>
+        <div class="mjd-crs-ft">
+          <div class="mjd-price">6,900<i>EGP</i></div>
+          <div class="mjd-cta">
+            <a class="mjd-buy" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>اشترِ الآن</a>
+            <a class="mjd-det" href="#">التفاصيل</a>
+          </div>
+        </div>
+      </div>
+      <div class="mjd-ins">
+        <div class="mjd-ins-ph">MM</div>
+        <div class="mjd-ins-in">
+          <b>Mohamed Mostafa Aboauf</b>
+          <s>BIM Architecture Instructor · 5 كورسات</s>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="notes">
     <h2>اللي اتغيّر</h2>
     <ul>
@@ -263,6 +332,9 @@ header p{margin:0;color:var(--dim);font-size:14.5px;max-width:62ch}
       <li><b>المواعيد والمقاعد</b> بقت شارات: تاريخ بالعربي («تبدأ 20 أغسطس») و«آخر 3 مقاعد» بلون تنبيه لما تقل عن 5.</li>
       <li><b>المسار ليه كارت خاص</b> بكل أسعاره — مسجّل وأونلاين وحضوري لكل دفعة — لأن الباقة مالهاش سعر واحد.</li>
       <li><b>التخصصات أزرار</b> بيضغط عليها بدل ما يكتبها، وبتوصل للبوت بالاسم الإنجليزي الصح جوّه أودو.</li>
+      <li><b>كارت للمحاضر بصورته</b> واسمه ومسماه والكورسات اللي بيدّيها — ولو الصورة مش متاحة بيظهر الحرفين الأولين بدل إطار مكسور.</li>
+      <li><b>الكروت رشّقت</b>: الصورة 66→52، والحشو والخطوط والأزرار اتظبطت — الكارت وفّر ~35px، يعني كارتين ونص في الشاشة بدل واحد ونص.</li>
+      <li><b>الموبايل</b>: النافذة بقت <code>100dvh</code> (مش 100vh اللي بيتقص تحت شريط المتصفح)، والأزرار بتاخد سطر كامل بعرض متساوي بدل ما تتزنق جنب السعر.</li>
       <li><b>لينك الكورس بيفتح تاب جديد</b> والشات بيفضل مفتوح ومعاه المحادثة كاملة في التاب الجديد كمان.</li>
     </ul>
   </section>

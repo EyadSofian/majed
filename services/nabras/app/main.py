@@ -16,7 +16,7 @@ from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
 from .tools import (CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK, HANDOFF_SINK,
-                    LANG, PACKAGE_SINK)
+                    INSTRUCTOR_SINK, LANG, PACKAGE_SINK)
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -169,6 +169,7 @@ async def chat(req: ChatRequest, request: Request,
         cur_tok = CURRENCY.set(currency)
         lang_tok = LANG.set(lang)
         defer_tok = DEFER_SINK.set({})
+        instr_tok = INSTRUCTOR_SINK.set([])
         try:
             async for chunk, meta in graph.astream(
                 {"messages": [HumanMessage(content=ctx)]},
@@ -199,6 +200,9 @@ async def chat(req: ChatRequest, request: Request,
             if packages:
                 yield _ev("packages", {"package_cards": packages,
                                        "currency": currency})
+            instructors = INSTRUCTOR_SINK.get() or []
+            if instructors:
+                yield _ev("instructors", {"instructor_cards": instructors})
             chips = CHIP_SINK.get() or []
             if chips:
                 yield _ev("chips", {"chips": chips})
@@ -218,6 +222,7 @@ async def chat(req: ChatRequest, request: Request,
             CURRENCY.reset(cur_tok)
             LANG.reset(lang_tok)
             DEFER_SINK.reset(defer_tok)
+            INSTRUCTOR_SINK.reset(instr_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

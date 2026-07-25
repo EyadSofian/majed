@@ -18,7 +18,7 @@ from langchain_core.tools import tool
 
 from . import catalog
 from .config import get_settings
-from .odoo import OdooAccessDenied, abs_url, odoo
+from .odoo import OdooAccessDenied, abs_url, image_url, odoo
 from .schemas import (Batch, CourseCard, Instructor, PackageCard,
                       PriceOption)
 
@@ -47,6 +47,10 @@ LANG: contextvars.ContextVar[str] = contextvars.ContextVar(
 # the same message. Mutated in place like every sink above.
 DEFER_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "nabras_defer", default=None)
+# Instructor cards — a trainer is a face and a track record, and reading that
+# as a paragraph of text is not the same as seeing it.
+INSTRUCTOR_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "nabras_instructors", default=None)
 
 
 def _cards() -> list:
@@ -61,6 +65,11 @@ def _packages() -> list:
 
 def _chips() -> list:
     cur = CHIP_SINK.get()
+    return cur if cur is not None else []
+
+
+def _instructor_cards() -> list:
+    cur = INSTRUCTOR_SINK.get()
     return cur if cur is not None else []
 
 
@@ -423,13 +432,18 @@ def _instructor_brief(e: dict, snap: "catalog.Snapshot") -> dict:
     teaches = [catalog.title_for(c, LANG.get()) for c in snap.courses.values()
                if e["id"] in c.instructor_ids]
     dept = e.get("department_id")
-    return {
-        "id": e["id"], "name": e.get("name"),
-        "title": e.get("job_title") or None,
-        "department": dept[1] if isinstance(dept, list) else None,
-        "teaches": teaches[:8],
-        "courses_count": len(teaches),
-    }
+    card = Instructor(
+        id=e["id"], name=(e.get("name") or "").strip(),
+        title=e.get("job_title") or None,
+        # hr.employee images are binary columns; the URL is derived from the id
+        # exactly like a product's. If the site does not serve it publicly the
+        # widget falls back to initials rather than a broken frame.
+        image_url=image_url("hr.employee", e["id"], "image_512"),
+        department=dept[1] if isinstance(dept, list) else None,
+        teaches=teaches[:8], courses_count=len(teaches),
+    ).model_dump()
+    _instructor_cards().append(card)
+    return card
 
 
 ATTENDANCE_LABELS = {

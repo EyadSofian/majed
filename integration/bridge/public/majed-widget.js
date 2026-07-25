@@ -511,51 +511,74 @@
     '.mjd-card a,.mjd-card button{display:flex;align-items:center;gap:8px;padding:11px 13px;font:inherit;font-size:13px;font-weight:700;color:#7c5cff;text-decoration:none;cursor:pointer;border:0;background:transparent;border-top:1px solid var(--line);width:100%;text-align:start}',
     '.mjd-card a:hover,.mjd-card button:hover{background:var(--surf2)}',
     '/* course & track cards — a price is not a sentence, so each fact gets its own slot */',
-    '.mjd-crs,.mjd-pkg{align-self:stretch;background:var(--surf);border:1px solid var(--botbd);border-radius:16px;',
+    '.mjd-crs,.mjd-pkg,.mjd-ins{align-self:stretch;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;',
     'overflow:hidden;animation:mjdRise .32s cubic-bezier(.2,.9,.3,1.1) both;box-shadow:0 6px 18px rgba(15,30,66,.06)}',
-    '#mjd-panel[data-theme="dark"] .mjd-crs,#mjd-panel[data-theme="dark"] .mjd-pkg{box-shadow:none}',
-    '.mjd-crs:hover,.mjd-pkg:hover{border-color:rgba(124,92,255,.35);box-shadow:0 10px 26px rgba(124,92,255,.14)}',
-    '.mjd-crs-top{display:flex;gap:11px;padding:12px 13px 0}',
-    '.mjd-crs-th{width:66px;height:66px;flex:0 0 66px;border-radius:13px;object-fit:cover;background:',
+    '#mjd-panel[data-theme="dark"] .mjd-crs,#mjd-panel[data-theme="dark"] .mjd-pkg,',
+    '#mjd-panel[data-theme="dark"] .mjd-ins{box-shadow:none}',
+    '.mjd-crs:hover,.mjd-pkg:hover,.mjd-ins:hover{border-color:rgba(124,92,255,.35);box-shadow:0 10px 26px rgba(124,92,255,.14)}',
+    '.mjd-crs-top{display:flex;gap:10px;padding:10px 11px 0}',
+    '.mjd-crs-th{width:52px;height:52px;flex:0 0 52px;border-radius:11px;object-fit:cover;background:',
     'linear-gradient(135deg,rgba(124,92,255,.18),rgba(6,182,212,.18));display:block}',
     '.mjd-crs-hd{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;padding-top:1px}',
-    '.mjd-crs-t{font-size:14px;font-weight:800;line-height:1.45;color:var(--text);',
+    '.mjd-crs-t{font-size:13.5px;font-weight:800;line-height:1.4;color:var(--text);',
     'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
     '.mjd-crs-by{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:var(--muted)}',
     '.mjd-crs-by .mjd-in{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;',
     'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-rt{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-weight:800;font-size:12px}',
-    '.mjd-tags{display:flex;flex-wrap:wrap;gap:6px;padding:10px 13px 0}',
-    '.mjd-tag{font-size:11.5px;font-weight:700;line-height:1;padding:6px 9px;border-radius:8px;',
+    '.mjd-tags{display:flex;flex-wrap:wrap;gap:5px;padding:8px 11px 0}',
+    '.mjd-tag{font-size:11px;font-weight:700;line-height:1;padding:5px 8px;border-radius:7px;',
     'background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}',
     '.mjd-tag.mjd-tag-b{background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.24);color:#7c5cff}',
     '.mjd-tag.mjd-tag-hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:#d97706}',
-    '.mjd-crs-ft{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-top:11px;border-top:1px solid var(--line)}',
-    '.mjd-price{font-size:16.5px;font-weight:800;line-height:1.1;color:#7c5cff;white-space:nowrap}',
+    '.mjd-crs-ft{display:flex;align-items:center;gap:9px;padding:9px 11px;margin-top:9px;border-top:1px solid var(--line)}',
+    '.mjd-price{font-size:15px;font-weight:800;line-height:1.15;color:#7c5cff;white-space:nowrap;font-variant-numeric:tabular-nums}',
     '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin-inline-start:3px}',
     '.mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}',
     '.mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}',
     '.mjd-cta{display:flex;gap:7px;margin-inline-start:auto}',
-    '.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:10px;font:inherit;font-size:12.5px;',
-    'font-weight:800;text-decoration:none;padding:9px 13px;cursor:pointer;border:1px solid transparent;white-space:nowrap}',
+    '.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:9px;font:inherit;font-size:12px;',
+    'font-weight:800;text-decoration:none;padding:8px 11px;cursor:pointer;border:1px solid transparent;white-space:nowrap}',
     '.mjd-buy{background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;box-shadow:0 6px 16px rgba(124,92,255,.3)}',
     '.mjd-buy:hover{filter:brightness(1.07)}',
     '.mjd-det{background:var(--surf2);color:var(--text);border-color:var(--line)}',
     '.mjd-det:hover{border-color:rgba(124,92,255,.4);color:#7c5cff}',
     '/* track card */',
-    '.mjd-pkg-hd{display:flex;align-items:center;gap:8px;padding:11px 13px;',
+    '.mjd-pkg-hd{display:flex;align-items:center;gap:8px;padding:9px 11px;',
     'background:linear-gradient(135deg,rgba(124,92,255,.14),rgba(6,182,212,.14));border-bottom:1px solid var(--line)}',
     '.mjd-pkg-hd b{font-size:14px;font-weight:800;line-height:1.4;color:var(--text);min-width:0}',
     '.mjd-pkg-kd{font-size:10.5px;font-weight:800;color:#7c5cff;background:var(--surf);border:1px solid rgba(124,92,255,.3);',
     'border-radius:999px;padding:4px 8px;white-space:nowrap;flex:0 0 auto}',
-    '.mjd-pkg-op{display:flex;flex-direction:column;gap:1px;padding:8px 13px 0}',
-    '.mjd-pkg-op div{display:flex;align-items:baseline;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line)}',
+    '.mjd-pkg-op{display:flex;flex-direction:column;gap:1px;padding:7px 11px 0}',
+    '.mjd-pkg-op div{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--line)}',
     '.mjd-pkg-op div:last-child{border-bottom:0}',
     '.mjd-pkg-op span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-pkg-op b{margin-inline-start:auto;font-weight:800;color:var(--text);white-space:nowrap}',
     '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:600}',
     '.mjd-crs-by svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}',
     '.mjd-buy svg{width:14px;height:14px;flex:0 0 14px}',
+    '/* instructor card — a trainer is a face and a track record */',
+    '.mjd-ins{display:flex;gap:10px;align-items:flex-start;padding:10px 11px}',
+    '.mjd-ins-ph{width:46px;height:46px;flex:0 0 46px;border-radius:50%;object-fit:cover;',
+    'background:linear-gradient(135deg,#7c5cff,#06b6d4);color:#fff;display:grid;place-items:center;',
+    'font-size:15px;font-weight:800;border:1.5px solid rgba(124,92,255,.25)}',
+    '.mjd-ins-in{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}',
+    '.mjd-ins-in b{font-size:13.5px;font-weight:800;line-height:1.4;color:var(--text)}',
+    '.mjd-ins-in s{text-decoration:none;font-size:11.5px;color:var(--muted);line-height:1.5}',
+    '.mjd-ins-cs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}',
+    '.mjd-ins-cs span{font-size:10.5px;font-weight:700;padding:4px 7px;border-radius:6px;',
+    'background:var(--surf2);border:1px solid var(--line);color:var(--muted);',
+    'max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '/* narrow panels (phones, or a short window): keep cards readable, not wide */',
+    '@media (max-width:520px){',
+    '  #mjd-panel{width:calc(100vw - 24px);height:calc(100dvh - 96px)}',
+    '  .mjd-bd{padding:12px 10px;gap:10px}',
+    '  .mjd-crs-th{width:46px;height:46px;flex:0 0 46px}',
+    '  .mjd-crs-ft{flex-wrap:wrap;gap:8px}',
+    '  .mjd-cta{margin-inline-start:0;width:100%}',
+    '  .mjd-buy,.mjd-det{flex:1;justify-content:center}',
+    '  .mjd-tag{font-size:10.5px}',
+    '}',
     '.mjd-options{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;animation:mjdRise .3s ease both}',
     '.mjd-opt{border:1px solid rgba(124,92,255,.28);background:var(--surf);color:#7c5cff;border-radius:999px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}',
     '.mjd-opt:hover{background:var(--surf2)}',
@@ -1200,6 +1223,31 @@
       '" target="_blank" rel="noopener">التفاصيل</a>';
     return h + '</div></div>';
   }
+  // A photo that 404s (Odoo may not serve employee images publicly) must not
+  // leave a broken frame — initials in the brand gradient read as intentional.
+  function initials(name) {
+    var parts = String(name || '').replace(/^(د|م|أ|Dr|Eng|Mr|Ms)\.?\s*/i, '')
+      .trim().split(/\s+/).filter(Boolean);
+    return (parts.slice(0, 2).map(function (w) { return w[0]; }).join('') || '؟')
+      .toUpperCase();
+  }
+  function instructorCardHtml(it) {
+    var ph = it.media_url
+      ? '<img class="mjd-ins-ph" src="' + esc(it.media_url) + '" alt="" ' +
+        'onerror="this.outerHTML=\'<div class=&quot;mjd-ins-ph&quot;>' +
+        esc(initials(it.title)) + '</div>\'"/>'
+      : '<div class="mjd-ins-ph">' + esc(initials(it.title)) + '</div>';
+    var h = ph + '<div class="mjd-ins-in"><b>' + esc(it.title) + '</b>';
+    var sub = [it.job_title, it.courses_count ? it.courses_count + ' كورس' : '']
+      .filter(Boolean).join(' · ');
+    if (sub) h += '<s>' + esc(sub) + '</s>';
+    if ((it.teaches || []).length) {
+      h += '<div class="mjd-ins-cs">' +
+        it.teaches.map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') +
+        '</div>';
+    }
+    return h + '</div>';
+  }
   function packageCardHtml(it) {
     var h = '<div class="mjd-pkg-hd"><span class="mjd-pkg-kd">مسار متكامل</span><b>' +
       esc(it.title) + '</b></div>';
@@ -1231,9 +1279,12 @@
     var items = (attrs && attrs.items) || [];
     items.forEach(function (it) {
       var card;
-      if (it.kind === 'course' || it.kind === 'package') {
-        card = inject('div', { class: it.kind === 'course' ? 'mjd-crs' : 'mjd-pkg' },
-          it.kind === 'course' ? courseCardHtml(it) : packageCardHtml(it));
+      if (it.kind === 'course') {
+        card = inject('div', { class: 'mjd-crs' }, courseCardHtml(it));
+      } else if (it.kind === 'package') {
+        card = inject('div', { class: 'mjd-pkg' }, packageCardHtml(it));
+      } else if (it.kind === 'instructor') {
+        card = inject('div', { class: 'mjd-ins' }, instructorCardHtml(it));
       } else {
         // Botpress cards keep the original renderer, unchanged
         var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +

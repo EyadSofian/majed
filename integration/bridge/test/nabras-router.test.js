@@ -31,6 +31,9 @@ const TRACK_SSE = [
     '"price_display":"15,000 EGP"}]}]}',
   'data: {"type":"chips","chips":[{"title":"ميكانيكا","value":"أنا في تخصص Mechanical"},' +
     '{"title":"كهرباء","value":"أنا في تخصص Electrical"}]}',
+  'data: {"type":"instructors","instructor_cards":[{"id":4129,"name":"Dr.Ayman Atef",' +
+    '"title":"PMP Instructor","image_url":"https://engosoft.com/web/image/hr.employee/4129/image_512",' +
+    '"courses_count":3,"teaches":["PMP","Primavera"]}]}',
   'data: {"type":"done"}', '',
 ].join('\n');
 
@@ -139,9 +142,15 @@ function delivered() {
     const d = delivered();
     assert.strictEqual(await t(7, 'أنا في تخصص ميكانيكا', { userData: me }, d), true);
     const items = d.out.find((m) => m.content_type === 'cards').content_attributes.items;
-    assert.deepStrictEqual(items.map((i) => i.kind), ['package', 'course']);
-    assert.strictEqual(items[0].price_from_display, '12,001 EGP');
-    assert.strictEqual(items[0].options.length, 2);
+    // the instructor leads: it is the answer to "who teaches this?", and the
+    // track and its courses are the context for it
+    assert.deepStrictEqual(items.map((i) => i.kind),
+                           ['instructor', 'package', 'course']);
+    assert.strictEqual(items[0].media_url,
+                       'https://engosoft.com/web/image/hr.employee/4129/image_512');
+    assert.deepStrictEqual(items[0].teaches, ['PMP', 'Primavera']);
+    assert.strictEqual(items[1].price_from_display, '12,001 EGP');
+    assert.strictEqual(items[1].options.length, 2);
     const chips = d.out.find((m) => m.content_type === 'input_select');
     assert.deepStrictEqual(chips.content_attributes.items.map((c) => c.title),
                            ['ميكانيكا', 'كهرباء']);

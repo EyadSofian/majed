@@ -37,6 +37,10 @@ class Instructor(BaseModel):
     id: int
     name: str
     title: Optional[str] = None
+    image_url: Optional[str] = None
+    department: Optional[str] = None
+    courses_count: int = 0
+    teaches: list[str] = Field(default_factory=list)
 
 
 class CourseCard(BaseModel):
