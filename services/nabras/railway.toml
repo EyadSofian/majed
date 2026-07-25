@@ -1,0 +1,12 @@
+# Railway service config for ماجد v2 (codename: nabras).
+# Set the service Root Directory to `services/nabras` in the Railway UI so this
+# file and the Dockerfile are the build context.
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
