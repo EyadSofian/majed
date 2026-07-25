@@ -413,11 +413,34 @@ def _by_package(rows: list[dict]) -> dict[int, list]:
     return out
 
 
+def _merged_lines(data: dict) -> list[dict]:
+    """A track has TWO line models in Odoo: the recorded list and the attendance
+    list. A course can sit in either or both, so the path the trainee follows is
+    the union — reading one model alone hides half the track."""
+    rows = list(data.get("lines") or [])
+
+    def key(r: dict):
+        pid, prod = r.get("package_id"), r.get("product_id")
+        if isinstance(pid, list) and isinstance(prod, list):
+            return (pid[0], prod[0])
+        return None
+
+    seen = {k for k in (key(r) for r in rows) if k}
+    for r in data.get("attendee_lines") or []:
+        k = key(r)
+        if k and k in seen:
+            continue
+        if k:
+            seen.add(k)
+        rows.append(r)
+    return rows
+
+
 def _package_index(data: dict) -> dict:
     """Group every child model by package once, so both package tools read the
     same structure instead of re-deriving it."""
     return {
-        "lines": _by_package(data.get("lines", [])),
+        "lines": _by_package(_merged_lines(data)),
         "levels": _by_package(data.get("levels", [])),
         "groups": _by_package(data.get("groups", [])),
         "outcomes": {o["id"]: o.get("name", "") for o in data.get("outcomes", [])},
@@ -639,7 +662,7 @@ def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Option
     q = catalog.tokens(query)
     if not q or not data.get("available"):
         return None
-    lines_by = _by_package(data.get("lines", []))
+    lines_by = _by_package(_merged_lines(data))
     spec_tokens = _ALIAS_TOKENS.get(spec or "", set()) | catalog.tokens(spec or "")
     categories = catalog.snapshot().categories
     best, best_score = None, 0.0

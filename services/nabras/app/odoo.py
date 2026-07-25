@@ -272,10 +272,16 @@ class Odoo:
                  "badge_text", "levels_ids", "product_ids", "groups_ids",
                  "similar_packages_ids", "write_date"],
                 order="sequence asc")
+            line_fields = ["id", "name", "package_id", "level_id", "product_id",
+                           "sequence", "sale_ok"]
             lines = await self.search_read(
                 "training.package.product.line", [["website_published", "=", True]],
-                ["id", "name", "package_id", "level_id", "product_id",
-                 "sequence", "sale_ok"])
+                line_fields)
+            # The attendance courses of a track live in their own model. Without
+            # them the path shows only what is sold as recorded.
+            attendee_lines = await self.search_read(
+                "training.package.attendee.product.line",
+                [["website_published", "=", True]], line_fields)
             levels = await self.search_read(
                 "training.package.level", [],
                 ["id", "name", "package_id", "sequence",
@@ -294,12 +300,13 @@ class Odoo:
             log.warning("packages unavailable — grant eLearning/Manager + "
                         "Operation Group to the bot user (%s)", e)
             return {"available": False, "reason": "access_denied",
-                    "packages": [], "lines": [], "levels": [], "groups": [],
-                    "outcomes": []}
+                    "packages": [], "lines": [], "attendee_lines": [],
+                    "levels": [], "groups": [], "outcomes": []}
         for p in packages:
             p["url"] = abs_url(p.get("website_url"))
         return {"available": True, "packages": packages, "lines": lines,
-                "levels": levels, "groups": groups, "outcomes": outcomes}
+                "attendee_lines": attendee_lines, "levels": levels,
+                "groups": groups, "outcomes": outcomes}
 
     # ------------------------------------------------------------------ sell
     async def product_variant_id(self, template_id: int) -> int | None:

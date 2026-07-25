@@ -317,9 +317,13 @@ async def test_track_lists_the_package_courses_in_teaching_order(loaded_catalog)
 
     # and its courses come back as real, priced, buyable cards
     assert payload["path"][0]["level"] == "Level 2"
-    assert payload["path"][0]["courses"][0]["course_id"] == 2107
     nav = next(c for c in cards if c["course_id"] == 2107)
     assert nav["price_display"] == "4,815 EGP"      # live pricelist, not list_price
+
+    # the path is the union of the recorded AND attendance line models: 2116 is
+    # attendance-only, and 2107 is in both but must appear once
+    ids = [c["course_id"] for c in payload["path"][0]["courses"]]
+    assert ids == [2107, 2116]
 
     # lines that are part of the path but are not published products must be
     # named, not silently dropped — otherwise the path looks shorter than it is

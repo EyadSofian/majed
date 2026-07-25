@@ -3,20 +3,40 @@
   "nodes": [
     {
       "parameters": {
-        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 20 }] }
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
       },
       "id": "b7c1a000-0001-4a10-9b01-000000000001",
       "name": "Every 20 Minutes",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "c1", "name": "NABRAS_URL", "value": "https://nabras.engosoft.com", "type": "string" },
-            { "id": "c2", "name": "INGEST_TOKEN", "value": "__PUT_THE_SAME_VALUE_AS_INGEST_TOKEN__", "type": "string" }
+            {
+              "id": "c1",
+              "name": "NABRAS_URL",
+              "value": "https://nabras-production.up.railway.app",
+              "type": "string"
+            },
+            {
+              "id": "c2",
+              "name": "INGEST_TOKEN",
+              "value": "__PUT_THE_SAME_VALUE_AS_INGEST_TOKEN__",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -25,7 +45,10 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [224, 0]
+      "position": [
+        224,
+        0
+      ]
     },
     {
       "parameters": {
@@ -35,15 +58,37 @@
         "returnAll": true,
         "options": {
           "fieldsList": [
-            "id", "name", "seo_name", "website_url", "website_published",
-            "active", "package_type", "attendee_type", "sequence",
-            "total_price", "final_price", "discount", "discount_end_time",
-            "currency_id", "attendee_online_discount", "attendee_onsite_discount",
-            "num_courses_display", "training_hours_attendee",
-            "training_hours_recorded", "review_rating_avg", "review_rating_count",
-            "public_categ_ids", "badge_text", "levels_ids", "product_ids",
-            "attendee_product_ids", "groups_ids", "similar_packages_ids",
-            "learning_outcomes_ids", "target_audience_ids", "write_date"
+            "id",
+            "name",
+            "seo_name",
+            "website_url",
+            "website_published",
+            "active",
+            "package_type",
+            "attendee_type",
+            "sequence",
+            "total_price",
+            "final_price",
+            "discount",
+            "discount_end_time",
+            "currency_id",
+            "attendee_online_discount",
+            "attendee_onsite_discount",
+            "num_courses_display",
+            "training_hours_attendee",
+            "training_hours_recorded",
+            "review_rating_avg",
+            "review_rating_count",
+            "public_categ_ids",
+            "badge_text",
+            "levels_ids",
+            "product_ids",
+            "attendee_product_ids",
+            "groups_ids",
+            "similar_packages_ids",
+            "learning_outcomes_ids",
+            "target_audience_ids",
+            "write_date"
           ]
         }
       },
@@ -51,9 +96,17 @@
       "name": "Odoo — Packages",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, -300],
+      "position": [
+        448,
+        -300
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
       "parameters": {
@@ -62,17 +115,31 @@
         "operation": "getAll",
         "returnAll": true,
         "options": {
-          "fieldsList": ["id", "name", "package_id", "sequence",
-                         "attendee_course_count", "recorded_course_count"]
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "sequence",
+            "attendee_course_count",
+            "recorded_course_count"
+          ]
         }
       },
       "id": "b7c1a000-0004-4a10-9b01-000000000004",
       "name": "Odoo — Levels",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, -180],
+      "position": [
+        448,
+        -180
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
       "parameters": {
@@ -81,17 +148,33 @@
         "operation": "getAll",
         "returnAll": true,
         "options": {
-          "fieldsList": ["id", "name", "package_id", "level_id", "product_id",
-                         "sequence", "sale_ok", "website_published"]
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "level_id",
+            "product_id",
+            "sequence",
+            "sale_ok",
+            "website_published"
+          ]
         }
       },
       "id": "b7c1a000-0005-4a10-9b01-000000000005",
       "name": "Odoo — Recorded Lines",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, -60],
+      "position": [
+        448,
+        -60
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
       "parameters": {
@@ -100,17 +183,33 @@
         "operation": "getAll",
         "returnAll": true,
         "options": {
-          "fieldsList": ["id", "name", "package_id", "level_id", "product_id",
-                         "sequence", "sale_ok", "website_published"]
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "level_id",
+            "product_id",
+            "sequence",
+            "sale_ok",
+            "website_published"
+          ]
         }
       },
       "id": "b7c1a000-0006-4a10-9b01-000000000006",
       "name": "Odoo — Attendee Lines",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, 60],
+      "position": [
+        448,
+        60
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
       "parameters": {
@@ -120,12 +219,23 @@
         "returnAll": true,
         "options": {
           "fieldsList": [
-            "id", "name", "technical_name", "full_display_name", "package_id",
-            "sequence", "sale_status", "is_available_for_sale",
-            "first_event_date", "online_event_ids", "onsite_event_ids",
-            "online_min_date_begin", "online_max_date_end",
-            "onsite_min_date_begin", "onsite_max_date_end",
-            "online_total_price", "onsite_total_price"
+            "id",
+            "name",
+            "technical_name",
+            "full_display_name",
+            "package_id",
+            "sequence",
+            "sale_status",
+            "is_available_for_sale",
+            "first_event_date",
+            "online_event_ids",
+            "onsite_event_ids",
+            "online_min_date_begin",
+            "online_max_date_end",
+            "onsite_min_date_begin",
+            "onsite_max_date_end",
+            "online_total_price",
+            "onsite_total_price"
           ]
         }
       },
@@ -133,9 +243,17 @@
       "name": "Odoo — Groups",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, 180],
+      "position": [
+        448,
+        180
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
       "parameters": {
@@ -143,23 +261,44 @@
         "customResource": "learning.outcome",
         "operation": "getAll",
         "returnAll": true,
-        "options": { "fieldsList": ["id", "name", "sequence"] }
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "sequence"
+          ]
+        }
       },
       "id": "b7c1a000-0008-4a10-9b01-000000000008",
       "name": "Odoo — Outcomes",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
-      "position": [448, 300],
+      "position": [
+        448,
+        300
+      ],
       "onError": "continueRegularOutput",
-      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
     },
     {
-      "parameters": { "mode": "append", "numberInputs": 6, "options": {} },
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 6,
+        "options": {}
+      },
       "id": "b7c1a000-0009-4a10-9b01-000000000009",
       "name": "Merge Branches",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
-      "position": [672, 0]
+      "position": [
+        672,
+        0
+      ]
     },
     {
       "parameters": {
@@ -169,7 +308,10 @@
       "name": "Build Snapshot",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [896, 0]
+      "position": [
+        896,
+        0
+      ]
     },
     {
       "parameters": {
@@ -178,46 +320,205 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "X-Ingest-Token", "value": "={{ $('Config').item.json.INGEST_TOKEN }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "X-Ingest-Token",
+              "value": "={{ $('Config').item.json.INGEST_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.payload) }}",
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "b7c1a000-0011-4a10-9b01-000000000011",
       "name": "Push to نبراس",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1120, 0]
+      "position": [
+        1120,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e9b4a1d2-77c6-4f1a-9c33-6b0f2a5d81aa",
+      "name": "Alert on failure",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        160
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "4SQaiwv91DfZPYpF",
+          "name": "SMTP account"
+        }
+      },
+      "parameters": {
+        "fromEmail": "eyad.sofiane@engosoft.com",
+        "toEmail": "eyad.sofiane@engosoft.com",
+        "subject": "=⚠️ ماجد — فشل تحديث الباقات ({{ $now.setZone('Africa/Cairo').toFormat('yyyy-LL-dd HH:mm') }})",
+        "html": "=<div style=\"direction:rtl;font-family:Arial,Tahoma,sans-serif;line-height:1.8\"><h3>تحديث الباقات لم يصل إلى ماجد</h3><p>الورك فلو سحب البيانات من أودو، لكن الدفع إلى الخدمة فشل — ماجد هيفضل شغّال بآخر نسخة وصلت له، لكنها هتقدم كل ساعة تعدّي.</p><p><b>الخطأ:</b> {{ JSON.stringify($json.error || $json) }}</p><p><b>الأغلب:</b> INGEST_TOKEN مختلف بين n8n والخدمة، أو الخدمة نايمة/بتعيد النشر.</p></div>",
+        "options": {}
+      }
     }
   ],
   "connections": {
     "Every 20 Minutes": {
-      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Config": {
       "main": [
         [
-          { "node": "Odoo — Packages", "type": "main", "index": 0 },
-          { "node": "Odoo — Levels", "type": "main", "index": 0 },
-          { "node": "Odoo — Recorded Lines", "type": "main", "index": 0 },
-          { "node": "Odoo — Attendee Lines", "type": "main", "index": 0 },
-          { "node": "Odoo — Groups", "type": "main", "index": 0 },
-          { "node": "Odoo — Outcomes", "type": "main", "index": 0 }
+          {
+            "node": "Odoo — Packages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Levels",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Recorded Lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Attendee Lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Groups",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Outcomes",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Odoo — Packages": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 0 }]] },
-    "Odoo — Levels": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 1 }]] },
-    "Odoo — Recorded Lines": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 2 }]] },
-    "Odoo — Attendee Lines": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 3 }]] },
-    "Odoo — Groups": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 4 }]] },
-    "Odoo — Outcomes": { "main": [[{ "node": "Merge Branches", "type": "main", "index": 5 }]] },
-    "Merge Branches": { "main": [[{ "node": "Build Snapshot", "type": "main", "index": 0 }]] },
-    "Build Snapshot": { "main": [[{ "node": "Push to نبراس", "type": "main", "index": 0 }]] }
+    "Odoo — Packages": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odoo — Levels": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Odoo — Recorded Lines": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Odoo — Attendee Lines": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Odoo — Groups": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Odoo — Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Merge Branches": {
+      "main": [
+        [
+          {
+            "node": "Build Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Push to نبراس",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push to نبراس": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Alert on failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "pinData": {},
   "active": true,

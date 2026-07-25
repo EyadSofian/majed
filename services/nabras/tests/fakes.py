@@ -221,6 +221,20 @@ PACKAGES = {
          "level_id": False, "product_id": [1241, "[88] SewerGEMS"],
          "sequence": 10, "sale_ok": True, "website_published": True},
     ],
+    # attendance side of the SAME track: a separate Odoo model. Course 2116 is
+    # only sold as attendance, so reading the recorded lines alone would drop it
+    # from the path the trainee is meant to follow.
+    "attendee_lines": [
+        {"id": 71, "name": "Revit Electrical Design",
+         "package_id": [5, "Interior Design Professional Track"],
+         "level_id": [2, "Level 2"], "product_id": [2116, "[891] Revit Electrical"],
+         "sequence": 13, "sale_ok": True, "website_published": True},
+        # already in the recorded lines — must not be listed twice
+        {"id": 72, "name": "Navisworks MEP",
+         "package_id": [5, "Interior Design Professional Track"],
+         "level_id": [2, "Level 2"], "product_id": [2107, "[873] Navisworks MEP"],
+         "sequence": 14, "sale_ok": True, "website_published": True},
+    ],
     "levels": [
         {"id": 1, "name": "Level 1", "package_id": [5, "IDPT"], "sequence": 10,
          "attendee_course_count": 1, "recorded_course_count": 1},

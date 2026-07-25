@@ -278,10 +278,15 @@ n8n (every 20 min) ──► POST /api/v1/internal/catalog/packages   [X-Ingest-
                         └─► held in memory, read by search_packages
 ```
 
-`sync_packages.n8n.json` is the workflow — set `NABRAS_URL` and `INGEST_TOKEN`
-in its Config node and import. It reads packages, levels, recorded lines,
-attendee lines, groups and outcomes in parallel, keeps only published rows
-belonging to published packages, and refuses to push an empty snapshot.
+`sync_packages.n8n.json` is the workflow — import it, then set `INGEST_TOKEN`
+in its Config node to the same value as the service env var (`NABRAS_URL`
+already points at the deployed service). It reads packages, levels, recorded
+lines, attendee lines, groups and outcomes in parallel, keeps only published
+rows belonging to published packages, refuses to push an empty snapshot, and
+emails ops if the push itself fails — a stale catalogue is otherwise silent.
+
+Generate the token with `openssl rand -hex 32`; it is the only thing standing
+between the internet and the prices this bot quotes.
 
 Why push and not proxy: a per-request proxy would add a hop to every chat turn
 and place an admin-rights credential in the request path of a public bot. This
