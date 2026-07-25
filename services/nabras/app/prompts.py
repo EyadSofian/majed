@@ -36,11 +36,15 @@ BASE_PROMPT = f"""أنت "{BOT_NAME}"، مستشار التدريب ومندوب
 # قواعد المحتوى
 4. لا تخترع كورسات أو مدربين أو مواعيد أو شهادات. اعرض فقط ما ترجعه الـtools.
 5. المدربون: استعمل "get_instructor". لا تستنتج اسم مدرب من اسم كورس أو دفعة.
-5-أ. **ممنوع تقول إن مدرب "مش موجود"**. الأسماء متسجّلة إنجليزي والعميل بيكتب
-   عربي، فعدم الحصول على نتيجة معناه إنك مش لاقيه بالكتابة دي — مش إنه مش
-   موجود. لو رجّع "matched": false، اعرض الأسماء القريبة واسأل: «تقصد أنهي
-   كورس؟» — واستعمل "get_instructor" بـcourse_id بعدها، دي أدق طريقة.
-5-ب. عن المدرب اذكر بس اللي رجع: الاسم، المسمّى الوظيفي، القسم، والكورسات
+5-أ. **أنت اللي تطابق الاسم.** قائمة المدربين تحت مكتوبة بأسمائهم الرسمية
+   بالإنجليزي، والعميل بيكتب بالعربي. «عمرو كمال» = "Amr Kamal"، «محمد حمدي»
+   = "Mohamed Hamdy" — دي شغلتك إنت، مش شغلة بحث نصّي. دوّر في القائمة،
+   وابعت الـid لـ"get_instructor" (instructor_id) عشان تجيب تفاصيله وكورساته.
+5-ب. **ممنوع تقول إن مدرب "مش موجود"**. لو مش لاقي الاسم في القائمة، قول
+   «مش لاقيه بالكتابة دي» واعرض أقرب اسم أو اتنين من القائمة، واسأل: «تقصد
+   أنهي كورس؟» وبعدها نادِ "get_instructor" بـcourse_id — دي أدق طريقة.
+   القائمة دي أول 300 مدرب؛ ممكن يكون في حد بعدها.
+5-ج. عن المدرب اذكر بس اللي رجع: الاسم، المسمّى الوظيفي، القسم، والكورسات
    اللي بيدّيها. ممنوع تضيف «معتمد» أو «متخصص في كذا» أو أي خبرة أو شهادة
    مش مكتوبة في النتيجة.
 6. المواعيد والمقاعد من "get_upcoming_batches" فقط، وهي دفعات مفتوحة للتسجيل.
@@ -105,17 +109,22 @@ STAGE 6 — Capture / Escalate: لو تردّد أو طلب يتكلم مع حد
 """
 
 
-def build_system_prompt(catalog_digest: str = "") -> str:
-    """The digest is byte-identical between turns, so the whole prompt stays
-    prompt-cacheable; it only changes when the catalogue itself changes."""
-    if not catalog_digest:
-        return BASE_PROMPT
-    return (
-        f"{BASE_PROMPT}\n"
-        "# كتالوج Engosoft الحالي (مرجع سريع — الأسعار مش هنا، استخدم get_price)\n"
-        "الصيغة: #id | الاسم | التصنيف | نوع التقديم | المدة | الدفعات القادمة\n"
-        f"{catalog_digest}\n"
-    )
+def build_system_prompt(catalog_digest: str = "",
+                        instructor_digest: str = "") -> str:
+    """Both digests are byte-identical between turns, so the whole prompt stays
+    prompt-cacheable; they only change when the data behind them changes."""
+    out = BASE_PROMPT
+    if catalog_digest:
+        out += (
+            "\n# كتالوج Engosoft الحالي (مرجع سريع — الأسعار مش هنا، استخدم get_price)\n"
+            "الصيغة: #id | الاسم | التصنيف | نوع التقديم | المدة | الدفعات القادمة\n"
+            f"{catalog_digest}\n")
+    if instructor_digest:
+        out += (
+            "\n# مدربو Engosoft (الأسماء الرسمية — طابق اسم العميل عليها بنفسك)\n"
+            "الصيغة: #id | الاسم | المسمّى الوظيفي | عدد كورساته\n"
+            f"{instructor_digest}\n")
+    return out
 
 
 # Kept for callers that want the bare prompt.

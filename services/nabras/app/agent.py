@@ -140,7 +140,8 @@ def refresh_prompt() -> bool:
     global _graph, _prompt_fingerprint
     if _graph is None:
         return False
-    prompt = build_system_prompt(catalog.catalog_digest())
+    prompt = build_system_prompt(catalog.catalog_digest(),
+                                 catalog.instructor_digest())
     fp = _fingerprint(prompt)
     if fp == _prompt_fingerprint:
         return False
@@ -171,7 +172,8 @@ async def lifespan_agent(app=None):
             await catalog.refresh(full=True)
         except Exception:  # noqa: BLE001
             log.exception("initial catalogue load failed — starting empty")
-        prompt = build_system_prompt(catalog.catalog_digest())
+        prompt = build_system_prompt(catalog.catalog_digest(),
+                                     catalog.instructor_digest())
         _model = await negotiate_model()
         _checkpointer = saver
         _graph = create_agent(model=_model, tools=TOOLS, system_prompt=prompt,

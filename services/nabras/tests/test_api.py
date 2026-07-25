@@ -915,3 +915,35 @@ async def test_asking_by_course_is_the_exact_answer(loaded_catalog):
     assert out["matched"] is True
     assert {i["name"] for i in out["instructors"]} == {
         "Dr.Ayman Atef Ali Fawzi", "Eng.Mohamed Hamdy"}
+
+
+async def test_the_model_is_given_the_real_staff_list_to_match_against(
+        loaded_catalog):
+    """Matching a name across scripts is language work — the model does it. Our
+    job is to make sure it can only pick from people who exist."""
+    from app.prompts import build_system_prompt
+    digest = catalog_mod.instructor_digest()
+    assert "#4129 | Dr.Ayman Atef Ali Fawzi | PRIMAVERA & PMP Instructor" in digest
+    # whoever teaches the most comes first, so a cap never drops the busiest
+    assert digest.splitlines()[0].endswith("كورس")
+
+    prompt = build_system_prompt(catalog_mod.catalog_digest(), digest)
+    assert "مدربو Engosoft" in prompt
+    assert "Dr.Ayman Atef Ali Fawzi" in prompt
+    # and the prompt tells it whose job the matching is
+    assert "طابق اسم العميل عليها بنفسك" in prompt
+
+
+async def test_picking_an_id_from_that_list_returns_the_exact_person(
+        loaded_catalog):
+    out = await _ask_instructor(instructor_id=4129)
+    assert out["matched"] is True
+    assert out["instructors"][0]["name"] == "Dr.Ayman Atef Ali Fawzi"
+    assert out["instructors"][0]["teaches"]
+
+
+async def test_an_id_that_is_not_a_person_does_not_pretend_to_be_one(
+        loaded_catalog):
+    out = await _ask_instructor(instructor_id=999999)
+    assert out["matched"] is False
+    assert out["instructors"] == []

@@ -210,6 +210,17 @@ async def refresh(full: bool = False) -> Snapshot:
 
     if instr_ids:
         snap.instructors.update(await odoo.fetch_instructors(instr_ids))
+    # The whole teaching staff, not only whoever is attached to a course today.
+    # It goes into the system prompt: the model can then map «عمرو كمال» onto
+    # "Amr Kamal" itself — language is its job — while still being unable to
+    # name anyone who is not on this list.
+    if not since:
+        try:
+            for e in await odoo.fetch_all_instructors():
+                snap.instructors.setdefault(e["id"], e)
+        except Exception:  # noqa: BLE001
+            log.warning("instructor directory unavailable — "
+                        "only course-linked instructors will be known")
 
     await _attach_channels(snap)
     await _refresh_events(snap)
@@ -391,6 +402,36 @@ def search(query: str, top_k: int = 5,
         scored.append((score, c))
     scored.sort(key=lambda x: (-x[0], x[1].name))
     return [c for _, c in scored[:top_k]]
+
+
+def instructor_digest(limit: int = 300) -> str:
+    """The teaching staff, one line each, for the system prompt.
+
+    Names live in Odoo in English and customers type them in Arabic. Handing the
+    model the real list lets it do the matching — that is language work, which
+    it is better at than any transliteration table — and at the same time makes
+    inventing an instructor impossible: if the name is not on this list, it does
+    not exist to say.
+    """
+    snap = snapshot()
+    if not snap.instructors:
+        return ""
+    teaching: dict[int, int] = {}
+    for c in snap.courses.values():
+        for i in c.instructor_ids:
+            teaching[i] = teaching.get(i, 0) + 1
+    rows = sorted(snap.instructors.values(),
+                  key=lambda e: (-teaching.get(e["id"], 0), e.get("name") or ""))
+    lines = []
+    for e in rows[:limit]:
+        bits = [f"#{e['id']}", (e.get("name") or "").strip()]
+        if e.get("job_title"):
+            bits.append(str(e["job_title"]).strip())
+        n = teaching.get(e["id"], 0)
+        if n:
+            bits.append(f"{n} كورس")
+        lines.append(" | ".join(bits))
+    return "\n".join(lines)
 
 
 def catalog_digest(limit: int = 200) -> str:

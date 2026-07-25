@@ -362,15 +362,26 @@ lookup was `needle in name.lower()` against records Odoo stores in English:
 Arabic input could never match, and "no result" was reported as "no such
 person".
 
-Names are now matched on their consonant skeleton, which is what survives
-transliteration — `عمرو → mr → Amr`, `كمال → kml → Kamal`, `محمد → mhmd →
-Mohamed`. The tool returns `matched: true` only when every part of the typed
-name is accounted for; otherwise it returns *similar* names with
-`matched: false`, and the prompt requires asking which course rather than
-denying the person exists. Anyone attached to a live course is searchable
-regardless of their job title, and every result carries the courses they
-actually teach — the honest answer to "what is he specialised in", instead of a
-credential the model made up.
+**The matching belongs to the model, the truth belongs to the data.** Mapping
+«عمرو كمال» onto "Amr Kamal" is language work, and no transliteration table
+will ever cover Gamal/Jamal, Osama/Usama or a name given in reverse. So the
+teaching staff — id, name, job title, how many courses — now sits in the system
+prompt, and the model picks the id itself and calls
+`get_instructor(instructor_id=…)` for an exact record. It could not do that
+before for a simple reason: it had never been shown the list, which is precisely
+why it invented one.
+
+The list is also the boundary. Only people on it exist to name, and the prompt
+forbids reporting anyone as non-existent — the fallback is "I can't find that
+spelling, which course?", never a denial. Every result carries the courses the
+person actually teaches: the honest answer to "what is he specialised in",
+instead of a credential the model made up.
+
+Two guardrails stay in code, because the model cannot provide them. The name
+fallback matches on the consonant skeleton that survives transliteration
+(`عمرو → mr → Amr`, `محمد → mhmd → Mohamed`) and searches **every** employee,
+not just the listed ones — the list is capped at 300. And anyone attached to a
+live course is searchable regardless of their job title.
 
 ## 8. Models
 

@@ -322,20 +322,45 @@ async def get_price(course_id: int, currency: Optional[str] = None) -> str:
 
 
 @tool
-async def get_instructor(name: Optional[str] = None,
+async def get_instructor(instructor_id: Optional[int] = None,
+                         name: Optional[str] = None,
                          course_id: Optional[int] = None) -> str:
     """Look up an instructor by name, or list the instructors of a course.
 
-    Names are stored in Odoo in English; customers type them in Arabic. The
-    match is done on the spelling-independent form of the name, so «عمرو كمال»
-    finds "Amr Kamal". If `matched` comes back false these are only *similar*
-    names — ask which course they mean. Never state that an instructor does not
-    exist: this reads employees, and a spelling you cannot match is not proof.
+    Prefer `instructor_id` — the id from the instructor list in your
+    instructions. You are the one who matches «عمرو كمال» to "Amr Kamal";
+    that list is the only set of people that exist.
+
+    `name` is the fallback when the person is not on that list (it is capped):
+    it matches on the spelling-independent form of the name and searches every
+    employee, not just the listed ones. If `matched` comes back false these are
+    only *similar* names — ask which course they mean. Never state that an
+    instructor does not exist: a spelling you cannot match is not proof.
 
     Returns only what Engosoft records — job title, department, and the courses
     they actually teach. Never invent a biography or a credential.
     """
     snap = await _ensure_catalog()
+    if instructor_id:
+        # The id you read off the instructor list in your instructions: an
+        # exact record, no guessing about spelling on either side.
+        e = snap.instructors.get(int(instructor_id))
+        if e:
+            return json.dumps({"matched": True,
+                               "instructors": [_instructor_brief(e, snap)]},
+                              ensure_ascii=False)
+        try:
+            rows = await odoo.fetch_instructors([int(instructor_id)])
+        except Exception:  # noqa: BLE001
+            rows = {}
+        if rows:
+            return json.dumps(
+                {"matched": True,
+                 "instructors": [_instructor_brief(list(rows.values())[0], snap)]},
+                ensure_ascii=False)
+        return json.dumps({"matched": False, "instructors": [],
+                           "note": "unknown_id_use_the_name_or_the_course"},
+                          ensure_ascii=False)
     if course_id:
         c = snap.courses.get(course_id)
         if not c:
