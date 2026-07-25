@@ -105,3 +105,31 @@ function delivered() {
   server.close();
   console.log('✅ nabras router: 8 cases passed — every failure path falls back to Botpress');
 })().catch((e) => { server.close(); console.error('❌', e); process.exit(1); });
+
+// ---------------------------------------------------------------------------
+// Currency must follow the visitor, not a constant. Run: node test/nabras-router.test.js
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  process.env.NABRAS_CURRENCY = 'EGP';
+  const { resolveCurrency } = require('../nabras');
+  const a = require('assert');
+
+  // 1. the website's own pricelist wins — this is what the page is showing
+  a.strictEqual(resolveCurrency({ shop: { currency: 'SAR' } }), 'SAR');
+  a.strictEqual(resolveCurrency({ shop: { currency: 'aed' } }), 'AED');
+  // it must beat any browser guess
+  a.strictEqual(
+    resolveCurrency({ shop: { currency: 'USD' }, timezone: 'Africa/Cairo' }), 'USD');
+
+  // 2. site silent -> use the visitor's region
+  a.strictEqual(resolveCurrency({ timezone: 'Asia/Riyadh' }), 'SAR');
+  a.strictEqual(resolveCurrency({ timezone: 'Asia/Dubai' }), 'AED');
+  a.strictEqual(resolveCurrency({ timezone: 'Africa/Cairo' }), 'EGP');
+
+  // 3. nothing known -> configured default, and junk never leaks through
+  a.strictEqual(resolveCurrency({}), 'EGP');
+  a.strictEqual(resolveCurrency({ shop: { currency: 'XYZ' } }), 'EGP');
+  a.strictEqual(resolveCurrency(null), 'EGP');
+
+  console.log('✅ currency: 9 cases — site first, then region, then default');
+})();

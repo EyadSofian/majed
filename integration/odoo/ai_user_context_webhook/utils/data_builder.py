@@ -225,6 +225,48 @@ def build_events_data(env, uid):
 # ------------------------------------------------------------------
 # 4. Full payload assembler
 # ------------------------------------------------------------------
+def build_shop_context(env):
+    """The currency the visitor is ACTUALLY being shown on the site.
+
+    Odoo already resolves this per visitor — website pricelist, which follows
+    the visitor's country/geoip or their partner's pricelist. Guessing it in the
+    bot (or defaulting to EGP) quotes a Saudi visitor in Egyptian pounds while
+    the page next to the chat shows riyals.
+    """
+    ctx = {'currency': '', 'pricelist_id': None, 'pricelist': '',
+           'website_id': None, 'country': ''}
+    try:
+        from odoo.http import request
+        website = request.website if request else None
+        if not website:
+            return ctx
+        ctx['website_id'] = website.id
+        pricelist = None
+        for getter in ('_get_current_pricelist', 'get_current_pricelist'):
+            fn = getattr(website, getter, None)
+            if fn:
+                try:
+                    pricelist = fn()
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+        if pricelist is None:
+            pricelist = website.pricelist_id
+        if pricelist:
+            ctx['pricelist_id'] = pricelist.id
+            ctx['pricelist'] = pricelist.name or ''
+            if pricelist.currency_id:
+                ctx['currency'] = pricelist.currency_id.name or ''
+        country = getattr(request, 'geoip', None)
+        if country:
+            ctx['country'] = (country.get('country_code')
+                              if isinstance(country, dict)
+                              else getattr(country, 'country_code', '')) or ''
+    except Exception as e:  # noqa: BLE001
+        _logger.warning('shop context unavailable: %s', e)
+    return ctx
+
+
 def build_full_payload(env, uid):
     """Assemble the complete webhook payload for a user."""
     user_data = build_user_data(env, uid)
@@ -243,6 +285,7 @@ def build_full_payload(env, uid):
 
     return {
         'user': user_data,
+        'shop': build_shop_context(env),
         'courses': courses,
         'learning_progress': {
             'total_courses_enrolled': len(courses),

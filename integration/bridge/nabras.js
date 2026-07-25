@@ -25,8 +25,40 @@ const cfg = () => ({
   allow: String(process.env.NABRAS_ALLOW || '')
     .split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
   timeoutMs: Number(process.env.NABRAS_TIMEOUT_MS || 25000),
+  // Last-resort default only. The real currency comes from the site itself —
+  // see resolveCurrency().
   currency: process.env.NABRAS_CURRENCY || 'EGP',
 });
+
+const SUPPORTED = ['EGP', 'USD', 'AED', 'SAR'];
+// Only used when the site did not tell us. Maps the browser's IANA timezone to
+// the storefront currency, since the visitor's region is what Odoo keys on too.
+const TZ_CURRENCY = [
+  [/^Africa\/Cairo/i, 'EGP'],
+  [/^Asia\/(Riyadh|Qatar|Bahrain|Kuwait|Aden)/i, 'SAR'],
+  [/^Asia\/(Dubai|Muscat)/i, 'AED'],
+];
+
+/**
+ * What currency is this visitor actually being shown?
+ *
+ * Odoo already resolved it per visitor (website pricelist follows country /
+ * geoip / the customer's own pricelist) and the page beside the chat is
+ * rendering prices in it. So we ask the site, and only guess if it stayed
+ * silent. Hardcoding one currency quotes a Saudi visitor in Egyptian pounds.
+ */
+function resolveCurrency(userData) {
+  const up = (v) => String(v || '').trim().toUpperCase();
+  // 1. authoritative: the website's active pricelist, via /ai_webhook/user_context
+  const fromSite = up(userData?.shop?.currency || userData?.currency);
+  if (SUPPORTED.includes(fromSite)) return fromSite;
+  // 2. the visitor's browser region
+  const tz = String(userData?.timezone || userData?.tz || '');
+  for (const [re, cur] of TZ_CURRENCY) if (re.test(tz)) return cur;
+  // 3. configured default
+  const fallback = up(cfg().currency);
+  return SUPPORTED.includes(fallback) ? fallback : 'EGP';
+}
 
 // guest tokens are per-conversation and cheap; reuse until they expire
 const tokens = new Map(); // cwConvId -> { token, at }
@@ -110,7 +142,8 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     const res = await axios.post(
       `${c.base}/api/v1/ai-chat/chat/`,
       { message: text, fahem_session_id: `cw_${cwConvId}`, language: 'auto',
-        currency: c.currency, page_type: pageType || undefined, slug: slug || undefined },
+        currency: resolveCurrency(userData),
+        page_type: pageType || undefined, slug: slug || undefined },
       { headers: { 'X-Guest-Token': token, 'Content-Type': 'application/json' },
         timeout: c.timeoutMs, responseType: 'text' });
 
@@ -161,4 +194,4 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   return true;
 }
 
-module.exports = { tryNabras, allowed, toWidgetCards, cfg };
+module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency, cfg };
