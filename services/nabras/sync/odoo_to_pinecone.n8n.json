@@ -1,0 +1,132 @@
+{
+  "name": "Engosoft — Course Catalog Sync (Odoo 17 → Pinecone)",
+  "nodes": [
+    {
+      "id": "a1111111-1111-4111-8111-111111111111",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": { "interval": [ { "field": "hours", "hoursInterval": 6 } ] }
+      }
+    },
+    {
+      "id": "a2222222-2222-4222-8222-222222222222",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [224, 0],
+      "parameters": {
+        "assignments": { "assignments": [
+          { "id": "c1", "name": "PINECONE_HOST",      "value": "https://engosoft-courses-XXXX.svc.YOUR-ENV.pinecone.io", "type": "string" },
+          { "id": "c2", "name": "PINECONE_NAMESPACE", "value": "prod",                     "type": "string" },
+          { "id": "c3", "name": "EMBED_MODEL",        "value": "text-embedding-3-large",   "type": "string" },
+          { "id": "c4", "name": "NOTIFY_EMAIL",       "value": "eyad.sofiane@engosoft.com","type": "string" }
+        ] },
+        "options": {}
+      }
+    },
+    {
+      "id": "a3333333-3333-4333-8333-333333333333",
+      "name": "Odoo — Get Published Courses",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [448, 0],
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": { "fieldsList": ["id", "name", "list_price", "description_sale", "website_url", "default_code"] },
+        "filters": { "filter": [
+          { "fieldName": "sale_ok", "value": "true" },
+          { "fieldName": "is_published", "value": "true" }
+        ] }
+      },
+      "credentials": { "odooApi": { "id": "a2EBSJpQlmB0wr29", "name": "Odoo Live" } }
+    },
+    {
+      "id": "a4444444-4444-4444-8444-444444444444",
+      "name": "Build Embedding Inputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 0],
+      "parameters": { "jsCode": "const texts = []; const meta = [];\nfor (const it of items) {\n  const r = it.json;\n  const slug = (r.website_url || '').split('?')[0].split('/').filter(Boolean).pop() || String(r.id);\n  const summary = String(r.description_sale || r.name || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 400);\n  const price = (r.list_price != null && r.list_price !== false) ? `${r.list_price} USD` : '';\n  texts.push(`${r.name}. ${summary}`);\n  meta.push({ course_id: r.id, title: r.name, slug, url: r.website_url || `https://engosoft.com/courses/${slug}`, price_display: price, summary });\n}\nreturn [{ json: { texts, meta } }];" }
+    },
+    {
+      "id": "a5555555-5555-4555-8555-555555555555",
+      "name": "OpenAI — Embed Batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').item.json.EMBED_MODEL, input: $json.texts }) }}",
+        "options": {}
+      },
+      "credentials": { "openAiApi": { "id": "LLWKCLNo4Tso3Yl1", "name": "OpenAi account" } }
+    },
+    {
+      "id": "a6666666-6666-4666-8666-666666666666",
+      "name": "Zip Vectors + Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 0],
+      "parameters": { "jsCode": "const emb = $json.data;\nconst meta = $('Build Embedding Inputs').item.json.meta;\nconst vectors = emb.map((e, i) => ({ id: `course_${meta[i].course_id}`, values: e.embedding, metadata: meta[i] }));\nreturn [{ json: { vectors, count: vectors.length } }];" }
+    },
+    {
+      "id": "a7777777-7777-4777-8777-777777777777",
+      "name": "Pinecone — Upsert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.PINECONE_HOST }}/vectors/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vectors: $json.vectors, namespace: $('Config').item.json.PINECONE_NAMESPACE }) }}",
+        "options": {}
+      },
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_PINECONE_CRED", "name": "Pinecone Api-Key" } }
+    },
+    {
+      "id": "a8888888-8888-4888-8888-888888888888",
+      "name": "Notify Success",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1568, 0],
+      "parameters": {
+        "fromEmail": "aibot@engosoft.com",
+        "toEmail": "={{ $('Config').item.json.NOTIFY_EMAIL }}",
+        "subject": "={{ 'Nabras sync ✓ — ' + $('Pinecone — Upsert').item.json.upsertedCount + ' courses' }}",
+        "emailFormat": "html",
+        "html": "<div style=\"direction:rtl;font-family:Arial,Tahoma,sans-serif\">تم تحديث كتالوج نبراس في Pinecone بنجاح.<br>عدد الكورسات: {{ $('Zip Vectors + Metadata').item.json.count }}<br>الوقت: {{ $now.setZone('Africa/Cairo').toFormat('yyyy-LL-dd HH:mm') }}</div>",
+        "options": {}
+      },
+      "credentials": { "smtp": { "id": "sHZLxqgVIvhNrO5n", "name": "SMTP account 2" } }
+    }
+  ],
+  "connections": {
+    "Every 6 Hours":            { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config":                   { "main": [ [ { "node": "Odoo — Get Published Courses", "type": "main", "index": 0 } ] ] },
+    "Odoo — Get Published Courses": { "main": [ [ { "node": "Build Embedding Inputs", "type": "main", "index": 0 } ] ] },
+    "Build Embedding Inputs":   { "main": [ [ { "node": "OpenAI — Embed Batch", "type": "main", "index": 0 } ] ] },
+    "OpenAI — Embed Batch":     { "main": [ [ { "node": "Zip Vectors + Metadata", "type": "main", "index": 0 } ] ] },
+    "Zip Vectors + Metadata":   { "main": [ [ { "node": "Pinecone — Upsert", "type": "main", "index": 0 } ] ] },
+    "Pinecone — Upsert":        { "main": [ [ { "node": "Notify Success", "type": "main", "index": 0 } ] ] }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": { "executionOrder": "v1", "binaryMode": "separate", "availableInMCP": false },
+  "meta": { "templateCredsSetupCompleted": true, "instanceId": "1c87d2e4d71b0347b7a466f90732115fba3103f4ac8b4665dc4e98ed83bfb402" },
+  "tags": []
+}

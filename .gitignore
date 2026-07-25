@@ -19,3 +19,10 @@ Thumbs.db
 
 # stale build artifact (Path A bridge zip — Path B deploys from repo)
 integration/chatwoot-botpress-bridge-RAILWAY.zip
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

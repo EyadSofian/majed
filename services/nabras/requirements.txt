@@ -1,0 +1,17 @@
+# Pinned to the LangChain 1.x agent API (`langchain.agents.create_agent`).
+# Do NOT go back to `langgraph.prebuilt.create_react_agent` — deprecated in
+# LangGraph 1.0 and it names its model node "agent" instead of "model".
+langchain>=1.0,<2
+langgraph>=1.0,<2
+langgraph-checkpoint-postgres>=2.0
+langchain-openai>=1.0
+langchain-core>=1.0
+fastapi>=0.115
+uvicorn[standard]>=0.32
+openai>=1.55
+pinecone>=5.4
+httpx>=0.27
+pydantic>=2.9
+pydantic-settings>=2.6
+pyjwt>=2.9
+psycopg[binary,pool]>=3.2
