@@ -1,6 +1,18 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class ChatHistoryMessage(BaseModel):
+    """One trusted transcript turn supplied by the Chatwoot bridge.
+
+    LangGraph remains the primary memory.  This compact transcript is only a
+    recovery source when a worker starts with an empty checkpointer (restart,
+    replica change, or a temporarily missing Postgres connection).
+    """
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
 
 
 class ChatRequest(BaseModel):
@@ -16,6 +28,10 @@ class ChatRequest(BaseModel):
     # The visitor's Odoo language code (`ar_001`, `en_US`, …) — course titles
     # are shown in it, so the chat names a course the way the page does.
     lang: Optional[str] = None
+    # The bridge owns the durable customer transcript in Chatwoot.  Sending a
+    # bounded copy lets a fresh model worker recover context instead of treating
+    # the next customer message as a brand-new conversation.
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=24)
 
     model_config = {"populate_by_name": True}
 

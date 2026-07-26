@@ -528,6 +528,28 @@ async def test_memory_persists_across_turns(client_factory):
     assert sum(1 for m in model.calls[-1] if m.type == "human") == 2
 
 
+async def test_empty_worker_recovers_history_from_chatwoot(client_factory):
+    client, model = client_factory([{"text": "نعم، ما زلنا نتحدث عن دورة CFM."}])
+    async with client:
+        tok = await _token(client)
+        r = await client.post(
+            "/api/v1/ai-chat/chat/",
+            headers={"X-Guest-Token": tok},
+            json={
+                "message": "وما موعدها؟",
+                "fahem_session_id": "recovered-worker",
+                "history": [
+                    {"role": "user", "content": "أريد معلومات عن دورة CFM."},
+                    {"role": "assistant", "content": "سأعرض لك الدورة المناسبة."},
+                ],
+            },
+        )
+    assert r.status_code == 200
+    calls = model.calls[-1]
+    assert [m.type for m in calls if m.type in ("human", "ai")] == ["human", "ai", "human"]
+    assert calls[-1].content == "وما موعدها؟"
+
+
 async def test_sessions_are_isolated(client_factory):
     client, _ = client_factory(RECOMMEND * 2)
     async with client:
@@ -1130,7 +1152,7 @@ def test_every_odoo_call_in_the_app_exists_on_the_real_client():
     app_dir = Path(__file__).resolve().parents[1] / "app"
     called: dict[str, str] = {}
     for path in sorted(app_dir.glob("*.py")):
-        for name in re.findall(r"\bodoo\.(\w+)\s*\(", path.read_text()):
+        for name in re.findall(r"\bodoo\.(\w+)\s*\(", path.read_text(encoding="utf-8")):
             called.setdefault(name, path.name)
     assert called, "no odoo calls found — the scan is broken, not the code"
     missing = {n: f for n, f in called.items() if not hasattr(Odoo, n)}
@@ -1193,7 +1215,7 @@ def test_the_map_carries_relations_and_audience_and_nothing_else():
     import json as _json
     from pathlib import Path
     raw = _json.loads((Path(__file__).resolve().parents[1] /
-                       "data" / "curriculum.json").read_text())
+                      "data" / "curriculum.json").read_text(encoding="utf-8"))
     assert set(raw) == {"source", "fields", "courses", "groups"}
     for row in raw["courses"].values():
         assert set(row) == {"field", "audience", "level", "keywords"}
@@ -1246,7 +1268,7 @@ def test_deep_details_routing_follows_the_setting(monkeypatch):
     monkeypatch.setattr(s, "details_to_botpress", True)
     to_bot = prompts.build_system_prompt()
     assert prompts._DETAILS_MARKER not in to_bot
-    assert "الريفيوهات" in to_bot and "course_details" in to_bot
+    assert "التقييمات" in to_bot and "course_details" in to_bot
 
     monkeypatch.setattr(s, "details_to_botpress", False)
     in_nabras = prompts.build_system_prompt()

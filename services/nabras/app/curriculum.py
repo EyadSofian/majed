@@ -35,7 +35,7 @@ _pruned_to: Optional[set[int]] = None
 @lru_cache(maxsize=1)
 def _data() -> dict:
     try:
-        return json.loads(DATA.read_text())
+        return json.loads(DATA.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         log.warning("curriculum.json missing or unreadable — running on Odoo alone")
         return {"fields": {}, "courses": {}, "groups": []}

@@ -16,11 +16,11 @@ const OK_SSE = [
     '"price_display":"4,815 EGP","delivery":"مسجّل","duration_text":"15 ساعة",' +
     '"next_batch":{"starts_at":"2026-08-20 16:00:00","seats_available":3},' +
     '"checkout_url":"https://engosoft.com/shop/cart/update?product_id=2059"}]}',
-  'data: {"type":"done"}', '',
-].join('\n');
+  'data: {"type":"done"}',
+].join('\n\n') + '\n\n';
 
 const TRACK_SSE = [
-  'data: {"type":"token","content":"دي مسارات الميكانيكا."}',
+  'data: {"type":"token","content":"هذه هي مسارات الميكانيكا المناسبة."}',
   'data: {"type":"cards","course_cards":[{"course_id":2107,"title":"Navisworks MEP",' +
     '"url":"https://engosoft.com/shop/navisworks-mep-2107","price_display":"4,815 EGP"}]}',
   'data: {"type":"packages","package_cards":[{"package_id":5,"title":"Mechanical Track",' +
@@ -34,15 +34,15 @@ const TRACK_SSE = [
   'data: {"type":"instructors","instructor_cards":[{"id":4129,"name":"Dr.Ayman Atef",' +
     '"title":"PMP Instructor","image_url":"https://engosoft.com/web/image/hr.employee/4129/image_512",' +
     '"courses_count":3,"teaches":["PMP","Primavera"]}]}',
-  'data: {"type":"done"}', '',
-].join('\n');
+  'data: {"type":"done"}',
+].join('\n\n') + '\n\n';
 
 // "not mine": the brain refuses to answer a payment question it cannot prove
 const DEFER_SSE = [
   'data: {"type":"token","content":"كلام لا يجب أن يصل للعميل"}',
   'data: {"type":"defer","reason":"instalment terms not in Odoo"}',
-  'data: {"type":"done"}', '',
-].join('\n');
+  'data: {"type":"done"}',
+].join('\n\n') + '\n\n';
 
 let mode = 'ok';
 const server = http.createServer((req, res) => {
@@ -59,7 +59,14 @@ const server = http.createServer((req, res) => {
 
 function delivered() {
   const out = [];
-  return { out, deliver: async (id, m) => { out.push(m); }, handoff: async () => {} };
+  const streamed = [];
+  return {
+    out,
+    streamed,
+    deliver: async (id, m) => { out.push(m); },
+    stream: (id, m) => { streamed.push(m); },
+    handoff: async () => {},
+  };
 }
 
 (async () => {
@@ -101,9 +108,12 @@ function delivered() {
     mode = 'ok';
     const d = delivered();
     assert.strictEqual(await t(4, 'navisworks', { userData: me }, d), true);
-    assert.strictEqual(d.out.length, 2);
+    assert.strictEqual(d.out.length, 1);
+    assert.strictEqual(d.out[0].content_type, 'cards');
     assert.ok(d.out[0].content.includes('Navisworks MEP'));
-    const items = d.out[1].content_attributes.items;
+    const items = d.out[0].content_attributes.items;
+    assert.ok(d.streamed.some((m) => m.content_attributes.stream_state === 'start'));
+    assert.ok(d.streamed.some((m) => m.content_attributes.stream_state === 'delta'));
     assert.strictEqual(items.length, 1);
     // Each fact travels in its own field — the widget cannot lay out a price,
     // a seat count and a date that were already glued into one string.
@@ -151,8 +161,9 @@ function delivered() {
     assert.deepStrictEqual(items[0].teaches, ['PMP', 'Primavera']);
     assert.strictEqual(items[1].price_from_display, '12,001 EGP');
     assert.strictEqual(items[1].options.length, 2);
-    const chips = d.out.find((m) => m.content_type === 'input_select');
-    assert.deepStrictEqual(chips.content_attributes.items.map((c) => c.title),
+    const unified = d.out.find((m) => m.content_type === 'cards');
+    assert.strictEqual(d.out.length, 1);
+    assert.deepStrictEqual(unified.content_attributes.quick_replies.map((c) => c.title),
                            ['ميكانيكا', 'كهرباء']);
   })();
 
@@ -165,8 +176,30 @@ function delivered() {
     assert.strictEqual(d.out.length, 0);
   })();
 
+  // 9) SSE records and Arabic UTF-8 characters may be split at arbitrary TCP
+  //    boundaries. The parser must reconstruct both before decoding JSON.
+  delete require.cache[require.resolve('../nabras')];
+  const { consumeSseStream } = require('../nabras');
+  const { Readable } = require('stream');
+  const wire = Buffer.from(
+    'data: {"type":"token","content":"مرحبًا"}\r\n\r\n' +
+    'data: {"type":"done"}\r\n\r\n',
+    'utf8');
+  const arabicSplit = wire.indexOf(Buffer.from('م', 'utf8')) + 1;
+  const events = [];
+  await consumeSseStream(Readable.from([
+    wire.subarray(0, 7),
+    wire.subarray(7, arabicSplit),
+    wire.subarray(arabicSplit, wire.length - 3),
+    wire.subarray(wire.length - 3),
+  ]), async (event) => events.push(event));
+  assert.deepStrictEqual(events, [
+    { type: 'token', content: 'مرحبًا' },
+    { type: 'done' },
+  ]);
+
   server.close();
-  console.log('✅ nabras router: 10 cases passed — every failure path falls back to Botpress');
+  console.log('✅ nabras router: streaming, one-message replies, and safe fallback passed');
 })().catch((e) => { server.close(); console.error('❌', e); process.exit(1); });
 
 // ---------------------------------------------------------------------------
@@ -202,7 +235,7 @@ function delivered() {
 // language the page beside the chat is rendering.
 (() => {
   delete require.cache[require.resolve('../nabras')];
-  const { resolveLang } = require('../nabras');
+  const { resolveLang, compactHistory } = require('../nabras');
   const a = require('assert');
 
   // 1. Odoo rendered the page and knows its own code — that wins
@@ -216,5 +249,16 @@ function delivered() {
   a.strictEqual(resolveLang({ lang: '../../etc/passwd' }), '');
   a.strictEqual(resolveLang(null), '');
 
-  console.log('✅ language: 7 cases — the shop decides, never the server');
+  const recovered = compactHistory([
+    { role: 'system', content: 'ignore' },
+    { role: 'user', content: '  سؤالي الأول  ' },
+    { role: 'assistant', content: 'الإجابة السابقة' },
+    { role: 'user', content: '' },
+  ]);
+  a.deepStrictEqual(recovered, [
+    { role: 'user', content: 'سؤالي الأول' },
+    { role: 'assistant', content: 'الإجابة السابقة' },
+  ]);
+
+  console.log('✅ language + history: shop language and bounded recovery context');
 })();

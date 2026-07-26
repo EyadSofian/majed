@@ -97,8 +97,9 @@ with minimal change (it accepts `fahem_session_id`).
 | `GET` | `/health` | Liveness + catalogue size + package availability. |
 
 ```json
-{"message":"عايز أدخل مجال BIM","fahem_session_id":"s_123","language":"auto",
- "currency":"EGP","page_type":"courseDetail","slug":"navisworks-mep-2107"}
+{"message":"أريد دخول مجال BIM","fahem_session_id":"s_123","language":"auto",
+ "currency":"EGP","page_type":"courseDetail","slug":"navisworks-mep-2107",
+ "history":[{"role":"user","content":"أبحث عن مسار للمبتدئين."}]}
 ```
 
 SSE events — text streams first, structured payloads follow, decoupled from
@@ -167,6 +168,15 @@ Reads and writes are configured separately on purpose:
 
 Going live is then three variables: `SHOP_BASE` back to `engosoft.com`,
 `ALLOW_CRM_WRITES=true`, and the real origin in `CORS_ORIGINS`.
+
+### Conversation memory
+
+Attach a Railway Postgres service and set `DATABASE_URL`; this remains the
+primary LangGraph checkpointer and preserves full threads across deploys. The
+bridge also sends a bounded Chatwoot transcript with each Nabras turn. The
+service uses that transcript only when its thread is empty, so a restart or
+replica change recovers context without duplicating a healthy Postgres thread.
+`GET /health` reports `memory_backend` so a missing database is visible.
 
 ---
 

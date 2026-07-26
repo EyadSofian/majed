@@ -10,10 +10,10 @@
  *      message. The visitor cannot tell anything was attempted.
  *   3. **Allowlist before everyone.** `NABRAS_ALLOW` is a list of emails; only
  *      those get the new brain. Real customers are untouched until you widen it.
- *   4. **No widget change.** Replies are pushed as ordinary Chatwoot-shaped
- *      messages, and course cards use the `cards` content type the widget
- *      already renders. Token streaming needs a widget update and is phase 2 —
- *      keeping the live widget byte-identical is what makes this reversible.
+ *   4. **One progressive turn.** Token events update one transient widget
+ *      response. The final Chatwoot-shaped message enriches that same surface
+ *      with cards, live price, choices, and actions, then becomes the sole
+ *      durable transcript record.
  *
  * The customer-facing name is ماجد throughout; "nabras" is only the service.
  */
@@ -209,12 +209,53 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
   return items;
 }
 
+function compactHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({ role: m.role, content: String(m.content || '').trim().slice(0, 4000) }))
+    .filter((m) => m.content)
+    .slice(-24);
+}
+
+/** Consume a Node response stream without assuming that SSE records, JSON, or
+ * UTF-8 characters line up with transport chunks. */
+async function consumeSseStream(stream, onEvent) {
+  if (!stream || typeof stream[Symbol.asyncIterator] !== 'function') {
+    throw new Error('upstream response is not a stream');
+  }
+  if (typeof stream.setEncoding === 'function') stream.setEncoding('utf8');
+  let buffer = '';
+
+  const consumeRecord = async (record) => {
+    const payload = String(record || '')
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n');
+    if (!payload || payload === '[DONE]') return;
+    let event;
+    try { event = JSON.parse(payload); } catch (_) { return; }
+    await onEvent(event);
+  };
+
+  for await (const chunk of stream) {
+    buffer += String(chunk).replace(/\r/g, '');
+    let boundary;
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const record = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      await consumeRecord(record);
+    }
+  }
+  if (buffer.trim()) await consumeRecord(buffer);
+}
+
 /**
  * Try to answer with نبراس.
  * @returns {Promise<boolean>} true if it answered; false => caller must fall
  *   back to Botpress. Never throws.
  */
-async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, deps) {
+async function tryNabras(cwConvId, text, { name, userData, pageType, slug, history }, deps) {
   const c = cfg();
   if (!allowed(userData)) return false;
 
@@ -233,24 +274,65 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   let instructorCards = [];
   let handoff = null;
   let deferred = null;
+  const streamId = `nb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let sequence = 0;
+  let liveStarted = false;
+  let tokenBuffer = '';
+  let tokenTimer = null;
+
+  const emitLive = (state, content = '') => {
+    if (typeof deps.stream !== 'function') return;
+    deps.stream(cwConvId, {
+      id: `${streamId}-${state}-${sequence}`,
+      content,
+      content_type: 'assistant_stream',
+      content_attributes: {
+        stream_id: streamId,
+        stream_state: state,
+        sequence: sequence++,
+      },
+    });
+  };
+  const flushTokens = () => {
+    if (tokenTimer) {
+      clearTimeout(tokenTimer);
+      tokenTimer = null;
+    }
+    if (!tokenBuffer) return;
+    if (!liveStarted && typeof deps.stream === 'function') {
+      liveStarted = true;
+      emitLive('start');
+    }
+    const delta = tokenBuffer;
+    tokenBuffer = '';
+    emitLive('delta', delta);
+  };
+  const queueToken = (content) => {
+    const value = String(content || '');
+    if (!value) return;
+    reply += value;
+    tokenBuffer += value;
+    if (!tokenTimer) {
+      tokenTimer = setTimeout(flushTokens, 35);
+      tokenTimer.unref?.();
+    }
+  };
 
   try {
     const res = await axios.post(
       `${c.base}/api/v1/ai-chat/chat/`,
       { message: text, fahem_session_id: `cw_${cwConvId}`, language: 'auto',
         currency: resolveCurrency(userData), lang: resolveLang(userData),
-        page_type: pageType || undefined, slug: slug || undefined },
+        page_type: pageType || undefined, slug: slug || undefined,
+        history: compactHistory(history) },
       { headers: { 'X-Guest-Token': token, 'Content-Type': 'application/json' },
-        timeout: c.timeoutMs, responseType: 'text' });
+        timeout: c.timeoutMs, responseType: 'stream' });
 
-    // The stream is buffered here on purpose: the live widget renders whole
-    // messages, and shipping token streaming would require changing it. That
-    // trade keeps this rollout reversible.
-    for (const line of String(res.data || '').split('\n')) {
-      if (!line.startsWith('data: ')) continue;
-      let ev;
-      try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
-      if (ev.type === 'token') reply += ev.content || '';
+    // Consume the upstream response as real SSE. Tokens are forwarded to the
+    // widget progressively; rich events are held only until the final durable
+    // message can combine copy, cards, price, and actions into one turn.
+    await consumeSseStream(res.data, async (ev) => {
+      if (ev.type === 'token') queueToken(ev.content);
       else if (ev.type === 'cards') courseCards = ev.course_cards || [];
       else if (ev.type === 'packages') packageCards = ev.package_cards || [];
       else if (ev.type === 'chips') chips = ev.chips || [];
@@ -262,9 +344,20 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
         // is answerable without opening the service's own logs
         throw new Error(`upstream_error${ev.detail ? ` (${ev.detail})` : ''}`);
       }
-    }
+    });
+    flushTokens();
   } catch (e) {
+    flushTokens();
     console.warn(`NABRAS chat failed (conv ${cwConvId}): ${e.message} — falling back`);
+    if (liveStarted && reply.trim()) {
+      await deps.deliver(cwConvId, {
+        id: `${streamId}-final`,
+        content: `${reply.trim()}\n\nتعذّر إكمال الرد. يُرجى إعادة إرسال سؤالك.`,
+        content_type: 'text',
+        content_attributes: { stream_id: streamId, incomplete: true },
+      });
+      return true;
+    }
     return false;
   }
 
@@ -273,6 +366,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
   // so Botpress answers this same message from its knowledge base and the
   // customer sees one assistant that simply knew the answer.
   if (deferred) {
+    if (liveStarted) emitLive('abort');
     console.log(`NABRAS deferred conv ${cwConvId} to Botpress: ${deferred.reason || '-'}`);
     return false;
   }
@@ -283,27 +377,21 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
     return false;
   }
 
-  const stamp = Date.now();
-  if (reply.trim()) {
-    await deps.deliver(cwConvId, {
-      id: `nb-${stamp}-t`, content: reply.trim(), content_type: 'text',
-    });
-  }
   const items = toWidgetCards(courseCards, packageCards, instructorCards);
-  if (items.length) {
-    await deps.deliver(cwConvId, {
-      id: `nb-${stamp}-c`, content: '', content_type: 'cards',
-      content_attributes: { items },
-    });
-  }
-  if (chips.length) {
-    // `input_select` is the type the widget already renders as tappable
-    // choices — picking one sends its value as the next message.
-    await deps.deliver(cwConvId, {
-      id: `nb-${stamp}-s`, content: '', content_type: 'input_select',
-      content_attributes: { items: chips.slice(0, 8) },
-    });
-  }
+  const contentType = items.length ? 'cards' : chips.length ? 'input_select' : 'text';
+  const contentAttributes = {
+    stream_id: streamId,
+    ...(items.length ? { items } : {}),
+    ...(chips.length
+      ? (items.length ? { quick_replies: chips.slice(0, 8) } : { items: chips.slice(0, 8) })
+      : {}),
+  };
+  await deps.deliver(cwConvId, {
+    id: `${streamId}-final`,
+    content: reply.trim(),
+    content_type: contentType,
+    content_attributes: contentAttributes,
+  });
   if (handoff?.requested && deps.handoff) {
     // نبراس never touches Chatwoot itself — the bridge owns that state.
     try { await deps.handoff(cwConvId, handoff); }
@@ -316,4 +404,4 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
 }
 
 module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
-                   resolveLang, cfg };
+                   resolveLang, compactHistory, consumeSseStream, cfg };

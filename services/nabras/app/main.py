@@ -9,7 +9,7 @@ import secrets
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AIMessageChunk, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 from . import catalog
 from .agent import get_graph, lifespan_agent
@@ -91,6 +91,7 @@ async def health():
     snap = catalog.snapshot()
     return {
         "status": "ok", "service": "nabras", "assistant": "ماجد",
+        "memory_backend": "postgres" if s.database_url else "in_memory_with_chatwoot_recovery",
         "crm_writes": s.allow_crm_writes,
         "courses": len(snap.courses),
         "batches": sum(len(v) for v in snap.events_by_course.values()),
@@ -174,8 +175,29 @@ async def chat(req: ChatRequest, request: Request,
         defer_tok = DEFER_SINK.set({})
         instr_tok = INSTRUCTOR_SINK.set([])
         try:
+            # LangGraph/Postgres is the primary conversation memory.  Chatwoot
+            # is the durable source of truth for the customer transcript, so a
+            # fresh worker can seed an empty thread after a restart or replica
+            # change.  Never append this history to a non-empty thread: doing so
+            # would duplicate turns and make the model repeat itself.
+            input_messages = []
+            if req.history:
+                try:
+                    state = await graph.aget_state(thread)
+                    saved = (state.values or {}).get("messages", []) if state else []
+                except Exception:  # noqa: BLE001
+                    log.exception("could not inspect memory for session=%s", req.session_id)
+                    saved = []
+                if not saved:
+                    for item in req.history:
+                        cls = HumanMessage if item.role == "user" else AIMessage
+                        input_messages.append(cls(content=item.content))
+                    log.info("memory recovery session=%s turns=%d",
+                             req.session_id, len(input_messages))
+            input_messages.append(HumanMessage(content=ctx))
+
             async for chunk, meta in graph.astream(
-                {"messages": [HumanMessage(content=ctx)]},
+                {"messages": input_messages},
                 thread, stream_mode="messages",
             ):
                 # Filter on message TYPE, not node name: LangGraph's prebuilt

@@ -26,7 +26,7 @@
 
 const express = require('express');
 const axios = require('axios');
-const { tryNabras } = require('./nabras');
+const { tryNabras, allowed: nabrasAllowed } = require('./nabras');
 const { notify } = require('./notify');
 const { extractAssignee, Takeover } = require('./takeover');
 const { chatwootSafeAttrs } = require('./cw-cards');
@@ -861,7 +861,16 @@ function stripMediaUrlFromText(text, url) {
 }
 
 function shapeWidgetMessage(msg) {
-  const attrs = parseObject(msg.content_attributes);
+  let attrs = parseObject(msg.content_attributes);
+  // Chatwoot accepts only a small fixed schema inside card `items`. Keep that
+  // safe projection for its own UI, and restore the widget's richer structured
+  // payload from a top-level JSON string after reconnect or hard refresh.
+  if (typeof attrs.mjd_payload === 'string') {
+    try {
+      const rich = JSON.parse(attrs.mjd_payload);
+      if (rich && typeof rich === 'object') attrs = { ...attrs, ...rich };
+    } catch (_) {}
+  }
   let contentType = msg.content_type || 'text';
   let content = msg.content || '';
   let contentAttributes = attrs;
@@ -933,10 +942,46 @@ function pushToWidget(convId, msg) {
   }
   const set = sseClients.get(String(convId));
   if (!set || !set.size) return;
+  emitToWidget(convId, msg);
+}
+
+// Transient streaming events are intentionally not placed in pushedIds: every
+// delta belongs to the same visual response and must reach the connected
+// widget. The final message still goes through pushToWidget and Chatwoot.
+function emitToWidget(convId, msg) {
+  const set = sseClients.get(String(convId));
+  if (!set || !set.size) return;
   for (const res of set) {
     try {
       writeSseMessage(res, msg);
     } catch (_) {}
+  }
+}
+
+async function recentConversationHistory(convId, currentText) {
+  try {
+    const rows = (await cwListMessages(convId))
+      .filter((m) => !m.private && String(m.content || '').trim())
+      .filter((m) => [0, 1, 'incoming', 'outgoing'].includes(m.message_type))
+      .slice(-25)
+      .map((m) => ({
+        role: m.message_type === 1 || m.message_type === 'outgoing'
+          ? 'assistant' : 'user',
+        content: String(m.content || '').trim().slice(0, 4000),
+      }));
+
+    // The widget writes the current customer turn to Chatwoot concurrently
+    // with model routing. If that write wins the race, remove it here because
+    // the API sends the same turn separately as `message`.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].role !== 'user') continue;
+      if (rows[i].content === String(currentText || '').trim()) rows.splice(i, 1);
+      break;
+    }
+    return rows.slice(-24);
+  } catch (e) {
+    console.warn('NABRAS history recovery failed:', e.response?.status || e.message);
+    return [];
   }
 }
 
@@ -1620,6 +1665,28 @@ function welcomeNoteIfNeeded(mapping, cwConvId) {
 // Deliver a نبراس reply exactly the way a Botpress reply is delivered:
 // widget first (that is the path the customer feels), Chatwoot in the
 // background so it stays the single source of truth.
+function nabrasChatwootAttrs(contentType, attrs) {
+  const base = {
+    bp_id: attrs.bp_id,
+    ...(attrs.stream_id ? { stream_id: attrs.stream_id } : {}),
+    ...(attrs.incomplete ? { incomplete: true } : {}),
+  };
+  if (contentType === 'cards') {
+    return chatwootSafeAttrs({
+      ...base,
+      mjd_payload: JSON.stringify({
+        items: attrs.items || [],
+        quick_replies: attrs.quick_replies || [],
+      }),
+      items: attrs.items || [],
+    });
+  }
+  if (contentType === 'input_select') {
+    return { ...base, items: attrs.items || [] };
+  }
+  return base;
+}
+
 async function deliverNabras(cwConvId, msg) {
   // One attrs object (carrying bp_id) for the live push, the echo guard, and the
   // Chatwoot write — so the echo's key matches what we recorded here.
@@ -1633,12 +1700,16 @@ async function deliverNabras(cwConvId, msg) {
     content_type: msg.content_type || 'text',
     content_attributes: attrs,
   });
-  cwSendMessage(cwConvId, {
-    content: msg.content,
-    messageType: 'outgoing',
-    contentType: msg.content_type === 'text' ? undefined : msg.content_type,
-    contentAttributes: chatwootSafeAttrs(attrs),
-  }).catch((e) => console.error('cw outgoing write failed:', e.response?.data || e.message));
+  try {
+    await cwSendMessage(cwConvId, {
+      content: msg.content,
+      messageType: 'outgoing',
+      contentType: msg.content_type === 'text' ? undefined : msg.content_type,
+      contentAttributes: nabrasChatwootAttrs(msg.content_type || 'text', attrs),
+    });
+  } catch (e) {
+    console.error('cw outgoing write failed:', e.response?.data || e.message);
+  }
 }
 
 async function forwardToBot(cwConvId, text, { name, userData }) {
@@ -1662,8 +1733,12 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   // message, so the customer never sees a gap. Flipping NABRAS_ENABLED=false
   // is a complete rollback with no other change.
   try {
-    const handled = await tryNabras(cwConvId, text, { name, userData }, {
+    const history = nabrasAllowed(userData)
+      ? await recentConversationHistory(cwConvId, text)
+      : [];
+    const handled = await tryNabras(cwConvId, text, { name, userData, history }, {
       deliver: deliverNabras,
+      stream: emitToWidget,
       handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
     });
     if (handled) return;
