@@ -463,6 +463,27 @@ async def test_lead_without_contact_is_refused(client_factory, fake_odoo):
     assert fake_odoo.leads == []
 
 
+async def test_lead_carries_field_specialization_and_experience(client_factory,
+                                                                fake_odoo):
+    """The funnel qualifies before it captures: the field, specialization and
+    years of experience the agent gathered land on the lead so the advisor opens
+    it knowing who this is."""
+    script = [{"tool": "create_lead",
+               "args": {"name": "منى", "phone": "01555000000",
+                        "field": "Mechanical", "specialization": "HVAC",
+                        "experience": "3 سنوات"}},
+              {"text": "تمام يا مهندسة منى."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        await _chat(client, tok, "كلموني")
+    assert len(fake_odoo.leads) == 1
+    desc = fake_odoo.leads[0]["description"]
+    assert "المجال: Mechanical" in desc
+    assert "التخصص: HVAC" in desc
+    assert "سنوات الخبرة: 3 سنوات" in desc
+
+
 # ================================================================== memory
 async def test_memory_persists_across_turns(client_factory):
     client, model = client_factory(RECOMMEND + [{"text": "أرخصهم Navisworks."}])
@@ -1181,3 +1202,23 @@ async def test_every_recommended_course_can_be_bought_from_its_card(client_facto
     for c in priced:
         assert c["checkout_url"], f"no buy button on {c['title']}"
         assert "add_qty=1&express=1" in c["checkout_url"]
+
+
+def test_deep_details_routing_follows_the_setting(monkeypatch):
+    """STAGE 3 of the funnel is a switch: with DETAILS_TO_BOTPRESS on, a deep
+    course-detail request is deferred to Botpress; off (default), Nabras answers
+    it itself. The marker must never survive into the served prompt."""
+    from app import prompts
+    from app.config import get_settings
+    s = get_settings()
+
+    monkeypatch.setattr(s, "details_to_botpress", True)
+    to_bot = prompts.build_system_prompt()
+    assert prompts._DETAILS_MARKER not in to_bot
+    assert "الريفيوهات" in to_bot and "course_details" in to_bot
+
+    monkeypatch.setattr(s, "details_to_botpress", False)
+    in_nabras = prompts.build_system_prompt()
+    assert prompts._DETAILS_MARKER not in in_nabras
+    assert "الريفيوهات" not in in_nabras
+    assert "get_course_details" in in_nabras
