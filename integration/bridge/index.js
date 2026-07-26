@@ -696,7 +696,11 @@ function outgoingEchoKey(convId, content, attrs) {
   const c = String(content || '').trim();
   if (c) return `${convId}:t:${c}`;
   const a = attrs || {};
-  return `${convId}:m:${a.url || a.image_url || ''}`;
+  // Content-less messages (cards, chips, media) must NOT share a key: a cards
+  // message and a chips message both have empty content, so keying on the url
+  // alone made them collide and only one echo got de-duped — the other rendered
+  // twice. The bridge message id (bp_id) makes every one distinct.
+  return `${convId}:m:${a.bp_id || a.url || a.image_url || ''}`;
 }
 function markBridgeOutgoing(convId, content, attrs) {
   bridgeOutgoingEchoes.set(outgoingEchoKey(convId, content, attrs), Date.now() + 30000);
@@ -1560,18 +1564,25 @@ function welcomeNoteIfNeeded(mapping, cwConvId) {
 // widget first (that is the path the customer feels), Chatwoot in the
 // background so it stays the single source of truth.
 async function deliverNabras(cwConvId, msg) {
-  markBridgeOutgoing(cwConvId, msg.content, msg.content_attributes);
+  // One attrs object (carrying bp_id) for the live push, the echo guard, and the
+  // Chatwoot write — so the echo's key matches what we recorded here.
+  const attrs = { ...(msg.content_attributes || {}), bp_id: msg.id };
+  markBridgeOutgoing(cwConvId, msg.content, attrs);
+  // Register the id NOW, not only inside pushToWidget: pushToWidget skips when no
+  // SSE client is connected at this instant, and then the Chatwoot echo would
+  // slip past the id guard and re-render as a duplicate.
+  if (msg.id != null) pushedIds.add(`cw-${msg.id}`);
   pushToWidget(cwConvId, {
     id: msg.id,
     content: msg.content,
     content_type: msg.content_type || 'text',
-    content_attributes: { ...(msg.content_attributes || {}), bp_id: msg.id },
+    content_attributes: attrs,
   });
   cwSendMessage(cwConvId, {
     content: msg.content,
     messageType: 'outgoing',
     contentType: msg.content_type === 'text' ? undefined : msg.content_type,
-    contentAttributes: chatwootSafeAttrs({ ...(msg.content_attributes || {}), bp_id: msg.id }),
+    contentAttributes: chatwootSafeAttrs(attrs),
   }).catch((e) => console.error('cw outgoing write failed:', e.response?.data || e.message));
 }
 
