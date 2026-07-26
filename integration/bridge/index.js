@@ -920,13 +920,19 @@ function removeClient(convId, res) {
 }
 function pushToWidget(convId, msg) {
   if (!msg) return;
-  const set = sseClients.get(String(convId));
-  if (!set || !set.size) return;
+  // Register the id BEFORE looking for clients: this both de-dups a second
+  // delivery of the same message AND records it so the Chatwoot echo is dropped
+  // even when no SSE client is connected at this instant. (Registering it
+  // outside — e.g. in deliverNabras — instead made this function think it was
+  // already delivered and skip the live push, so the reply only showed on a
+  // hard refresh.)
   if (msg.id != null) {
     const key = `cw-${msg.id}`;
     if (pushedIds.has(key)) return;
     pushedIds.add(key);
   }
+  const set = sseClients.get(String(convId));
+  if (!set || !set.size) return;
   for (const res of set) {
     try {
       writeSseMessage(res, msg);
@@ -1619,10 +1625,8 @@ async function deliverNabras(cwConvId, msg) {
   // Chatwoot write — so the echo's key matches what we recorded here.
   const attrs = { ...(msg.content_attributes || {}), bp_id: msg.id };
   markBridgeOutgoing(cwConvId, msg.content, attrs);
-  // Register the id NOW, not only inside pushToWidget: pushToWidget skips when no
-  // SSE client is connected at this instant, and then the Chatwoot echo would
-  // slip past the id guard and re-render as a duplicate.
-  if (msg.id != null) pushedIds.add(`cw-${msg.id}`);
+  // pushToWidget now registers the id itself (before the client check), so the
+  // echo is de-duped even with no SSE client — without blocking the live push.
   pushToWidget(cwConvId, {
     id: msg.id,
     content: msg.content,
