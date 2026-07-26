@@ -73,6 +73,19 @@ class Settings(BaseSettings):
     # state. We only emit a handoff signal on the SSE stream.
     handoff_enabled: bool = True
 
+    # ---- Deep course details routing ----
+    # The funnel: Nabras qualifies, offers a package/track with a SHORT pitch,
+    # and closes. When a visitor asks for the DEEP details of one course (full
+    # syllabus, page link, reviews), this decides who answers:
+    #   False (default) -> Nabras answers with get_course_details. Fully working
+    #                      today, one brain owns everything.
+    #   True            -> Nabras calls defer_to_bot("course_details") and the
+    #                      bridge lets Botpress answer that same message from its
+    #                      course knowledge base. Only turn this on once Botpress
+    #                      is configured to answer course-detail questions, or the
+    #                      visitor gets nothing when Botpress is not set up.
+    details_to_botpress: bool = False
+
     # ---- State / memory ----
     # Empty -> in-memory checkpointer (dev only, memory dies with the process).
     database_url: str = ""

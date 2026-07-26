@@ -27,6 +27,8 @@
 const express = require('express');
 const axios = require('axios');
 const { tryNabras } = require('./nabras');
+const { notify } = require('./notify');
+const { extractAssignee, Takeover } = require('./takeover');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -140,6 +142,28 @@ const config = {
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
   deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
   deepgramLanguage: process.env.DEEPGRAM_LANGUAGE || 'ar',
+
+  // ── Agent takeover: assign → Majed stops ─────────────────────────
+  // When a human agent assigns a conversation to themselves in Chatwoot, Majed
+  // (Nabras/Botpress) must go quiet so the two never talk over each other. The
+  // assignment is read from the assignee_changed webhook; unassigning hands the
+  // conversation back to the bot.
+  assignPausesBot: (process.env.ASSIGN_PAUSES_BOT || 'true').toLowerCase() !== 'false',
+
+  // ── Email notifications (SMTP) ───────────────────────────────────
+  // Majed emails a configured inbox on the events toggled below. Delivery needs
+  // SMTP credentials; with none set the notifier is inert (it logs and returns),
+  // so the bridge behaves identically with or without email configured.
+  notifyEmailTo: process.env.NOTIFY_EMAIL_TO || '',
+  notifyEmailFrom: process.env.NOTIFY_EMAIL_FROM || process.env.SMTP_USER || '',
+  notifyOnLiveChat: (process.env.NOTIFY_ON_LIVE_CHAT || 'true').toLowerCase() !== 'false',
+  notifyOnLead: (process.env.NOTIFY_ON_LEAD || 'true').toLowerCase() !== 'false',
+  notifyOnHandoff: (process.env.NOTIFY_ON_HANDOFF || 'true').toLowerCase() !== 'false',
+  smtpHost: process.env.SMTP_HOST || '',
+  smtpPort: Number(process.env.SMTP_PORT || 587),
+  smtpSecure: (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true',
+  smtpUser: process.env.SMTP_USER || '',
+  smtpPass: process.env.SMTP_PASS || '',
 };
 
 // Legacy var: if someone still sets BOTPRESS_WEBHOOK_URL, try to salvage a chat id
@@ -868,6 +892,33 @@ async function sendRecentOutgoingToClient(convId, res) {
 // ── Conversation status cache (bot gating) ─────────────────────────
 const convStatus = new Map(); // cwConvId -> 'pending' | 'open' | 'resolved' | 'snoozed'
 
+// A human agent taking over a conversation (assigning it to themselves) pauses
+// the bot regardless of status. Parsing + state machine live in ./takeover.
+const takeover = new Takeover(config.assignPausesBot);
+
+// Apply an assignment change and log the transition.
+function applyAssignment(convId, assigneeId) {
+  if (!takeover.apply(convId, assigneeId)) return false;
+  console.log(assigneeId
+    ? `ASSIGN conv ${convId} → agent ${assigneeId} (Majed paused)`
+    : `UNASSIGN conv ${convId} (Majed resumes)`);
+  return true;
+}
+
+function botPausedFor(convId, status) {
+  return status === 'open' || takeover.isAssigned(convId);
+}
+
+// A deep link to the conversation in the Chatwoot agent app, for email alerts.
+function convUrl(convId) {
+  if (!config.chatwootBaseUrl || !config.chatwootAccountId) return String(convId);
+  return `${config.chatwootBaseUrl}/app/accounts/${config.chatwootAccountId}/conversations/${convId}`;
+}
+
+// Conversations we have already emailed a "live chat started" alert for, so a
+// long conversation triggers exactly one — not one per message.
+const notifiedLive = new Set(); // cwConvId
+
 async function getConvStatus(cwConvId) {
   if (convStatus.has(cwConvId)) return convStatus.get(cwConvId);
   try {
@@ -968,12 +1019,17 @@ async function bpSendText(mapping, text) {
 // Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]]
 const HANDOFF_RE = /\[\[\s*HANDOFF(?::(\d+))?\s*\]\]/i;
 
-async function performHandoff(cwConvId, teamId) {
+async function performHandoff(cwConvId, teamId, meta = {}) {
   await cwSetStatus(cwConvId, 'open');
   convStatus.set(cwConvId, 'open');
   if (teamId) await cwAssign(cwConvId, { team_id: Number(teamId) });
   console.log(`HANDOFF conv ${cwConvId}${teamId ? ` → team ${teamId}` : ''} (status: open)`);
   armHandoffReturn(cwConvId, teamId);
+  // Tell ops a customer needs a human. Never blocks or breaks the handoff.
+  notify(config, 'handoff', {
+    reason: meta.reason, summary: meta.summary,
+    convId: cwConvId, convUrl: convUrl(cwConvId),
+  }).catch((e) => console.warn('handoff notify failed:', e.message));
 }
 
 // ── Auto-return-to-bot after an unanswered handoff ─────────────────
@@ -1513,9 +1569,19 @@ async function deliverNabras(cwConvId, msg) {
 }
 
 async function forwardToBot(cwConvId, text, { name, userData }) {
+  // First customer message of a conversation → one "live chat" alert to ops.
+  if (config.notifyOnLiveChat && !notifiedLive.has(String(cwConvId))) {
+    notifiedLive.add(String(cwConvId));
+    notify(config, 'live_chat', {
+      name, email: userData?.email || userData?.userEmail,
+      message: text, page: userData?.page || userData?.currentUrl,
+      convId: cwConvId, convUrl: convUrl(cwConvId),
+    }).catch((e) => console.warn('live_chat notify failed:', e.message));
+  }
   const status0 = await getConvStatus(cwConvId);
-  if (status0 === 'open') {
-    console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
+  if (botPausedFor(cwConvId, status0)) {
+    const why = status0 === 'open' ? 'status=open' : 'agent assigned';
+    console.log(`SKIP bot (${why}) conv ${cwConvId}`);
     return;
   }
   // نبراس gets first refusal. It returns false for anything at all — disabled,
@@ -1525,7 +1591,7 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   try {
     const handled = await tryNabras(cwConvId, text, { name, userData }, {
       deliver: deliverNabras,
-      handoff: (id, h) => performHandoff(id, h.team_id),
+      handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
     });
     if (handled) return;
   } catch (e) {
@@ -2135,9 +2201,23 @@ app.post('/chatwoot/webhook', async (req, res) => {
       const status = p.status || p.conversation?.status;
       if (convId && status) {
         convStatus.set(convId, status);
+        // A resolved ticket is finished; drop any agent takeover so that if the
+        // customer comes back (revive → pending) Majed answers again.
+        if (status === 'resolved') takeover.clear(convId);
         console.log(`STATUS conv ${convId} → ${status}${status === 'open' ? ' (bot paused)' : status === 'pending' ? ' (bot resumed)' : ''}`);
       }
       return res.status(200).json({ status: 'ok' });
+    }
+
+    // A human agent taking (or dropping) the conversation. On assignee_changed
+    // this is always about assignment; on conversation_updated only act when the
+    // assignee actually changed, since that event fires for labels/attrs too.
+    if (p.event === 'assignee_changed' || p.event === 'conversation_updated') {
+      const convId = String(p.id || p.conversation?.id || p.conversation_id || '');
+      const a = extractAssignee(p);
+      if (convId && a.present) applyAssignment(convId, a.id);
+      if (p.event === 'assignee_changed') return res.status(200).json({ status: 'ok' });
+      // conversation_updated may still need no further handling here
     }
 
     if (p.event !== 'message_created') return res.status(200).json({ status: 'skipped' });

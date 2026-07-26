@@ -1234,8 +1234,11 @@
     h += '<div class="mjd-crs-ft">' + priceBlock(it.price_display) + '<div class="mjd-cta">';
     if (it.checkout_url) h += '<a class="mjd-buy" href="' + esc(it.checkout_url) +
       '" target="_blank" rel="noopener">' + I.cart + 'اشترِ الآن</a>';
-    if (it.url) h += '<a class="mjd-det" href="' + esc(it.url) +
-      '" target="_blank" rel="noopener">التفاصيل</a>';
+    // "تفاصيل أكتر" goes back through ماجد (STAGE 3 of the funnel) — the bot
+    // answers with the full details, link and reviews — instead of jumping the
+    // customer straight out to the page and dropping them from the conversation.
+    if (it.course_id || it.url) h += '<button class="mjd-det" type="button" data-pb="' +
+      esc('عايز تفاصيل أكتر عن «' + (it.title || 'الكورس') + '»') + '">تفاصيل أكتر 💬</button>';
     return h + '</div></div>';
   }
   // A photo that 404s (Odoo may not serve employee images publicly) must not
@@ -1614,6 +1617,9 @@
     clearReply();
     addMe((display || text).trim() || text, rep ? rep.text : '');
     setLive(true);
+    // Keep the "was open" memory fresh on every active turn, so a long live
+    // chat still reopens ماجد in a newly opened tab instead of aging out.
+    rememberOpen();
     if (!convId) { startSession().then(function () { if (convId) postMsg(text, rep); }); return; }
     postMsg(text, rep);
   }

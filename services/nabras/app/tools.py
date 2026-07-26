@@ -1021,26 +1021,44 @@ async def build_checkout_link(course_id: int) -> str:
 async def create_lead(name: str, phone: Optional[str] = None,
                       email: Optional[str] = None,
                       course_interest: Optional[str] = None,
+                      field: Optional[str] = None,
+                      specialization: Optional[str] = None,
+                      experience: Optional[str] = None,
                       notes: Optional[str] = None) -> str:
-    """Create a CRM lead in Odoo for the sales advisor. Call once per session,
-    when the visitor hesitates or asks to speak to someone. A name plus one
-    contact method is enough — never ask for anything more sensitive."""
+    """Create a CRM lead in Odoo for the sales advisor.
+
+    This is the funnel's capture step, not just an escape hatch: call it once the
+    visitor has given a contact method, folding in what you already qualified —
+    their `field` (المجال), `specialization` (التخصص) and `experience` (سنوات
+    الخبرة) — so the advisor opens the lead already knowing who this is. A name
+    plus one contact method (phone or email) is enough; never ask for anything
+    more sensitive.
+    """
     if not (phone or email):
         return json.dumps({"error": "need_contact",
                            "detail": "ask for a phone number or an email first"})
     s = get_settings()
+    # A qualification line the advisor reads at a glance, above any free notes.
+    qual = []
+    if field:
+        qual.append(f"المجال: {field}")
+    if specialization:
+        qual.append(f"التخصص: {specialization}")
+    if experience:
+        qual.append(f"سنوات الخبرة: {experience}")
+    description = "\n".join([p for p in (" · ".join(qual), notes) if p])
     if not s.allow_crm_writes:
         # Trial mode: exercise the whole funnel without polluting the live CRM
         # with test leads. The agent still gets a success-shaped result.
-        log.info("lead suppressed (ALLOW_CRM_WRITES=false): %s / %s",
-                 name, phone or email)
+        log.info("lead suppressed (ALLOW_CRM_WRITES=false): %s / %s / %s",
+                 name, phone or email, " · ".join(qual) or "-")
         return json.dumps({"lead_id": None, "simulated": True,
                            "note": "trial mode — not written to Odoo"})
     payload = {
-        "name": f"[ماجد] {course_interest or 'استفسار عن كورس'} — {name}",
+        "name": f"[ماجد] {course_interest or specialization or field or 'استفسار عن كورس'} — {name}",
         "contact_name": name, "type": "lead",
         "user_id": s.sales_advisor_id,
-        "description": notes or "", "phone": phone or "", "email_from": email or "",
+        "description": description, "phone": phone or "", "email_from": email or "",
     }
     try:
         lead_id = await odoo.create_lead(payload)
