@@ -256,6 +256,25 @@ class Odoo:
         return rows
 
     # ------------------------------------------------------------ instructor
+    async def fetch_instructors(self, ids: Iterable[int]) -> dict[int, dict]:
+        rows = await self.read("hr.employee", list({int(i) for i in ids}),
+                               EMPLOYEE_FIELDS)
+        return {r["id"]: r for r in rows}
+
+    async def fetch_all_instructors(self) -> list[dict]:
+        """Everyone who teaches: by job title (English or Arabic) or by sitting
+        in an instructor department. Titles are free text in this database, so
+        the net is deliberately wide — a trainer missing from here is a customer
+        being told their trainer does not exist."""
+        return await self.search_read(
+            "hr.employee",
+            ["|", "|", "|",
+             ["job_title", "ilike", "instructor"],
+             ["job_title", "ilike", "trainer"],
+             ["job_title", "ilike", "مدرب"],
+             ["department_id.name", "ilike", "INSTRUCTORS"]],
+            EMPLOYEE_FIELDS, order="name asc")
+
     # Confirmed against the live database: this is where the site's trainer
     # popup gets its content. Ordered as the popup renders it.
     PROFILE_FIELDS: tuple[tuple[str, str], ...] = (

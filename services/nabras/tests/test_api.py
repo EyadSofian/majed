@@ -1056,3 +1056,27 @@ async def test_a_failed_pull_never_breaks_the_answer(fake_odoo, monkeypatch):
     await catalog_mod.refresh(full=True)
     data = await cat.ensure_packages()          # must not raise
     assert data.get("available") is True        # falls back to what Odoo gave us
+
+
+# ============================================================ wiring guard
+def test_every_odoo_call_in_the_app_exists_on_the_real_client():
+    """A deleted data-layer method must fail here, not in production.
+
+    `FakeOdoo` overrides the methods the app calls, so a method removed from
+    the real `Odoo` class stays invisible to every other test — and then the
+    catalogue fails to load on boot with an AttributeError. This reads the app's
+    own source and checks each call against the real class.
+    """
+    import re
+    from pathlib import Path
+
+    from app.odoo import Odoo
+
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    called: dict[str, str] = {}
+    for path in sorted(app_dir.glob("*.py")):
+        for name in re.findall(r"\bodoo\.(\w+)\s*\(", path.read_text()):
+            called.setdefault(name, path.name)
+    assert called, "no odoo calls found — the scan is broken, not the code"
+    missing = {n: f for n, f in called.items() if not hasattr(Odoo, n)}
+    assert not missing, f"called but not defined on Odoo: {missing}"
