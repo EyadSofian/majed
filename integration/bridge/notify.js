@@ -9,18 +9,30 @@
  *     SMTP config, sends, and NEVER throws — a failed alert must never break a
  *     customer conversation.
  *
- * With no SMTP host configured the notifier is inert: it returns
- * {sent:false, reason:'no_transport'} and the bridge runs exactly the same. A
- * test injects a fake transport via setTransport(), so the whole path runs with
- * neither SMTP credentials nor nodemailer installed.
+ * Two delivery paths, in priority order:
+ *   1. config.notifyWebhookUrl set → POST the alert JSON to an n8n (or any)
+ *      workflow that does the actual sending (email/Slack/…). Preferred when
+ *      that workflow already exists in n8n.
+ *   2. else SMTP via nodemailer.
+ * With neither configured the notifier is inert and the bridge runs exactly the
+ * same. Tests inject a fake transport (setTransport) and a fake HTTP poster
+ * (setHttp), so every path runs with no network, no SMTP and no nodemailer.
  */
+const axios = require('axios');
 
 // undefined = not built yet · null = no creds/unavailable · object = ready
 let _transport;
+// HTTP poster for the webhook path — swappable in tests.
+let _post = (url, body, opts) => axios.post(url, body, opts);
 
 // Test hook: inject a transport, or pass undefined to force a rebuild.
 function setTransport(t) {
   _transport = t;
+}
+
+// Test hook: swap the HTTP poster used by the webhook path.
+function setHttp(fn) {
+  _post = fn || ((url, body, opts) => axios.post(url, body, opts));
 }
 
 function getTransport(config) {
@@ -97,10 +109,27 @@ const ENABLED = {
 };
 
 async function notify(config, kind, data = {}) {
-  if (!config.notifyEmailTo) return { sent: false, reason: 'no_recipient' };
   const gate = ENABLED[kind];
   if (gate && !gate(config)) return { sent: false, reason: 'disabled' };
   const { subject, text } = compose(kind, data);
+
+  // Path 1 — hand the alert to an n8n (or any) workflow that does the sending.
+  if (config.notifyWebhookUrl) {
+    try {
+      await _post(config.notifyWebhookUrl, { kind, subject, text, ...data }, {
+        headers: config.notifyWebhookToken
+          ? { 'X-Notify-Token': config.notifyWebhookToken } : {},
+        timeout: 10000,
+      });
+      return { sent: true, via: 'webhook', subject, text };
+    } catch (e) {
+      console.warn(`notify(${kind}) webhook failed:`, e.message);
+      return { sent: false, reason: e.message, subject, text };
+    }
+  }
+
+  // Path 2 — direct SMTP.
+  if (!config.notifyEmailTo) return { sent: false, reason: 'no_recipient' };
   const transport = getTransport(config);
   if (!transport) return { sent: false, reason: 'no_transport', subject, text };
   try {
@@ -110,11 +139,11 @@ async function notify(config, kind, data = {}) {
       subject,
       text,
     });
-    return { sent: true, subject, text };
+    return { sent: true, via: 'smtp', subject, text };
   } catch (e) {
     console.warn(`notify(${kind}) failed:`, e.message);
     return { sent: false, reason: e.message, subject, text };
   }
 }
 
-module.exports = { notify, compose, getTransport, setTransport };
+module.exports = { notify, compose, getTransport, setTransport, setHttp };

@@ -118,7 +118,43 @@ const notify = require('../notify');
   assert.strictEqual(r.reason, 'no_transport');
 
   console.log('✅ notify.notify: sends when on, respects toggles/recipient, never throws');
-})().then(() => {
+})()
+// ─────────────── notify: n8n webhook path takes priority ──────────────
+.then(async function webhookPath() {
+  const posted = [];
+  notify.setHttp(async (url, body, opts) => { posted.push({ url, body, opts }); return { status: 200 }; });
+  const cfg = {
+    notifyWebhookUrl: 'https://n8n.example/webhook/majed',
+    notifyWebhookToken: 'secret',
+    notifyOnLead: true, notifyOnHandoff: true, notifyOnLiveChat: true,
+    // SMTP is also present, but the webhook must win — no email is built
+    notifyEmailTo: 'ops@x.com', smtpHost: 'smtp.x.com',
+  };
+  let r = await notify.notify(cfg, 'lead', { name: 'أحمد', phone: '0100', field: 'BIM' });
+  assert.strictEqual(r.sent, true);
+  assert.strictEqual(r.via, 'webhook');
+  assert.strictEqual(posted.length, 1);
+  assert.strictEqual(posted[0].url, 'https://n8n.example/webhook/majed');
+  assert.strictEqual(posted[0].body.kind, 'lead');
+  assert.strictEqual(posted[0].body.field, 'BIM');           // raw data travels too
+  assert.ok(posted[0].body.subject.includes('أحمد'));
+  assert.strictEqual(posted[0].opts.headers['X-Notify-Token'], 'secret');
+
+  // a disabled kind never posts, even with a webhook set
+  r = await notify.notify({ ...cfg, notifyOnLead: false }, 'lead', { name: 'x' });
+  assert.strictEqual(r.sent, false);
+  assert.strictEqual(r.reason, 'disabled');
+  assert.strictEqual(posted.length, 1);
+
+  // a webhook failure is swallowed, never thrown
+  notify.setHttp(async () => { throw new Error('n8n 500'); });
+  r = await notify.notify(cfg, 'handoff', { reason: 'x' });
+  assert.strictEqual(r.sent, false);
+  assert.strictEqual(r.reason, 'n8n 500');
+
+  notify.setHttp(undefined); // restore
+  console.log('✅ notify.notify: n8n webhook path wins over SMTP, carries data, never throws');
+}).then(() => {
   console.log('\nRESULT: notify + takeover unit tests passed');
 }).catch((e) => {
   console.error('\n❌ FAILED:', e.message);

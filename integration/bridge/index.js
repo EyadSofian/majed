@@ -150,10 +150,16 @@ const config = {
   // conversation back to the bot.
   assignPausesBot: (process.env.ASSIGN_PAUSES_BOT || 'true').toLowerCase() !== 'false',
 
-  // ── Email notifications (SMTP) ───────────────────────────────────
-  // Majed emails a configured inbox on the events toggled below. Delivery needs
-  // SMTP credentials; with none set the notifier is inert (it logs and returns),
-  // so the bridge behaves identically with or without email configured.
+  // ── Notifications (n8n webhook, or direct SMTP) ──────────────────
+  // Majed alerts ops on the events toggled below. Two delivery paths:
+  //   1. NOTIFY_WEBHOOK_URL set → POST the alert JSON to an n8n (or any)
+  //      workflow that does the actual sending. Preferred when the email/Slack
+  //      workflow already lives in n8n.
+  //   2. else SMTP (NOTIFY_EMAIL_TO + SMTP_*) → the bridge sends the email.
+  // With neither configured the notifier is inert, so the bridge behaves
+  // identically whether or not notifications are set up.
+  notifyWebhookUrl: process.env.NOTIFY_WEBHOOK_URL || '',
+  notifyWebhookToken: process.env.NOTIFY_WEBHOOK_TOKEN || '',
   notifyEmailTo: process.env.NOTIFY_EMAIL_TO || '',
   notifyEmailFrom: process.env.NOTIFY_EMAIL_FROM || process.env.SMTP_USER || '',
   notifyOnLiveChat: (process.env.NOTIFY_ON_LIVE_CHAT || 'true').toLowerCase() !== 'false',
