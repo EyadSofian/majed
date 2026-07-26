@@ -159,6 +159,9 @@ async def chat(req: ChatRequest, request: Request,
         except Exception:  # noqa: BLE001
             log.exception("could not load titles for lang=%s", lang)
 
+    started = time.perf_counter()
+    tools_used: list[str] = []
+
     async def sse():
         # Each sink is a mutable container the tools mutate in place; tools run
         # in child tasks whose context is a copy, so a rebind there is lost.
@@ -180,6 +183,13 @@ async def chat(req: ChatRequest, request: Request,
                 # "model". Type-based filtering survives both.
                 if not isinstance(chunk, AIMessageChunk):
                     continue
+                # Which tools ran is the first question of every "why did it
+                # answer that?", and it is free here: tool calls arrive on the
+                # same stream as the text.
+                for call in (getattr(chunk, "tool_call_chunks", None) or []):
+                    name = call.get("name")
+                    if name and name not in tools_used:
+                        tools_used.append(name)
                 text = _text(chunk.content)
                 if text:
                     yield _ev("token", {"content": text})
@@ -210,10 +220,19 @@ async def chat(req: ChatRequest, request: Request,
             if handoff and handoff.get("requested"):
                 # The bridge owns Chatwoot; we only signal.
                 yield _ev("handoff", handoff)
+            log.info("turn session=%s lang=%s cur=%s tools=[%s] cards=%d "
+                     "packages=%d chips=%d in=%dms",
+                     req.session_id, lang or "-", currency,
+                     ",".join(tools_used) or "-", len(cards), len(packages),
+                     len(chips), int((time.perf_counter() - started) * 1000))
             yield _ev("done", {})
-        except Exception:  # noqa: BLE001
-            log.exception("chat stream failed for session=%s", req.session_id)
-            yield _ev("error", {"message": "upstream_error"})
+        except Exception as e:  # noqa: BLE001
+            log.exception("chat stream failed for session=%s tools=[%s]",
+                          req.session_id, ",".join(tools_used) or "-")
+            # The class name reaches the bridge log so a failure is diagnosable
+            # from one line; the message may carry credentials, so it does not.
+            yield _ev("error", {"message": "upstream_error",
+                                "detail": type(e).__name__})
         finally:
             CARD_SINK.reset(cards_tok)
             PACKAGE_SINK.reset(pkgs_tok)

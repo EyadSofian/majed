@@ -239,7 +239,11 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug }, dep
       else if (ev.type === 'instructors') instructorCards = ev.instructor_cards || [];
       else if (ev.type === 'defer') deferred = ev;
       else if (ev.type === 'handoff') handoff = ev;
-      else if (ev.type === 'error') throw new Error('upstream_error');
+      else if (ev.type === 'error') {
+        // the exception class travels in the log line, so "why did it fail?"
+        // is answerable without opening the service's own logs
+        throw new Error(`upstream_error${ev.detail ? ` (${ev.detail})` : ''}`);
+      }
     }
   } catch (e) {
     console.warn(`NABRAS chat failed (conv ${cwConvId}): ${e.message} — falling back`);
