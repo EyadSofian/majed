@@ -125,7 +125,9 @@ function delivered() {
     assert.ok(items[0].checkout_url.includes('product_id=2059'));
     // and the flattened line stays, so a cached older widget still renders
     assert.ok(items[0].description.includes('4,815 EGP'));
-    assert.strictEqual(items[0].actions[0].text, 'اشترِ الآن');
+    assert.strictEqual(items[0].actions[0].text, 'عرض صفحة الدورة');
+    assert.strictEqual(items[0].actions[0].uri,
+                       'https://engosoft.com/shop/navisworks-mep-2107');
   })();
 
   // 5) نبراس down mid-request -> silent fallback, nothing shown to the customer
@@ -137,6 +139,20 @@ function delivered() {
       assert.strictEqual(d.out.length, 0, m);
     })();
   }
+
+  // A failed contextual track request must not fall into Botpress without the
+  // preceding specialty turns (the production bug changed Mechanical to CFM).
+  await withEnv(ON, async (t) => {
+    mode = 'chat_fail';
+    const d = delivered();
+    assert.strictEqual(await t(51, 'هات لي المسار الشامل', {
+      userData: me,
+      history: [{ role: 'user', content: 'أريد دورات الميكانيكا' }],
+    }, d), true);
+    assert.strictEqual(d.out.length, 1);
+    assert.ok(d.out[0].content.includes('التخصص نفسه'));
+    assert.strictEqual(d.out[0].content_attributes.retryable, true);
+  })();
 
   // 6) NABRAS_ALLOW=* opens it to everyone (the final rollout step)
   await withEnv({ ...ON, NABRAS_ALLOW: '*' }, async (t) => {

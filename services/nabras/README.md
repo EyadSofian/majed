@@ -408,6 +408,22 @@ fetch, the timeout is 12s, and **any failure is swallowed** — the customer is
 answered from whatever is cached rather than shown an error. The scheduled push
 stays as the warm cache; this is the freshness on top of it.
 
+Import and activate `packages_on_demand.n8n.json`, then configure the deployed
+service with its **production** webhook URL (not n8n's test URL):
+
+```env
+PACKAGES_WEBHOOK_URL=https://<n8n-host>/webhook/engosoft/packages
+INGEST_TOKEN=<the same secret used by the workflow's x-ingest-token header>
+PACKAGES_MAX_AGE_SECONDS=600
+PACKAGES_FETCH_TIMEOUT=12
+```
+
+`GET /health` exposes `packages_webhook_configured` as well as package
+availability, count, source and age. A configured webhook with
+`packages_available: false` means the workflow or its Odoo credential still
+needs attention; the production logs currently show that the bot Odoo user
+itself lacks access to `training.package`, which is why this n8n path is needed.
+
 ### The trainer's full profile
 
 The site renders a profile popup — biography, specialisations, experience —

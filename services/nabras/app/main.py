@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import suppress
 import json
 import logging
 import time
@@ -15,11 +17,13 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
-from .tools import (CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK, HANDOFF_SINK,
-                    INSTRUCTOR_SINK, LANG, PACKAGE_SINK)
+from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
+                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, PACKAGE_SINK,
+                    active_field_from_messages)
 
 log = logging.getLogger("nabras")
 s = get_settings()
+SSE_HEARTBEAT_SECONDS = 5.0
 
 if len(s.jwt_secret.encode()) < 32 or s.jwt_secret == "change-me":
     log.warning("nabras: JWT_SECRET is weak — use >=32 random bytes in production")
@@ -96,6 +100,7 @@ async def health():
         "courses": len(snap.courses),
         "batches": sum(len(v) for v in snap.events_by_course.values()),
         "packages_available": bool((snap.packages or {}).get("available")),
+        "packages_webhook_configured": bool(s.packages_webhook_url),
         "packages_count": len((snap.packages or {}).get("packages") or []),
         "packages_source": snap.packages_source,
         "packages_age_seconds": round(time.time() - snap.packages_at, 1) if snap.packages_at else None,
@@ -174,7 +179,13 @@ async def chat(req: ChatRequest, request: Request,
         lang_tok = LANG.set(lang)
         defer_tok = DEFER_SINK.set({})
         instr_tok = INSTRUCTOR_SINK.set([])
+        transcript = [item.content for item in (req.history or [])
+                      if item.role == "user"] + [req.message]
+        field_tok = ACTIVE_FIELD.set(active_field_from_messages(transcript))
         try:
+            # Start the HTTP body immediately. This prevents proxies and the
+            # bridge from treating a legitimate n8n/tool wait as a dead socket.
+            yield _ev("status", {"stage": "thinking"})
             # LangGraph/Postgres is the primary conversation memory.  Chatwoot
             # is the durable source of truth for the customer transcript, so a
             # fresh worker can seed an empty thread after a restart or replica
@@ -196,25 +207,40 @@ async def chat(req: ChatRequest, request: Request,
                              req.session_id, len(input_messages))
             input_messages.append(HumanMessage(content=ctx))
 
-            async for chunk, meta in graph.astream(
+            stream = graph.astream(
                 {"messages": input_messages},
                 thread, stream_mode="messages",
-            ):
-                # Filter on message TYPE, not node name: LangGraph's prebuilt
-                # calls the node "agent", LangChain's create_agent calls it
-                # "model". Type-based filtering survives both.
-                if not isinstance(chunk, AIMessageChunk):
-                    continue
-                # Which tools ran is the first question of every "why did it
-                # answer that?", and it is free here: tool calls arrive on the
-                # same stream as the text.
-                for call in (getattr(chunk, "tool_call_chunks", None) or []):
-                    name = call.get("name")
-                    if name and name not in tools_used:
-                        tools_used.append(name)
-                text = _text(chunk.content)
-                if text:
-                    yield _ev("token", {"content": text})
+            ).__aiter__()
+            next_chunk = asyncio.create_task(anext(stream))
+            try:
+                while True:
+                    done, _ = await asyncio.wait(
+                        {next_chunk}, timeout=SSE_HEARTBEAT_SECONDS)
+                    if not done:
+                        yield _ev("ping", {})
+                        continue
+                    try:
+                        chunk, meta = next_chunk.result()
+                    except StopAsyncIteration:
+                        break
+
+                    # Filter on message TYPE, not node name: LangGraph's
+                    # prebuilt calls the node "agent", LangChain's create_agent
+                    # calls it "model". Type-based filtering survives both.
+                    if isinstance(chunk, AIMessageChunk):
+                        for call in (getattr(chunk, "tool_call_chunks", None) or []):
+                            name = call.get("name")
+                            if name and name not in tools_used:
+                                tools_used.append(name)
+                        text = _text(chunk.content)
+                        if text:
+                            yield _ev("token", {"content": text})
+                    next_chunk = asyncio.create_task(anext(stream))
+            finally:
+                if not next_chunk.done():
+                    next_chunk.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await next_chunk
 
             # "not mine": drop everything from this turn so the bridge can
             # hand the same message to the other bot. Emitted before the cards
@@ -264,6 +290,7 @@ async def chat(req: ChatRequest, request: Request,
             LANG.reset(lang_tok)
             DEFER_SINK.reset(defer_tok)
             INSTRUCTOR_SINK.reset(instr_tok)
+            ACTIVE_FIELD.reset(field_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

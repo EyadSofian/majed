@@ -1,5 +1,6 @@
 """End-to-end tests over the real ASGI app + real LangGraph agent + real
 catalogue logic. Only the model and Odoo are faked."""
+import asyncio
 import json
 
 import pytest
@@ -421,6 +422,62 @@ async def test_track_reaches_the_widget_as_cards_and_a_package(client_factory):
         "package_cards"][0]["package_id"] == 5
     assert 2107 in [c["course_id"] for c in
                     next(e for e in events if e["type"] == "cards")["course_cards"]]
+
+
+async def test_comprehensive_followup_inherits_recent_mechanical_context(
+        client_factory, loaded_catalog, monkeypatch):
+    """Regression: «المسار الشامل» after Mechanical must not drift to CFM."""
+    from app import curriculum as curriculum_mod
+
+    seen: list[str] = []
+    real_match = curriculum_mod.match_group
+
+    def capture(query: str):
+        seen.append(query)
+        return real_match(query)
+
+    monkeypatch.setattr(curriculum_mod, "match_group", capture)
+    script = [{"tool": "recommend_track", "args": {"track": "مسار شامل"}},
+              {"text": "هذا هو المسار الميكانيكي الشامل."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "هات لي المسار الشامل",
+                        history=[
+                            {"role": "user", "content": "أريد دورات في الميكانيكا"},
+                            {"role": "assistant", "content": "هل تفضّل مسارًا شاملًا؟"},
+                        ])
+        events = parse_sse(r.text)
+
+    assert events[0] == {"type": "status", "stage": "thinking"}
+    assert "ميكانيكا شاملة" in seen
+    assert "CFM" not in "".join(e.get("content", "") for e in events)
+
+
+async def test_sse_keeps_connection_alive_during_package_webhook_wait(
+        client_factory, loaded_catalog, monkeypatch):
+    """A slow n8n pull must emit traffic before the bridge's socket timeout."""
+    from app import main as main_mod
+
+    real_ensure = catalog_mod.ensure_packages
+
+    async def slow_ensure(*args, **kwargs):
+        await asyncio.sleep(0.04)
+        return await real_ensure(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "ensure_packages", slow_ensure)
+    monkeypatch.setattr(main_mod, "SSE_HEARTBEAT_SECONDS", 0.01)
+    script = [{"tool": "recommend_track", "args": {"track": "التصميم الداخلي"}},
+              {"text": "هذه خطة المسار."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "اعرض مسار التصميم الداخلي")
+        events = parse_sse(r.text)
+
+    assert events[0]["type"] == "status"
+    assert "ping" in [event["type"] for event in events]
+    assert events[-1]["type"] == "done"
 
 
 # ================================================================= handoff

@@ -43,6 +43,11 @@ CURRENCY: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_currency", default="EGP")
 LANG: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nabras_lang", default="")
+# The latest discipline the visitor explicitly chose. A follow-up such as
+# «هات المسار الشامل» has no discipline in its own words, so the tool must not
+# ask the model to infer one again (or drift to a course from the CRM profile).
+ACTIVE_FIELD: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "nabras_active_field", default="")
 # "not mine" — the bridge drops this turn and lets the site's other bot answer
 # the same message. Mutated in place like every sink above.
 DEFER_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
@@ -863,6 +868,32 @@ def resolve_field(query: str) -> Optional[str]:
     return curriculum.field_of_query(query)
 
 
+def active_field_from_messages(messages: list[str]) -> str:
+    """Return the most recently named Engosoft discipline/specialisation.
+
+    The shop aliases remain useful when the shipped curriculum has been pruned
+    (for example during a partial catalogue refresh), while the curriculum map
+    gives us the more precise discipline when it is available.
+    """
+    field_to_spec = {field: spec for spec, field in SPEC_TO_FIELD.items()}
+    for message in reversed(messages):
+        spec = resolve_specialization(message)
+        if spec and spec not in NOT_SPECIALIZATIONS:
+            return spec
+        field = resolve_field(message)
+        if field:
+            return field_to_spec.get(field, field)
+    return ""
+
+
+def _is_contextual_comprehensive_track(query: str) -> bool:
+    """Whether *query* refers to a comprehensive track without naming a field."""
+    words = catalog.tokens(query)
+    comprehensive = {"شامل", "شامله", "كامل", "متكامل", "comprehensive"}
+    track_words = {"مسار", "المسار", "باقه", "الباقه", "track", "package"}
+    return bool(words & comprehensive) and bool(words & track_words)
+
+
 def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Optional[dict]:
     """The package a trainee means by "أنا في باقة كذا".
 
@@ -933,13 +964,27 @@ async def recommend_track(track: str, level: Optional[str] = None,
     # so it is pulled now rather than waiting for the next scheduled push.
     packages = await catalog.ensure_packages()
     limit = max(1, min(top_k, 12))
-    spec = resolve_specialization(track)
-    field_name = resolve_field(track)
+    active_spec = ACTIVE_FIELD.get()
+    spec = resolve_specialization(track) or active_spec or None
+    field_name = resolve_field(track) or SPEC_TO_FIELD.get(active_spec, "") or None
+
+    # Elliptical follow-ups are resolved deterministically from the transcript,
+    # not left to the LLM. «المسار الشامل» after «ميكانيكا» therefore becomes
+    # the official «ميكانيكا شاملة» grouping rule, never CFM/PMP from a profile.
+    effective_track = track
+    group = curriculum.match_group(track)
+    if not group and active_spec and _is_contextual_comprehensive_track(track):
+        label = SPEC_LABELS.get(active_spec,
+                                curriculum.FIELD_LABELS.get(field_name or "",
+                                                            active_spec))
+        effective_track = f"{label} شاملة"
+        group = curriculum.match_group(effective_track)
+        log.info("resolved contextual track %r with active field %s as %r",
+                 track, active_spec, effective_track)
 
     # 1. Engosoft's own grouping rule, when the question names one. This is the
     #    authoritative contents of "الميكانيكا الشاملة" and the rest — it beats
     #    any search, because it is a list somebody wrote on purpose.
-    group = curriculum.match_group(track)
     if group:
         picked: list[catalog.Course] = []
         for oid in curriculum.group_members(group):
@@ -955,20 +1000,20 @@ async def recommend_track(track: str, level: Optional[str] = None,
                 "courses": await _emit_courses(picked[:limit]),
             }, ensure_ascii=False)
 
-    pkg = _match_package(packages, track, spec)
+    pkg = _match_package(packages, effective_track, spec)
 
     if not pkg:
         # No single track owns the question ("أنا في تخصص ميكانيكا"), so answer
         # with the specialization itself: its courses AND the tracks inside it,
         # which is what the trainee is really choosing between.
         # 2. the discipline: its own courses, in the order the KB teaches them
-        found = catalog.search(track, top_k=limit, field_name=field_name)
+        found = catalog.search(effective_track, top_k=limit, field_name=field_name)
         if not found and field_name:
             found = catalog.courses_in_field(field_name)[:limit]
         if not found:
-            found = catalog.search(track, top_k=limit, category=spec)
+            found = catalog.search(effective_track, top_k=limit, category=spec)
         if not found:
-            found = catalog.search(track, top_k=limit)
+            found = catalog.search(effective_track, top_k=limit)
         idx = _package_index(packages)
         tracks = []
         for p in _spec_packages(packages, spec or "")[:3]:

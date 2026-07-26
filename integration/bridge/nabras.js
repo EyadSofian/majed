@@ -182,9 +182,11 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
     if (c.delivery) bits.push(c.delivery);
     if (c.duration_text) bits.push(c.duration_text);
     if (nb?.starts_at) bits.push(`الدفعة القادمة ${String(nb.starts_at).slice(0, 10)}`);
+    // Chatwoot's generic action renderer can only open a GET link, while
+    // Odoo's /shop/cart/update route is POST-only. The rich widget submits the
+    // checkout form; older/cached widgets get the safe course page instead.
     const actions = [];
-    if (c.checkout_url) actions.push({ type: 'link', text: 'اشترِ الآن', uri: c.checkout_url });
-    if (c.url) actions.push({ type: 'link', text: 'تفاصيل الكورس', uri: c.url });
+    if (c.url) actions.push({ type: 'link', text: 'عرض صفحة الدورة', uri: c.url });
     items.push({
       kind: 'course',
       course_id: c.course_id,
@@ -215,6 +217,24 @@ function compactHistory(history = []) {
     .map((m) => ({ role: m.role, content: String(m.content || '').trim().slice(0, 4000) }))
     .filter((m) => m.content)
     .slice(-24);
+}
+
+const isTrackIntent = (text) =>
+  /(?:مسار|المسار|باقة|الباقة|شامل|شاملة|track|package)/i.test(String(text || ''));
+
+async function deliverTrackFailure(cwConvId, streamId, deps) {
+  try {
+    await deps.deliver(cwConvId, {
+      id: `${streamId}-unavailable`,
+      content: 'تعذّر تحميل بيانات هذا المسار الآن. يُرجى المحاولة بعد لحظات، وسأتابع معك في التخصص نفسه.',
+      content_type: 'text',
+      content_attributes: { stream_id: streamId, retryable: true },
+    });
+    return true;
+  } catch (e) {
+    console.error(`NABRAS could not deliver track retry (conv ${cwConvId}): ${e.message}`);
+    return false;
+  }
 }
 
 /** Consume a Node response stream without assuming that SSE records, JSON, or
@@ -258,12 +278,15 @@ async function consumeSseStream(stream, onEvent) {
 async function tryNabras(cwConvId, text, { name, userData, pageType, slug, history }, deps) {
   const c = cfg();
   if (!allowed(userData)) return false;
+  const streamId = `nb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const trackIntent = isTrackIntent(text);
 
   let token;
   try {
     token = await guestToken(cwConvId);
   } catch (e) {
     console.warn(`NABRAS token failed (conv ${cwConvId}): ${e.message} — falling back`);
+    if (trackIntent) return deliverTrackFailure(cwConvId, streamId, deps);
     return false;
   }
 
@@ -274,7 +297,6 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   let instructorCards = [];
   let handoff = null;
   let deferred = null;
-  const streamId = `nb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let sequence = 0;
   let liveStarted = false;
   let tokenBuffer = '';
@@ -358,6 +380,10 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
       });
       return true;
     }
+    // Botpress did not receive the preceding Nabras turns, so handing it an
+    // elliptical «المسار الشامل» makes it guess a new subject. Preserve the
+    // customer's context with an explicit retry instead of a wrong answer.
+    if (trackIntent) return deliverTrackFailure(cwConvId, streamId, deps);
     return false;
   }
 
@@ -374,6 +400,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   if (!reply.trim() && !courseCards.length && !packageCards.length &&
       !chips.length && !instructorCards.length) {
     console.warn(`NABRAS returned nothing (conv ${cwConvId}) — falling back`);
+    if (trackIntent) return deliverTrackFailure(cwConvId, streamId, deps);
     return false;
   }
 
@@ -404,4 +431,4 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
 }
 
 module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
-                   resolveLang, compactHistory, consumeSseStream, cfg };
+                   resolveLang, compactHistory, consumeSseStream, isTrackIntent, cfg };
