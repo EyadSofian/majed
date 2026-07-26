@@ -516,6 +516,10 @@
     '#mjd-panel[data-theme="dark"] .mjd-crs,#mjd-panel[data-theme="dark"] .mjd-pkg,',
     '#mjd-panel[data-theme="dark"] .mjd-ins{box-shadow:none}',
     '.mjd-crs:hover,.mjd-pkg:hover,.mjd-ins:hover{border-color:rgba(124,92,255,.35);box-shadow:0 10px 26px rgba(124,92,255,.14)}',
+    /* text bubble + its card read as ONE reply: tuck the card up under the
+       bubble so they group together instead of floating apart. */
+    '.mjd-row.mjd-bot + .mjd-crs,.mjd-row.mjd-bot + .mjd-pkg,.mjd-row.mjd-bot + .mjd-ins,' +
+    '.mjd-crs + .mjd-crs,.mjd-pkg + .mjd-crs,.mjd-crs + .mjd-pkg{margin-top:-4px}',
     '.mjd-crs-top{display:flex;gap:11px;padding:13px 13px 0}',
     '.mjd-crs-th{width:50px;height:50px;flex:0 0 50px;border-radius:12px;object-fit:cover;background:',
     'linear-gradient(135deg,rgba(124,92,255,.18),rgba(6,182,212,.18));display:block}',
