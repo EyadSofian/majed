@@ -29,6 +29,7 @@ const axios = require('axios');
 const { tryNabras } = require('./nabras');
 const { notify } = require('./notify');
 const { extractAssignee, Takeover } = require('./takeover');
+const { chatwootSafeAttrs } = require('./cw-cards');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -1570,7 +1571,7 @@ async function deliverNabras(cwConvId, msg) {
     content: msg.content,
     messageType: 'outgoing',
     contentType: msg.content_type === 'text' ? undefined : msg.content_type,
-    contentAttributes: { ...(msg.content_attributes || {}), bp_id: msg.id },
+    contentAttributes: chatwootSafeAttrs({ ...(msg.content_attributes || {}), bp_id: msg.id }),
   }).catch((e) => console.error('cw outgoing write failed:', e.response?.data || e.message));
 }
 

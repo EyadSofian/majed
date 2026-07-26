@@ -7,6 +7,7 @@
  */
 const assert = require('assert');
 const { extractAssignee, Takeover } = require('../takeover');
+const { chatwootSafeAttrs } = require('../cw-cards');
 const notify = require('../notify');
 
 // ───────────────────────── takeover: parsing ─────────────────────────
@@ -53,6 +54,36 @@ const notify = require('../notify');
   assert.strictEqual(off.apply('1', 5), false);
   assert.strictEqual(off.isAssigned('1'), false);
   console.log('✅ takeover.Takeover: assign pauses, unassign/clear resume, disabled is inert');
+})();
+
+// ──────────────── cw-cards: Chatwoot card sanitiser ───────────────────
+(function chatwootCards() {
+  // A rich نبراس course card: Chatwoot only accepts title/description/media_url/actions.
+  const rich = {
+    items: [
+      { kind: 'course', course_id: 2107, title: 'Navisworks MEP', price_display: '4,815 EGP',
+        currency: 'EGP', instructor: 'x', delivery: 'مسجّل', checkout_url: 'https://x',
+        media_url: 'https://img', description: '4,815 EGP · مسجّل',
+        actions: [{ type: 'link', text: 'اشترِ الآن', uri: 'https://x' }] },
+      { kind: 'package', package_id: 6, title: 'Mechanical Track', price_from_display: 'يبدأ من 10,000 EGP',
+        options: [{ label: 'مسجّل', price_display: '10,000 EGP' }], media_url: '',
+        description: 'يبدأ من 10,000 EGP · 6 كورس', actions: [] },
+    ],
+  };
+  const safe = chatwootSafeAttrs(rich);
+  const allowed = new Set(['title', 'description', 'media_url', 'actions']);
+  for (const it of safe.items) {
+    for (const k of Object.keys(it)) assert.ok(allowed.has(k), `leaked key ${k}`);
+    assert.ok(it.title, 'title kept');
+  }
+  // the widget-facing copy is never mutated
+  assert.strictEqual(rich.items[0].course_id, 2107);
+  // input_select choices pass through untouched (already Chatwoot-safe)
+  const choices = { items: [{ title: 'ميكانيكا', value: 'أنا في تخصص Mechanical' }] };
+  assert.deepStrictEqual(chatwootSafeAttrs(choices), choices);
+  // non-card attrs (e.g. a plain bp_id) are returned as-is
+  assert.deepStrictEqual(chatwootSafeAttrs({ bp_id: 'x' }), { bp_id: 'x' });
+  console.log('✅ cw-cards.chatwootSafeAttrs: strips rich keys for Chatwoot, keeps choices/plain attrs');
 })();
 
 // ─────────────────────────── notify: compose ─────────────────────────
