@@ -433,33 +433,31 @@ admin: it prints every custom `hr.employee` field with its label and a sample
 instructor. Nothing needs to be configured either way — this only tells you
 which fields the bot picked up.
 
-## 7-b. Engosoft's own course map
+## 7-b. Engosoft's course relations
 
-Odoo says what exists and what it costs. It does not say which discipline a
-course belongs to *as a customer thinks about it*, what "الميكانيكا الشاملة"
-contains, or the Arabic phrases people actually type. That is in Engosoft's
-course KB, and without it «مسار ميكانيكا» was answered with BIM courses: the
-Arabic question shared no word with any Odoo category, the filter did nothing,
-and a plain keyword search picked whatever matched.
+Odoo is the only source of anything a customer reads. `data/curriculum.json`
+(compiled from Engosoft's course KB by `scripts/build_curriculum.py`) answers
+three questions Odoo cannot, and carries nothing else:
 
-`scripts/build_curriculum.py` compiles the KB markdown into
-`data/curriculum.json` (48 courses, 9 tracks, 8 grouping rules). Three things
-come out of it:
-
-| From the KB | Used for |
+| It knows | Because Odoo does not |
 |---|---|
-| **Keyword tree** | merged into the search index — «تكييف» finds HVAC, which Odoo holds nowhere |
-| **Category** | the discipline filter. `search`/`recommend_track` filter on it, not on shop categories |
-| **Grouping rules** | the exact courses in each named package, resolved to Odoo ids (26/28; the rest fall back to a catalogue search) |
+| **Which courses are in a named package** | "الميكانيكا الشاملة" is a list somebody wrote, not a search result |
+| **Which discipline a course is in** | Shop categories are merchandising and share words across disciplines — which is why «مسار ميكانيكا» came back with BIM courses |
+| **Who a course is for** | Target audience + experience level, shown as part of a recommendation |
 
-The join key is the product id at the end of each `Course Page` URL. A
-`/training_package/` URL ends with a *package* id and is excluded, or the two
-id spaces would silently mix.
+Plus one invisible input: the KB's keyword tree feeds the **search index**, so
+«تكييف» finds HVAC. Those words are never rendered or quoted.
 
-**It is an overlay, never a replacement.** A course in the KB that Odoo does not
-publish is not sellable and never offered; the KB only decides grouping,
-wording and discipline. Re-run the script whenever the KB changes — the service
-reads only the JSON, and `data/` ships in the image.
+The file holds `field · audience · level · keywords` per course id, and
+`rule · triggers · course_ids` per package — **no titles, prices, descriptions,
+durations, instructors or links**, enforced by a test. The join key is the
+product id at the end of a `Course Page` URL; `/training_package/` URLs end with
+a *package* id and are dropped, or the two id spaces would silently mix.
+
+`curriculum.prune()` runs after every catalogue load and restricts the map to
+the ids the shop actually publishes. Anything else — an unpublished course, a
+retired one, a discipline the business does not sell — stops existing here too,
+so the map can never name something a customer cannot buy.
 
 ## 8. Models
 

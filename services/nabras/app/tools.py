@@ -883,16 +883,10 @@ async def recommend_track(track: str, level: Optional[str] = None,
     group = curriculum.match_group(track)
     if group:
         picked: list[catalog.Course] = []
-        missing: list[str] = []
-        for oid, name in curriculum.group_members(group):
-            course = snap.courses.get(oid) if oid else None
-            if course is None:                    # KB was ambiguous -> look it up
-                hit = catalog.search(name, top_k=1, field_name=field_name)
-                course = hit[0] if hit else None
+        for oid in curriculum.group_members(group):
+            course = snap.courses.get(oid)
             if course is not None and course not in picked:
                 picked.append(course)
-            elif course is None:
-                missing.append(name)
         if picked:
             return json.dumps({
                 "track": None, "specialization": field_name or spec,
@@ -900,7 +894,6 @@ async def recommend_track(track: str, level: Optional[str] = None,
                 "note": "engosoft_grouping_rule",
                 "rule": group.get("rule"),
                 "courses": await _emit_courses(picked[:limit]),
-                "not_in_catalogue": missing[:6],
             }, ensure_ascii=False)
 
     pkg = _match_package(packages, track, spec)

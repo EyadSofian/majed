@@ -18,9 +18,23 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 
 from app import agent as agent_mod  # noqa: E402
 from app import catalog as catalog_mod  # noqa: E402
+from app import curriculum as curriculum_mod  # noqa: E402
 from app import tools as tools_mod  # noqa: E402
 
 from .fakes import FakeOdoo, ScriptedModel  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def unpruned_curriculum():
+    """The map is pruned to whatever Odoo publishes, and the fake catalogue
+    publishes three courses that are not in it. Each test therefore starts from
+    the shipped map; a test that loads the catalogue prunes it as production
+    does."""
+    curriculum_mod._pruned_to = None
+    curriculum_mod._field_words.cache_clear()
+    yield
+    curriculum_mod._pruned_to = None
+    curriculum_mod._field_words.cache_clear()
 
 
 @pytest.fixture(autouse=True)

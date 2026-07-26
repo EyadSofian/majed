@@ -1,50 +1,35 @@
-"""Engosoft's own course map, shipped with the service.
+"""Engosoft's course relations, shipped with the service.
 
-Odoo says what exists and what it costs. It does **not** say which discipline a
-course belongs to in the way a customer thinks about it, what a "track" contains,
-or the dozens of Arabic phrases people actually type. That knowledge lives in
-Engosoft's course KB, and without it the bot answered «مسار ميكانيكا» with BIM
-courses — the Odoo category never matched the Arabic question, so the search fell
-through to a plain keyword match.
+Odoo is the only source of anything a customer reads — the name, the price, the
+dates, the instructor. This module answers three questions Odoo cannot:
 
-`data/curriculum.json` is generated from that KB (`scripts/build_curriculum.py`)
-and carries three things:
+1. **Which courses make up a named package?** "الميكانيكا الشاملة" is a list
+   somebody wrote, not a search result.
+2. **Which discipline is a course in?** The visitor's "تخصص". Shop categories
+   are merchandising and share words across disciplines, which is why
+   «مسار ميكانيكا» used to come back with BIM courses.
+3. **Who is a course for?** Target audience and experience level.
 
-* **keywords** — every phrase the KB lists for a course, in both languages. These
-  are merged into the search index, so «تكييف» finds HVAC.
-* **field** — the discipline the KB assigns, which is what the visitor means by
-  "تخصص", independent of how the shop's categories happen to be arranged.
-* **groups** — the KB's own grouping rules: the exact courses that make up
-  "الميكانيكا الشاملة", "التصميم الخرساني", and the rest. Members were resolved
-  to Odoo ids where the KB was unambiguous; the rest fall back to a catalogue
-  search at runtime.
+Plus one invisible thing: the KB's keyword tree feeds the *search index* so
+«تكييف» finds HVAC. Those words are never shown to anyone; they only help find
+a course that already exists in Odoo.
 
-This is an overlay, never a replacement: a course that exists here but not in
-Odoo is not sellable and is never offered.
+`prune()` runs after every catalogue load and drops every id the live catalogue
+does not publish — so a course that exists here but not in Odoo cannot be
+recommended, named, or counted.
 """
 import json
 import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 log = logging.getLogger("nabras.curriculum")
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "curriculum.json"
 
-# The KB's discipline names, as a customer would say them. Marketing is in the
-# KB but is not part of the six fields the business sells against, so it is not
-# offered as a specialization.
-FIELD_LABELS = {
-    "Mechanical": "ميكانيكا",
-    "Electrical": "كهرباء",
-    "Civil": "مدني وإنشائي",
-    "Architecture": "معماري",
-    "Interior Design": "تصميم داخلي وديكور",
-    "Management": "إدارة ومشاريع وسلامة",
-}
-NOT_A_FIELD = {"Marketing"}
+_pruned_to: Optional[set[int]] = None
 
 
 @lru_cache(maxsize=1)
@@ -53,32 +38,52 @@ def _data() -> dict:
         return json.loads(DATA.read_text())
     except Exception:  # noqa: BLE001
         log.warning("curriculum.json missing or unreadable — running on Odoo alone")
-        return {"courses": [], "tracks": [], "groups": []}
+        return {"fields": {}, "courses": {}, "groups": []}
 
 
-@lru_cache(maxsize=1)
-def _by_odoo_id() -> dict[int, dict]:
-    out: dict[int, dict] = {}
-    for c in _data().get("courses", []) + _data().get("tracks", []):
-        # a /training_package/ url ends with the PACKAGE id, not a product id
-        if c.get("odoo_id") and not c.get("is_package_url"):
-            out[c["odoo_id"]] = c
-    return out
+def _live(odoo_id) -> bool:
+    """Is this id something the live catalogue actually publishes?"""
+    return _pruned_to is None or int(odoo_id) in _pruned_to
+
+
+def prune(known_ids: Iterable[int]) -> dict:
+    """Restrict the map to what Odoo publishes right now.
+
+    Called after each catalogue refresh. Anything else in the KB — an
+    unpublished course, a retired one, a typo in a URL — stops existing here
+    too, which is the only way the map can never contradict the shop.
+    """
+    global _pruned_to
+    _pruned_to = {int(i) for i in known_ids}
+    _field_words.cache_clear()
+    dropped = [i for i in _all_ids() if int(i) not in _pruned_to]
+    if dropped:
+        log.info("curriculum: %d of %d courses are not published in Odoo — ignored",
+                 len(dropped), len(_all_ids()))
+    return {"known": len(_pruned_to), "ignored": len(dropped)}
+
+
+def _all_ids() -> list[int]:
+    return [int(i) for i in _data().get("courses", {})]
+
+
+FIELD_LABELS = {f: row.get("label") or f
+                for f, row in _data().get("fields", {}).items()}
 
 
 def entry(odoo_id: int) -> Optional[dict]:
-    return _by_odoo_id().get(int(odoo_id))
+    if not _live(odoo_id):
+        return None
+    return _data().get("courses", {}).get(str(int(odoo_id)))
 
 
 def keywords_for(odoo_id: int) -> list[str]:
-    e = entry(odoo_id)
-    return list(e.get("keywords") or []) if e else []
+    """Search words only — never rendered, never quoted back to a customer."""
+    return list((entry(odoo_id) or {}).get("keywords") or [])
 
 
 def field_for(odoo_id: int) -> str:
-    e = entry(odoo_id)
-    field = (e or {}).get("category") or ""
-    return "" if field in NOT_A_FIELD else field
+    return (entry(odoo_id) or {}).get("field") or ""
 
 
 def audience_for(odoo_id: int) -> dict:
@@ -86,14 +91,13 @@ def audience_for(odoo_id: int) -> dict:
     return {"audience": e.get("audience") or "", "level": e.get("level") or ""}
 
 
-@lru_cache(maxsize=1)
 def fields() -> dict[str, list[int]]:
-    """Discipline -> the Odoo ids of its courses, in KB order."""
+    """Discipline -> the Odoo ids in it that the shop actually publishes."""
     out: dict[str, list[int]] = {}
-    for oid, e in _by_odoo_id().items():
-        f = e.get("category") or ""
-        if f and f not in NOT_A_FIELD:
-            out.setdefault(f, []).append(oid)
+    for f, row in _data().get("fields", {}).items():
+        ids = [i for i in row.get("course_ids", []) if _live(i)]
+        if ids:
+            out[f] = ids
     return out
 
 
@@ -105,61 +109,54 @@ def _norm(text: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _group_index() -> list[tuple[str, list[str], dict]]:
-    """(normalised trigger, its words, the group) — longest trigger first, so
-    "باقة الميكانيكا الشاملة" wins over the bare word it contains."""
+def _group_index() -> list[tuple[list[str], dict]]:
+    """Triggers with the most words first, so "باقة الميكانيكا الشاملة" wins
+    over a shorter trigger it contains."""
     idx = []
     for g in _data().get("groups", []):
         for t in g.get("triggers", []):
-            n = _norm(t).strip()
-            if n:
-                idx.append((n, n.split(), g))
-    idx.sort(key=lambda x: -len(x[1]))
+            words = _norm(t).split()
+            if words:
+                idx.append((words, g))
+    idx.sort(key=lambda x: -len(x[0]))
     return idx
 
 
 def match_group(query: str) -> Optional[dict]:
-    """The KB grouping rule a question is asking for, if any.
+    """The package rule a question is asking for, if any.
 
-    Matching is on the trigger's *words* rather than the exact phrase: people
-    write «عايز الميكانيكا الشاملة» and «باقه ميكانيكا شامله», never the phrase
-    as the KB spells it.
+    Matched on the trigger's *words*, not the exact phrase: people write
+    «عايز الميكانيكا الشاملة» and «باقه ميكانيكا شامله», never the KB's spelling.
     """
     q = _norm(query)
     if not q.strip():
         return None
-    for _, words, group in _group_index():
+    for words, group in _group_index():
         if all(f" {w} " in q for w in words):
             return group
     return None
 
 
-def group_members(group: dict) -> list[tuple[Optional[int], str]]:
-    """(odoo id or None, name) for each course in the rule, in teaching order."""
-    ids = group.get("course_ids") or [None] * len(group.get("courses", []))
-    return list(zip(ids, group.get("courses", [])))
+def group_members(group: dict) -> list[int]:
+    """The package's courses, in order — only the ones Odoo publishes."""
+    return [int(i) for i in group.get("course_ids", []) if _live(i)]
 
 
 @lru_cache(maxsize=1)
 def _field_words() -> dict[str, set[str]]:
-    """Words that name a discipline: its own name, plus every keyword of every
-    course AND track in it. That is how «تكييف» reaches Mechanical without a
-    hand-written synonym table.
-
-    Tracks count here even though they are packages rather than products: their
-    keywords ("بيم ميكانيكا وكهرباء") are how people name the discipline, and
-    naming it is all this function does.
-    """
+    """The words that name each discipline — its own name and every keyword of
+    every course in it. That is how «تكييف» reaches Mechanical without anyone
+    maintaining a synonym table."""
     out: dict[str, set[str]] = {}
-    for e in _data().get("courses", []) + _data().get("tracks", []):
-        f = e.get("category") or ""
-        if not f or f in NOT_A_FIELD:
+    live = set(fields())
+    for f, row in _data().get("fields", {}).items():
+        if f not in live:
             continue
-        words = out.setdefault(f, set(_norm(f).split()) |
-                               set(_norm(FIELD_LABELS.get(f, "")).split()))
-        words |= {w for kw in (e.get("keywords") or []) for w in _norm(kw).split()}
-        words |= set(_norm(e.get("title") or "").split())
-    return {f: {w for w in words if len(w) > 2} for f, words in out.items()}
+        words = set(_norm(f).split()) | set(_norm(row.get("label", "")).split())
+        for kw in row.get("keywords", []):
+            words |= set(_norm(kw).split())
+        out[f] = {w for w in words if len(w) > 2}
+    return out
 
 
 def field_of_query(query: str) -> Optional[str]:
@@ -176,9 +173,10 @@ def field_of_query(query: str) -> Optional[str]:
 
 
 def ready() -> bool:
-    return bool(_by_odoo_id())
+    return bool(fields())
 
 
 def stats() -> dict:
-    return {"courses": len(_by_odoo_id()), "fields": len(fields()),
+    return {"courses": sum(len(v) for v in fields().values()),
+            "fields": len(fields()),
             "groups": len(_data().get("groups", []))}

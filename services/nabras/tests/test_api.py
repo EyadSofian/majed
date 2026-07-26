@@ -346,9 +346,10 @@ async def test_specialization_without_a_package_still_recommends(loaded_catalog)
     the Arabic word has to reach the English Odoo category."""
     payload, cards, packages = await _track(track="أنا في تخصص إدارة مشاريع")
     assert payload["track"] is None
-    # the discipline now comes from Engosoft's own course map, not the shop's
-    # merchandising categories
-    assert payload["specialization"] == "Management"
+    # The course map is pruned to what this catalogue publishes, and the fixture
+    # publishes none of its courses — so the shop category answers instead. That
+    # fallback is the point: the map never speaks for courses Odoo does not have.
+    assert payload["specialization"] == "Management and Safety"
     assert [c["course_id"] for c in payload["courses"]] == [2092]      # PMP
     assert [c["course_id"] for c in cards] == [2092]
     assert packages == []
@@ -1104,12 +1105,9 @@ def test_a_named_package_returns_the_exact_courses_engosoft_lists():
     from app import curriculum as cur
     group = cur.match_group("عايز باقة الميكانيكا الشامله")
     assert group and group["rule"] == "MECHANICAL GROUPING RULE"
-    names = [n for _, n in cur.group_members(group)]
-    assert names == ["Mechanical - HVAC", "Mechanical - Fire Fighting",
-                     "Mechanical - PLUMBING", "Mechanical - Shop Drawing",
-                     "Mechanical - Medical Gas"]
-    # resolved to real Odoo ids, so the answer is priced and buyable
-    assert [i for i, _ in cur.group_members(group)] == [1223, 1224, 1226, 1535, 1229]
+    # HVAC · Fire Fighting · Plumbing · Shop Drawing · Medical Gas, as Odoo ids
+    # so the answer comes back priced and buyable
+    assert cur.group_members(group) == [1223, 1224, 1226, 1535, 1229]
 
     # word order and spelling vary; the rule still has to fire
     assert cur.match_group("الميكانيكا الشامله")["rule"] == "MECHANICAL GROUPING RULE"
@@ -1118,16 +1116,40 @@ def test_a_named_package_returns_the_exact_courses_engosoft_lists():
     assert cur.match_group("عايز كورس تكييف بس") is None      # not a package ask
 
 
-def test_the_map_only_ever_names_courses_odoo_can_sell():
-    """The KB is an overlay. A course in it that Odoo does not publish must not
-    be offered — the customer would reach a page that does not exist."""
+async def test_the_map_goes_silent_about_courses_odoo_does_not_publish(fake_odoo):
+    """The map is an overlay, never a second catalogue. This fixture publishes
+    three courses, none of them in the map — so after a load the map must have
+    nothing to say, rather than recommending pages that do not exist."""
     from app import curriculum as cur
-    from app import catalog as cat
-    ids = {i for ids in cur.fields().values() for i in ids}
-    snap = cat.snapshot()
-    if snap.courses:                       # only meaningful against a catalogue
-        assert all(i in snap.courses for i in ids if i in snap.courses)
-    assert all(isinstance(i, int) for i in ids)
+    assert cur.ready()                       # shipped map is there before a load
+    await catalog_mod.refresh(full=True)
+    assert cur.fields() == {}
+    assert cur.field_of_query("مسار ميكانيكا") is None
+    assert cur.group_members(cur.match_group("الميكانيكا الشامله")) == []
+    assert cur.keywords_for(1223) == []
+
+    # and with a catalogue that does publish them, it speaks again
+    cur.prune([1223, 1224, 1226, 1535, 1229])
+    assert cur.group_members(cur.match_group("الميكانيكا الشامله")) == \
+        [1223, 1224, 1226, 1535, 1229]
+
+
+def test_the_map_carries_relations_and_audience_and_nothing_else():
+    """Scope guard: prices, names, descriptions, durations, instructors and
+    links are Odoo's. If any of them appear in the shipped data, the map has
+    started to be a second source of truth."""
+    import json as _json
+    from pathlib import Path
+    raw = _json.loads((Path(__file__).resolve().parents[1] /
+                       "data" / "curriculum.json").read_text())
+    assert set(raw) == {"source", "fields", "courses", "groups"}
+    for row in raw["courses"].values():
+        assert set(row) == {"field", "audience", "level", "keywords"}
+    for g in raw["groups"]:
+        assert set(g) == {"rule", "triggers", "course_ids"}
+    # nothing outside the six disciplines the business sells against
+    assert set(raw["fields"]) == {"Mechanical", "Electrical", "Civil",
+                                  "Architecture", "Interior Design", "Management"}
 
 
 async def test_keywords_from_the_map_reach_the_search_index(fake_odoo, monkeypatch):

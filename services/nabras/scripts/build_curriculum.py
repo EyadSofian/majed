@@ -91,7 +91,22 @@ def link(block, label):
     return m.group(1) if m else ""
 
 
-def parse(section, kind):
+# Disciplines Engosoft trains in. A KB category outside this map is not a field
+# the business sells against and is dropped entirely.
+FIELD_LABELS = {
+    "Mechanical": "ميكانيكا",
+    "Electrical": "كهرباء",
+    "Civil": "مدني وإنشائي",
+    "Architecture": "معماري",
+    "Interior Design": "تصميم داخلي وديكور",
+    "Management": "إدارة ومشاريع وسلامة",
+}
+
+
+def parse(section):
+    """Only what we are allowed to use: the id, its discipline, who it is for,
+    and the search words. The title is kept for group matching and then thrown
+    away — it never reaches the JSON."""
     items = []
     for chunk in re.split(r"\n(?=## )", section or ""):
         if not chunk.strip().startswith("## "):
@@ -99,29 +114,22 @@ def parse(section, kind):
         page = field(chunk, "Course Page")
         m = re.search(r"-(\d+)$", page)
         items.append({
-            "kind": kind,
-            "title": chunk.splitlines()[0][3:].strip(),
-            "title_ar": field(chunk, "Original Title (AR)"),
+            "title": chunk.splitlines()[0][3:].strip(),   # matching only
             "category": field(chunk, "Category"),
-            "type": field(chunk, "Type"),
-            "duration": field(chunk, "Duration") or field(chunk, "Lectures"),
-            "instructors": field(chunk, "Instructor(s)"),
             "audience": bullet(chunk, "Target Audience"),
             "level": bullet(chunk, "Experience Level"),
             "keywords": keywords(chunk),
-            "url": page,
-            "odoo_id": int(m.group(1)) if m else None,
-            "is_package_url": "/training_package/" in page,
-            "promo": link(chunk, "Course Promo"),
-            "reviews": link(chunk, "Student Reviews"),
+            # a /training_package/ url ends with a PACKAGE id, not a product id
+            "odoo_id": (int(m.group(1))
+                        if m and "/training_package/" not in page else None),
         })
     return items
 
 
 def main(src: pathlib.Path, dst: pathlib.Path) -> None:
     parts = sections(src.read_text())
-    courses = parse(parts.get("EngoSoft Training Courses Database"), "course")
-    tracks = parse(parts.get("Tracks"), "track")
+    courses = parse(parts.get("EngoSoft Training Courses Database"))
+    tracks = parse(parts.get("Tracks"))
 
     groups = []
     for chunk in re.split(r"\n(?=## )", parts.get("Packages and courses", "")):
@@ -144,13 +152,50 @@ def main(src: pathlib.Path, dst: pathlib.Path) -> None:
                        "triggers": triggers, "courses": members,
                        "course_ids": ids})
 
+    # ---- emit only the three things, keyed by Odoo id
+    out_courses: dict[str, dict] = {}
+    for c in courses + tracks:
+        if not c["odoo_id"] or c["category"] not in FIELD_LABELS:
+            continue                       # no product id, or not a field we sell
+        out_courses[str(c["odoo_id"])] = {
+            "field": c["category"],
+            "audience": c["audience"],
+            "level": c["level"],
+            "keywords": c["keywords"],
+        }
+
+    # A track has no product id of its own, but its words are how people name
+    # the discipline — the only thing they are used for.
+    out_fields: dict[str, dict] = {}
+    for c in courses + tracks:
+        f = c["category"]
+        if f not in FIELD_LABELS:
+            continue
+        row = out_fields.setdefault(f, {"label": FIELD_LABELS[f], "keywords": [],
+                                        "course_ids": []})
+        row["keywords"] += c["keywords"] + [c["title"]]
+        if c["odoo_id"]:
+            row["course_ids"].append(c["odoo_id"])
+    for row in out_fields.values():
+        seen, uniq = set(), []
+        for k in row["keywords"]:
+            if k and k.lower() not in seen:
+                seen.add(k.lower())
+                uniq.append(k)
+        row["keywords"] = uniq
+
+    out_groups = [{"rule": g["rule"], "triggers": g["triggers"],
+                   "course_ids": [i for i in g["course_ids"] if i]}
+                  for g in groups]
+
     dst.write_text(json.dumps(
-        {"source": src.name, "courses": courses, "tracks": tracks,
-         "groups": groups}, ensure_ascii=False, indent=1) + "\n")
-    resolved = sum(1 for g in groups for i in g["course_ids"] if i)
-    total = sum(len(g["course_ids"]) for g in groups)
-    print(f"{dst}: {len(courses)} courses, {len(tracks)} tracks, "
-          f"{len(groups)} rules ({resolved}/{total} members resolved to Odoo ids)")
+        {"source": src.name, "fields": out_fields, "courses": out_courses,
+         "groups": out_groups}, ensure_ascii=False, indent=1) + "\n")
+    dropped = len(courses) + len(tracks) - len(out_courses)
+    print(f"{dst}: {len(out_courses)} courses across {len(out_fields)} fields, "
+          f"{len(out_groups)} package rules "
+          f"({sum(len(g['course_ids']) for g in out_groups)} members) — "
+          f"dropped {dropped} KB entries with no Odoo product id or no field")
 
 
 if __name__ == "__main__":

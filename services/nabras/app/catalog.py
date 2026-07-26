@@ -199,6 +199,8 @@ async def refresh(full: bool = False) -> Snapshot:
     if cat_ids:
         cats = await odoo.read("product.public.category", sorted(cat_ids), ["id", "name"])
         snap.categories.update({c["id"]: c["name"] for c in cats})
+    # The course map may only ever speak about courses this shop publishes.
+    curriculum.prune(snap.courses)
     await _refresh_titles(snap, [r["id"] for r in rows])
     for c in snap.courses.values():
         c.categories = [snap.categories.get(i, "") for i in c.category_ids]
