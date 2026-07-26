@@ -115,6 +115,17 @@ const chip = (v, max = 26) => {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 };
 
+// Odoo returns course_duration_text in the bot user's language (English), so a
+// card of otherwise-Arabic chips showed "24 Training Hours" among them. Render
+// the hours count in Arabic; leave anything without an hours pattern untouched.
+const fmtDuration = (v) => {
+  const t = String(v || '').trim();
+  if (!t) return '';
+  const m = t.match(/(\d+)/);
+  if (m && /hour|hrs?\b|ساع/i.test(t)) return `${m[1]} ساعة تدريبية`;
+  return t;
+};
+
 function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []) {
   const items = [];
   for (const i of instructorCards) {
@@ -185,7 +196,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       instructor: (c.instructors || [])[0]?.name || '',
       instructors_count: (c.instructors || []).length,
       delivery: chip(c.delivery, 18),
-      duration_text: chip(c.duration_text),
+      duration_text: chip(fmtDuration(c.duration_text), 20),
       starts_at: nb?.starts_at || '',
       seats_available: nb && nb.seats_available != null ? nb.seats_available : null,
       location: nb?.location || '',
