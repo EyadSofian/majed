@@ -1,0 +1,438 @@
+{
+  "name": "Engosoft — Training Packages (on demand, نبراس pull)",
+  "nodes": [
+    {
+      "id": "b1f0c3aa-1d54-4a8e-9f01-2c7f5f0a1e11",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "6f2a1c47-9b3e-4a2d-8f10-77c4b5d9e2a3",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "engosoft/packages",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "training.package",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "seo_name",
+            "website_url",
+            "website_published",
+            "active",
+            "package_type",
+            "attendee_type",
+            "sequence",
+            "total_price",
+            "final_price",
+            "discount",
+            "discount_end_time",
+            "currency_id",
+            "attendee_online_discount",
+            "attendee_onsite_discount",
+            "num_courses_display",
+            "training_hours_attendee",
+            "training_hours_recorded",
+            "review_rating_avg",
+            "review_rating_count",
+            "public_categ_ids",
+            "badge_text",
+            "levels_ids",
+            "product_ids",
+            "attendee_product_ids",
+            "groups_ids",
+            "similar_packages_ids",
+            "learning_outcomes_ids",
+            "target_audience_ids",
+            "write_date"
+          ]
+        }
+      },
+      "id": "b7c1a000-0003-4a10-9b01-000000000003",
+      "name": "Odoo — Packages",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "training.package.level",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "sequence",
+            "attendee_course_count",
+            "recorded_course_count"
+          ]
+        }
+      },
+      "id": "b7c1a000-0004-4a10-9b01-000000000004",
+      "name": "Odoo — Levels",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -180
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "training.package.product.line",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "level_id",
+            "product_id",
+            "sequence",
+            "sale_ok",
+            "website_published"
+          ]
+        }
+      },
+      "id": "b7c1a000-0005-4a10-9b01-000000000005",
+      "name": "Odoo — Recorded Lines",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -60
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "training.package.attendee.product.line",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "package_id",
+            "level_id",
+            "product_id",
+            "sequence",
+            "sale_ok",
+            "website_published"
+          ]
+        }
+      },
+      "id": "b7c1a000-0006-4a10-9b01-000000000006",
+      "name": "Odoo — Attendee Lines",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        60
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "training.package.group",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "technical_name",
+            "full_display_name",
+            "package_id",
+            "sequence",
+            "sale_status",
+            "is_available_for_sale",
+            "first_event_date",
+            "online_event_ids",
+            "onsite_event_ids",
+            "online_min_date_begin",
+            "online_max_date_end",
+            "onsite_min_date_begin",
+            "onsite_max_date_end",
+            "online_total_price",
+            "onsite_total_price"
+          ]
+        }
+      },
+      "id": "b7c1a000-0007-4a10-9b01-000000000007",
+      "name": "Odoo — Groups",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "learning.outcome",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fieldsList": [
+            "id",
+            "name",
+            "sequence"
+          ]
+        }
+      },
+      "id": "b7c1a000-0008-4a10-9b01-000000000008",
+      "name": "Odoo — Outcomes",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        448,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 6,
+        "options": {}
+      },
+      "id": "b7c1a000-0009-4a10-9b01-000000000009",
+      "name": "Merge Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Same snapshot as the scheduled workflow, returned in the response\n// instead of pushed: نبراس calls this the moment a customer asks about\n// a track, so the answer is never 19 minutes old.\n// Assemble the snapshot نبراس expects. Each Odoo node is read by name so\n// the merge mode is irrelevant and one denied model does not lose the rest.\nfunction pull(node) {\n  try {\n    const rows = $(node).all().map((i) => i.json).filter((r) => r && r.id);\n    return rows;\n  } catch (e) {\n    console.log('pull failed for ' + node + ': ' + e);\n    return [];\n  }\n}\n\n// Only what a customer could actually be sold.\nconst packages = pull('Odoo — Packages')\n  .filter((p) => p.website_published && p.active !== false);\nconst pkgIds = new Set(packages.map((p) => p.id));\nconst ofPkg = (rows) => rows.filter(\n  (r) => Array.isArray(r.package_id) && pkgIds.has(r.package_id[0]));\n\nconst payload = {\n  packages,\n  levels:         ofPkg(pull('Odoo — Levels')),\n  lines:          ofPkg(pull('Odoo — Recorded Lines')).filter((l) => l.website_published),\n  attendee_lines: ofPkg(pull('Odoo — Attendee Lines')),\n  groups:         ofPkg(pull('Odoo — Groups')),\n  outcomes:       pull('Odoo — Outcomes'),\n};\n\nif (!payload.packages.length) {\n  throw new Error('No published packages returned — refusing to push an empty snapshot.');\n}\n\n// website_url is relative on this model; نبراس wants it absolute.\nfor (const p of payload.packages) {\n  p.url = p.website_url && !String(p.website_url).startsWith('http')\n    ? 'https://engosoft.com' + p.website_url\n    : p.website_url;\n}\n\nconst counts = Object.fromEntries(\n  Object.entries(payload).map(([k, v]) => [k, v.length]));\nconsole.log('pushing', JSON.stringify(counts));\nreturn [{ json: { payload, counts } }];"
+      },
+      "id": "b7c1a000-0010-4a10-9b01-000000000010",
+      "name": "Build Snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ]
+    },
+    {
+      "id": "c7d2e9b4-6a31-4f88-9c02-5e1b3a7f0d55",
+      "name": "Respond with snapshot",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Odoo — Packages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Levels",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Recorded Lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Attendee Lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Groups",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Odoo — Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odoo — Packages": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odoo — Levels": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Odoo — Recorded Lines": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Odoo — Attendee Lines": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Odoo — Groups": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Odoo — Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Merge Branches": {
+      "main": [
+        [
+          {
+            "node": "Build Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Respond with snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1c87d2e4d71b0347b7a466f90732115fba3103f4ac8b4665dc4e98ed83bfb402"
+  },
+  "tags": []
+}

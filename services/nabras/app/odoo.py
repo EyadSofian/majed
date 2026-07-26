@@ -275,6 +275,88 @@ class Odoo:
              ["department_id.name", "ilike", "INSTRUCTORS"]],
             EMPLOYEE_FIELDS, order="name asc")
 
+    # ------------------------------------------------------------ instructor
+    # The site shows a full profile for a trainer — biography, specialisations,
+    # experience list. Those live in custom fields whose names we do not know
+    # from here, so they are DISCOVERED once with fields_get instead of guessed:
+    # a wrong field name would just silently return nothing.
+    _DETAIL_HINTS = ("bio", "about", "profile", "summary", "description",
+                     "special", "expert", "experience", "achiev", "certif",
+                     "linkedin", "title_ar", "job_title_ar")
+    _detail_fields: Optional[dict[str, dict]] = None
+
+    async def instructor_detail_fields(self) -> dict[str, dict]:
+        """Custom hr.employee fields that look like profile content."""
+        if self._detail_fields is not None:
+            return self._detail_fields
+        try:
+            meta = await self.execute("hr.employee", "fields_get", [[]],
+                                      {"attributes": ["string", "type", "relation"]})
+        except Exception as e:  # noqa: BLE001
+            log.warning("fields_get on hr.employee failed: %s", e)
+            self._detail_fields = {}
+            return self._detail_fields
+        picked: dict[str, dict] = {}
+        for fname, info in (meta or {}).items():
+            if fname in EMPLOYEE_FIELDS or not any(h in fname.lower()
+                                                   for h in self._DETAIL_HINTS):
+                continue
+            if info.get("type") in ("char", "text", "html",
+                                    "one2many", "many2many"):
+                picked[fname] = info
+        self._detail_fields = picked
+        log.info("instructor profile fields discovered: %s", sorted(picked))
+        return picked
+
+    async def fetch_instructor_details(self, ids: list[int]) -> dict[int, dict]:
+        """Everything the site shows on a trainer's profile card.
+
+        Relational fields (the specialisation and experience lists) are resolved
+        to their names, because ids mean nothing to a customer.
+        """
+        fields = await self.instructor_detail_fields()
+        if not ids or not fields:
+            return {}
+        try:
+            rows = await self.read("hr.employee", ids, ["id", *fields])
+        except Exception as e:  # noqa: BLE001
+            log.warning("instructor detail read failed: %s", e)
+            return {}
+        wanted: dict[str, set[int]] = {}
+        for r in rows:
+            for fname, info in fields.items():
+                if info.get("type") in ("one2many", "many2many") and r.get(fname):
+                    wanted.setdefault(info["relation"], set()).update(r[fname])
+        names: dict[str, dict[int, str]] = {}
+        for model, rec_ids in wanted.items():
+            try:
+                recs = await self.read(model, sorted(rec_ids), ["id", "display_name"])
+                names[model] = {x["id"]: x.get("display_name") or "" for x in recs}
+            except Exception:  # noqa: BLE001
+                names[model] = {}
+        out: dict[int, dict] = {}
+        for r in rows:
+            data: dict[str, Any] = {}
+            for fname, info in fields.items():
+                val = r.get(fname)
+                if not val:
+                    continue
+                if info.get("type") in ("one2many", "many2many"):
+                    lookup = names.get(info.get("relation") or "", {})
+                    items = [lookup.get(i, "") for i in val]
+                    items = [x for x in items if x]
+                    if items:
+                        data[fname] = {"label": info.get("string") or fname,
+                                       "items": items[:12]}
+                else:
+                    text = strip_html(str(val))
+                    if text:
+                        data[fname] = {"label": info.get("string") or fname,
+                                       "text": text[:1200]}
+            if data:
+                out[r["id"]] = data
+        return out
+
     # -------------------------------------------------------------- packages
     async def fetch_packages(self) -> dict[str, Any]:
         """Training packages. Returns `{"available": False, ...}` when the bot's
@@ -373,6 +455,20 @@ def abs_url(path: Optional[str]) -> str:
     if path.startswith("http://") or path.startswith("https://"):
         return path
     return f"{get_settings().shop_base}{path}"
+
+
+_TAG = None
+
+
+def strip_html(value: str) -> str:
+    """Odoo html fields carry markup; a chat bubble is not a browser."""
+    global _TAG
+    if _TAG is None:
+        import re as _re
+        _TAG = _re.compile(r"<[^>]+>")
+    import html as _html
+    text = _TAG.sub(" ", value or "")
+    return " ".join(_html.unescape(text).split())
 
 
 def image_url(model: str, rec_id: int, field: str = "image_1920") -> str:

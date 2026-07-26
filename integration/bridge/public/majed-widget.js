@@ -566,6 +566,16 @@
     '.mjd-ins-in b{font-size:13.5px;font-weight:800;line-height:1.4;color:var(--text)}',
     '.mjd-ins-in s{text-decoration:none;font-size:11.5px;color:var(--muted);line-height:1.5}',
     '.mjd-ins-cs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}',
+    '.mjd-ins-bio{margin:6px 0 0;font-size:12px;line-height:1.75;color:var(--muted);',
+    'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}',
+    '.mjd-ins.mjd-open-bio .mjd-ins-bio{-webkit-line-clamp:unset;display:block}',
+    '.mjd-more{align-self:flex-start;margin-top:2px;background:none;border:0;padding:0;cursor:pointer;',
+    'font:inherit;font-size:11.5px;font-weight:800;color:#7c5cff}',
+    '.mjd-ins-sec{margin-top:8px}',
+    '.mjd-ins-sec b{display:block;font-size:11.5px;font-weight:800;color:var(--text);margin-bottom:4px}',
+    '.mjd-ins-sec ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}',
+    '.mjd-ins-sec li{font-size:11.5px;line-height:1.6;color:var(--muted);padding-inline-start:14px;position:relative}',
+    '.mjd-ins-sec li::before{content:"✓";position:absolute;inset-inline-start:0;color:#7c5cff;font-weight:800}',
     '.mjd-ins-cs span{font-size:10.5px;font-weight:700;padding:4px 7px;border-radius:6px;',
     'background:var(--surf2);border:1px solid var(--line);color:var(--muted);',
     'max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -1246,6 +1256,19 @@
         it.teaches.map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('') +
         '</div>';
     }
+    // The profile the site shows in its own popup: biography, specialisations,
+    // experience. Long bios are clamped with a «اقرأ المزيد» toggle rather than
+    // pushing the whole conversation off the screen.
+    if (it.bio) {
+      h += '<p class="mjd-ins-bio">' + esc(it.bio) + '</p>' +
+(String(it.bio).length > 190 ? '<button class="mjd-more" type="button">اقرأ المزيد</button>' : '');
+    }
+    (it.sections || []).forEach(function (sec) {
+      if (!sec || !(sec.items || []).length) return;
+      h += '<div class="mjd-ins-sec"><b>' + esc(sec.label) + '</b><ul>' +
+        sec.items.slice(0, 6).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') +
+        '</ul></div>';
+    });
     return h + '</div>';
   }
   function packageCardHtml(it) {
@@ -1285,6 +1308,14 @@
         card = inject('div', { class: 'mjd-pkg' }, packageCardHtml(it));
       } else if (it.kind === 'instructor') {
         card = inject('div', { class: 'mjd-ins' }, instructorCardHtml(it));
+        var more = card.querySelector('.mjd-more');
+        if (more) {
+          more.addEventListener('click', function () {
+            var open = card.classList.toggle('mjd-open-bio');
+            more.textContent = open ? 'اقرأ أقل' : 'اقرأ المزيد';
+            scrollDown();
+          });
+        }
       } else {
         // Botpress cards keep the original renderer, unchanged
         var h = (it.media_url || it.image_url ? '<img src="' + esc(it.media_url || it.image_url) + '" alt=""/>' : '') +

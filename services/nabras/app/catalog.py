@@ -456,6 +456,53 @@ def catalog_digest(limit: int = 200) -> str:
     return "\n".join(lines)
 
 
+_pkg_lock: Optional["asyncio.Lock"] = None
+
+
+async def ensure_packages(max_age: Optional[float] = None) -> dict:
+    """Make sure package data is present and fresh enough to answer with.
+
+    The scheduled n8n push keeps this warm, but "warm" is up to 20 minutes old
+    and is empty entirely after a restart — and a trainee asking about a track
+    is the highest-value question we get. If a pull webhook is configured, one
+    is fetched on the spot; otherwise we answer with whatever we have.
+    """
+    global _pkg_lock
+    s = get_settings()
+    snap = _snap
+    limit = s.packages_max_age_seconds if max_age is None else max_age
+    fresh = bool((snap.packages or {}).get("available")) and \
+        (time.time() - snap.packages_at) < limit
+    if fresh or not s.packages_webhook_url:
+        return snap.packages or {}
+
+    if _pkg_lock is None:
+        _pkg_lock = asyncio.Lock()
+    async with _pkg_lock:                 # ten concurrent chats, one fetch
+        snap = _snap
+        if bool((snap.packages or {}).get("available")) and \
+                (time.time() - snap.packages_at) < limit:
+            return snap.packages
+        try:
+            import httpx
+            headers = {"X-Ingest-Token": s.ingest_token} if s.ingest_token else {}
+            async with httpx.AsyncClient(timeout=s.packages_fetch_timeout) as c:
+                r = await c.post(s.packages_webhook_url, json={"reason": "on_demand"},
+                                 headers=headers)
+                r.raise_for_status()
+                payload = r.json()
+            if isinstance(payload, list) and payload:
+                payload = payload[0]      # n8n returns a list of items
+            install_packages(payload)
+            log.info("packages pulled on demand: %d",
+                     len(_snap.packages.get("packages") or []))
+        except Exception as e:  # noqa: BLE001
+            # Never fail the customer's question over this: a stale or empty
+            # snapshot still answers, the tool just says less.
+            log.warning("on-demand package pull failed: %s", str(e)[:200])
+        return _snap.packages or {}
+
+
 def install_packages(payload: dict) -> dict:
     """Install a package snapshot pushed by n8n.
 

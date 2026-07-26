@@ -120,6 +120,8 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       media_url: i.image_url || '',
       courses_count: i.courses_count || 0,
       teaches: (i.teaches || []).slice(0, 4),
+      bio: i.bio || '',
+      sections: (i.sections || []).slice(0, 3),
       // legacy fallback
       description: [i.title, i.courses_count ? `${i.courses_count} كورس` : '']
         .filter(Boolean).join(' · '),

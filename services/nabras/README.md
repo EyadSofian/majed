@@ -383,6 +383,32 @@ fallback matches on the consonant skeleton that survives transliteration
 not just the listed ones — the list is capped at 300. And anyone attached to a
 live course is searchable regardless of their job title.
 
+### Packages: pulled when asked, not every 20 minutes
+
+The scheduled n8n push leaves a track question answered from a snapshot up to 20
+minutes old — and from nothing at all after a restart. A trainee asking about a
+track is the highest-value question this bot gets, so `search_packages`,
+`recommend_track` and `list_specializations` call `catalog.ensure_packages()`
+first: if the data is missing or older than `PACKAGES_MAX_AGE_SECONDS`, one
+request to `PACKAGES_WEBHOOK_URL` fetches it live (`packages_on_demand.n8n.json`
+— the same six Odoo reads, returned in the response instead of pushed).
+
+Bounded on purpose: an `asyncio.Lock` means ten concurrent chats trigger one
+fetch, the timeout is 12s, and **any failure is swallowed** — the customer is
+answered from whatever is cached rather than shown an error. The scheduled push
+stays as the warm cache; this is the freshness on top of it.
+
+### The trainer's full profile
+
+The site renders a profile popup — biography, specialisations, experience list —
+from custom `hr.employee` fields. Their names are not knowable from here, so they
+are **discovered** with `fields_get` (once, cached) by matching name hints, and
+relational fields are resolved to their display names because ids mean nothing
+to a customer. HTML is stripped; a chat bubble is not a browser. A database
+without those fields simply returns the name and job title.
+
+Fetched only when the answer *is* the trainer (≤3 cards), never while listing.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.

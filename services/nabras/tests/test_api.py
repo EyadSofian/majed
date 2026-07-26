@@ -964,3 +964,80 @@ async def test_instructor_answers_carry_a_card_with_a_photo(client_factory):
     assert card["image_url"] == (
         "https://engosoft.com/web/image/hr.employee/4129/image_512")
     assert card["teaches"] and card["courses_count"] >= 1
+
+
+async def test_the_full_site_profile_reaches_the_card(loaded_catalog):
+    """The site shows a biography, specialisations and an experience list for a
+    trainer; the bot used to have none of it. Field names are custom, so they
+    are discovered rather than guessed."""
+    out = await _ask_instructor(instructor_id=4129)
+    card = out["instructors"][0]
+    assert "أبرز الخبراء" in card["bio"]
+    section = next(s for s in card["sections"] if s["label"] == "التخصصات")
+    assert "إدارة المشاريع" in section["items"]
+
+
+async def test_a_database_without_those_fields_still_answers(fake_odoo):
+    """Not every Odoo has the custom profile fields — the trainer must still
+    come back with what does exist."""
+    fake_odoo.no_profiles = True
+    await catalog_mod.refresh(full=True)
+    out = await _ask_instructor(instructor_id=4129)
+    assert out["instructors"][0]["bio"] is None
+    assert out["instructors"][0]["name"] == "Dr.Ayman Atef Ali Fawzi"
+
+
+async def test_a_track_question_pulls_packages_now_not_in_20_minutes(
+        fake_odoo, monkeypatch):
+    """A trainee asking about a track is the highest-value question we get;
+    answering it from a snapshot taken 19 minutes ago — or from nothing after a
+    restart — is the one case worth a live call."""
+    from app import catalog as cat
+    from app.config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "packages_webhook_url", "https://n8n.example/webhook/pkg")
+    monkeypatch.setattr(s, "packages_max_age_seconds", 0)   # always stale
+    from .fakes import PACKAGES
+
+    calls = []
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return [PACKAGES]
+
+    class _Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, **kw):
+            calls.append(url)
+            return _Resp()
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    await catalog_mod.refresh(full=True)
+    data = await cat.ensure_packages()
+    assert calls == ["https://n8n.example/webhook/pkg"]
+    assert data["available"] is True
+    assert catalog_mod.snapshot().packages_source == "ingest"
+
+
+async def test_a_failed_pull_never_breaks_the_answer(fake_odoo, monkeypatch):
+    from app import catalog as cat
+    from app.config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "packages_webhook_url", "https://n8n.example/webhook/pkg")
+    monkeypatch.setattr(s, "packages_max_age_seconds", 0)
+
+    class _Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **kw): raise RuntimeError("n8n down")
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    await catalog_mod.refresh(full=True)
+    data = await cat.ensure_packages()          # must not raise
+    assert data.get("available") is True        # falls back to what Odoo gave us

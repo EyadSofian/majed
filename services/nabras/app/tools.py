@@ -355,17 +355,18 @@ async def get_instructor(instructor_id: Optional[int] = None,
         # exact record, no guessing about spelling on either side.
         e = snap.instructors.get(int(instructor_id))
         if e:
-            return json.dumps({"matched": True,
-                               "instructors": [_instructor_brief(e, snap)]},
-                              ensure_ascii=False)
+            return json.dumps(
+                {"matched": True,
+                 "instructors": await _with_profile([_instructor_brief(e, snap)])},
+                ensure_ascii=False)
         try:
             rows = await odoo.fetch_instructors([int(instructor_id)])
         except Exception:  # noqa: BLE001
             rows = {}
         if rows:
             return json.dumps(
-                {"matched": True,
-                 "instructors": [_instructor_brief(list(rows.values())[0], snap)]},
+                {"matched": True, "instructors": await _with_profile(
+                    [_instructor_brief(list(rows.values())[0], snap)])},
                 ensure_ascii=False)
         return json.dumps({"matched": False, "instructors": [],
                            "note": "unknown_id_use_the_name_or_the_course"},
@@ -377,9 +378,10 @@ async def get_instructor(instructor_id: Optional[int] = None,
         rows = [snap.instructors[i] for i in c.instructor_ids if i in snap.instructors]
         if not rows:
             return json.dumps({"instructors": [], "note": "not_recorded"})
-        return json.dumps({"matched": True,
-                           "instructors": [_instructor_brief(e, snap) for e in rows]},
-                          ensure_ascii=False)
+        return json.dumps(
+            {"matched": True, "instructors": await _with_profile(
+                [_instructor_brief(e, snap) for e in rows])},
+            ensure_ascii=False)
 
     try:
         everyone = await odoo.fetch_all_instructors()
@@ -418,8 +420,35 @@ async def get_instructor(instructor_id: Optional[int] = None,
     return json.dumps({
         "matched": confident,
         "note": None if confident else "similar_names_only_confirm_the_course",
-        "instructors": [_instructor_brief(e, snap) for e in rows],
+        "instructors": await _with_profile(
+            [_instructor_brief(e, snap) for e in rows]),
     }, ensure_ascii=False)
+
+
+async def _with_profile(cards: list[dict]) -> list[dict]:
+    """Attach the biography, specialisations and experience the site shows.
+
+    Only for a short list: this is one extra Odoo read, worth it when the answer
+    IS the trainer, wasteful when we are listing ten of them.
+    """
+    if not cards or len(cards) > 3:
+        return cards
+    try:
+        details = await odoo.fetch_instructor_details([c["id"] for c in cards])
+    except Exception:  # noqa: BLE001
+        log.exception("instructor profile fetch failed")
+        return cards
+    for c in cards:
+        data = details.get(c["id"]) or {}
+        for key, val in data.items():
+            if "items" in val:
+                c["sections"].append({"label": val["label"], "items": val["items"]})
+            elif not c.get("bio") and len(val.get("text", "")) > 60:
+                c["bio"] = val["text"]          # the longest free text is the bio
+            elif val.get("text"):
+                c["sections"].append({"label": val["label"],
+                                      "items": [val["text"]]})
+    return cards
 
 
 def _instructor_brief(e: dict, snap: "catalog.Snapshot") -> dict:
@@ -617,7 +646,7 @@ async def search_packages(query: Optional[str] = None) -> str:
     choose the mode and the cohort — never merge them into one price.
     """
     snap = await _ensure_catalog()
-    data = snap.packages or {}
+    data = await catalog.ensure_packages()
     if not data.get("available"):
         return json.dumps({"packages": [], "available": False,
                            "note": "package_data_unavailable"}, ensure_ascii=False)
@@ -709,7 +738,7 @@ async def list_specializations() -> str:
     say one line and let them pick.
     """
     snap = await _ensure_catalog()
-    data = snap.packages or {}
+    data = await catalog.ensure_packages()
     by_cat: dict[str, list] = {}
     for c in snap.courses.values():
         for name in c.categories:
@@ -810,9 +839,12 @@ async def recommend_track(track: str, level: Optional[str] = None,
     courses from that specialization. Cards render automatically.
     """
     snap = await _ensure_catalog()
+    # A track question is exactly the moment the package data has to be right,
+    # so it is pulled now rather than waiting for the next scheduled push.
+    packages = await catalog.ensure_packages()
     limit = max(1, min(top_k, 12))
     spec = resolve_specialization(track)
-    pkg = _match_package(snap.packages or {}, track, spec)
+    pkg = _match_package(packages, track, spec)
 
     if not pkg:
         # No single track owns the question ("أنا في تخصص ميكانيكا"), so answer
@@ -823,22 +855,22 @@ async def recommend_track(track: str, level: Optional[str] = None,
             found = catalog.search(spec, top_k=limit, category=spec)
         if not found:
             found = catalog.search(track, top_k=limit)
-        idx = _package_index(snap.packages or {})
+        idx = _package_index(packages)
         tracks = []
-        for p in _spec_packages(snap.packages or {}, spec or "")[:3]:
+        for p in _spec_packages(packages, spec or "")[:3]:
             card, brief = _build_package(p, idx)
             _packages().append(card.model_dump())
             tracks.append(brief)
         return json.dumps({
             "track": None, "specialization": spec,
             "label": SPEC_LABELS.get(spec or "", spec),
-            "note": "no_package_matched" if (snap.packages or {}).get("available")
+            "note": "no_package_matched" if packages.get("available")
                     else "package_data_unavailable",
             "courses": await _emit_courses(found),
             "tracks_in_specialization": tracks,
         }, ensure_ascii=False)
 
-    idx = _package_index(snap.packages)
+    idx = _package_index(packages)
     card, brief = _build_package(pkg, idx)
     _packages().append(card.model_dump())
 

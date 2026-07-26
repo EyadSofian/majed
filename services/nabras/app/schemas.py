@@ -41,6 +41,9 @@ class Instructor(BaseModel):
     department: Optional[str] = None
     courses_count: int = 0
     teaches: list[str] = Field(default_factory=list)
+    bio: Optional[str] = None
+    # [{"label": "التخصصات", "items": [...]}] — as the site's profile popup shows
+    sections: list[dict] = Field(default_factory=list)
 
 
 class CourseCard(BaseModel):

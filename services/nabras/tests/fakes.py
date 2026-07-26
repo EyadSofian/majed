@@ -152,6 +152,15 @@ EVENTS = [
      "is_package_event": True, "total_lectures_number": 3},
 ]
 
+# The profile the site renders in its own popup — biography plus the lists the
+# customer scrolls through. Stored in custom fields, hence discovered not guessed.
+PROFILES = {
+    4129: {"bio": "الدكتور أيمن عاطف من أبرز الخبراء في إدارة المشاريع بخبرة "
+                  "تتجاوز 20 عاماً، درّب أكثر من 1000 متخصص على شهادة PMP.",
+           "specializations": ["إدارة المشاريع", "التخطيط والجدولة",
+                               "تطوير المنظمات"]},
+}
+
 EMPLOYEES = {
     4129: {"id": 4129, "name": "Dr.Ayman Atef Ali Fawzi",
            "job_title": "PRIMAVERA & PMP Instructor", "work_email": False,
@@ -296,6 +305,7 @@ class FakeOdoo:
         self.packages_denied = packages_denied
         self.no_translations = no_translations
         self.payments_denied = False
+        self.no_profiles = False
         self.lang_calls: list[str] = []
         self.fail = fail
         self.leads: list = []
@@ -359,6 +369,26 @@ class FakeOdoo:
         if model == "hr.employee":
             return [EMPLOYEES[i] for i in ids if i in EMPLOYEES]
         return []
+
+    async def instructor_detail_fields(self) -> dict:
+        self._boom()
+        if self.no_profiles:
+            return {}
+        return {
+            "instructor_bio": {"string": "نبذة", "type": "html"},
+            "specialization_ids": {"string": "التخصصات", "type": "one2many",
+                                   "relation": "instructor.specialization"},
+        }
+
+    async def fetch_instructor_details(self, ids) -> dict:
+        self._boom()
+        if self.no_profiles:
+            return {}
+        return {i: {
+            "instructor_bio": {"label": "نبذة", "text": PROFILES[i]["bio"]},
+            "specialization_ids": {"label": "التخصصات",
+                                   "items": PROFILES[i]["specializations"]},
+        } for i in ids if i in PROFILES}
 
     async def read_in_language(self, model: str, ids, fields, lang: str) -> dict:
         self._boom()
