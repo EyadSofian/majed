@@ -283,6 +283,13 @@ class Odoo:
     _DETAIL_HINTS = ("bio", "about", "profile", "summary", "description",
                      "special", "expert", "experience", "achiev", "certif",
                      "linkedin", "title_ar", "job_title_ar")
+    # Studio fields are named x_studio_char_field_1a2b — meaningless. Their
+    # LABEL is the only thing that says what they hold, so labels are matched
+    # too, in both languages.
+    _LABEL_HINTS = ("نبذة", "نبذه", "تعريف", "السيرة", "سيرة", "خبرة", "الخبرة",
+                    "تخصص", "التخصصات", "اعتماد", "شهادات", "إنجاز", "انجاز",
+                    "bio", "about", "profile", "special", "experience",
+                    "certificate", "achievement")
     _detail_fields: Optional[dict[str, dict]] = None
 
     async def instructor_detail_fields(self) -> dict[str, dict]:
@@ -298,11 +305,15 @@ class Odoo:
             return self._detail_fields
         picked: dict[str, dict] = {}
         for fname, info in (meta or {}).items():
-            if fname in EMPLOYEE_FIELDS or not any(h in fname.lower()
-                                                   for h in self._DETAIL_HINTS):
+            if fname in EMPLOYEE_FIELDS:
                 continue
-            if info.get("type") in ("char", "text", "html",
-                                    "one2many", "many2many"):
+            if info.get("type") not in ("char", "text", "html",
+                                        "one2many", "many2many"):
+                continue
+            label = str(info.get("string") or "").lower()
+            by_name = any(h in fname.lower() for h in self._DETAIL_HINTS)
+            by_label = any(h in label for h in self._LABEL_HINTS)
+            if by_name or by_label:
                 picked[fname] = info
         self._detail_fields = picked
         log.info("instructor profile fields discovered: %s", sorted(picked))

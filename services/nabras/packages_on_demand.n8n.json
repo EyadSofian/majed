@@ -19,6 +19,37 @@
       }
     },
     {
+      "id": "a4c1e772-3b90-4d55-8e21-0f9a6c2b71dd",
+      "name": "Check token",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "tok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $json.headers['x-ingest-token'] }}",
+              "rightValue": "__PUT_THE_SAME_VALUE_AS_INGEST_TOKEN__"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
       "parameters": {
         "resource": "custom",
         "customResource": "training.package",
@@ -66,7 +97,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        -300
+        -240
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -99,7 +130,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        -180
+        -144
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -134,7 +165,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        -60
+        -48
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -169,7 +200,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        60
+        48
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -213,7 +244,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        180
+        144
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -243,7 +274,7 @@
       "typeVersion": 1,
       "position": [
         448,
-        300
+        240
       ],
       "onError": "continueRegularOutput",
       "credentials": {
@@ -295,10 +326,37 @@
         "responseBody": "={{ JSON.stringify($json.payload) }}",
         "options": {}
       }
+    },
+    {
+      "id": "d5b3f001-8c22-4a17-b6de-91ac47e0f3b2",
+      "name": "Reject",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 401,
+        "responseBody": "={{ JSON.stringify({ error: \"unauthorized\" }) }}",
+        "options": {}
+      }
     }
   ],
   "connections": {
     "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check token": {
       "main": [
         [
           {
@@ -328,6 +386,35 @@
           },
           {
             "node": "Odoo — Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Branches": {
+      "main": [
+        [
+          {
+            "node": "Build Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Respond with snapshot",
             "type": "main",
             "index": 0
           }
@@ -396,28 +483,6 @@
             "node": "Merge Branches",
             "type": "main",
             "index": 5
-          }
-        ]
-      ]
-    },
-    "Merge Branches": {
-      "main": [
-        [
-          {
-            "node": "Build Snapshot",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Snapshot": {
-      "main": [
-        [
-          {
-            "node": "Respond with snapshot",
-            "type": "main",
-            "index": 0
           }
         ]
       ]

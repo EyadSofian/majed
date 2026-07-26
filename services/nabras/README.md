@@ -409,6 +409,14 @@ without those fields simply returns the name and job title.
 
 Fetched only when the answer *is* the trainer (≤3 cards), never while listing.
 
+Discovery matches the field **name** and its **label**, in both languages —
+Studio fields are called `x_studio_char_field_1a2b` and only the label
+(«نبذة», «التخصصات») says what they hold. To see exactly what this database has,
+run `scripts/hr_fields_probe.js` in the browser console while logged in as
+admin: it prints every custom `hr.employee` field with its label and a sample
+instructor. Nothing needs to be configured either way — this only tells you
+which fields the bot picked up.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.
