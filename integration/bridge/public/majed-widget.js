@@ -528,12 +528,17 @@
     '.mjd-rt{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-weight:800;font-size:12px}',
     '.mjd-tags{display:flex;flex-wrap:wrap;gap:5px;padding:8px 11px 0}',
     '.mjd-tag{font-size:11px;font-weight:700;line-height:1;padding:5px 8px;border-radius:7px;',
-    'background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}',
+    'background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap;',
+    /* Odoo free-text fields run long ("...Completion Certificate from Engosoft
+       upon Finishing the Course"); a chip that cannot shrink tears the card. */
+    'max-width:100%;overflow:hidden;text-overflow:ellipsis}',
     '.mjd-tag.mjd-tag-b{background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.24);color:#7c5cff}',
     '.mjd-tag.mjd-tag-hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:#d97706}',
     '.mjd-crs-ft{display:flex;align-items:center;gap:9px;padding:9px 11px;margin-top:9px;border-top:1px solid var(--line)}',
     '.mjd-price{font-size:15px;font-weight:800;line-height:1.15;color:#7c5cff;white-space:nowrap;font-variant-numeric:tabular-nums}',
-    '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin-inline-start:3px}',
+    /* margin-inline-start flips with the RTL panel and glued the currency to
+       the number ("2,500EGP"); a symmetric margin reads right in both. */
+    '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin:0 4px}',
     '.mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}',
     '.mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}',
     '.mjd-cta{display:flex;gap:7px;margin-inline-start:auto}',

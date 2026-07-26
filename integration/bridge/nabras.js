@@ -108,6 +108,13 @@ async function guestToken(cwConvId) {
  *
  * Tracks come before courses — the track is the headline the courses sit under.
  */
+// Odoo's duration/certificate fields are free text and sometimes hold a whole
+// sentence. A chip is a glance, not a paragraph.
+const chip = (v, max = 26) => {
+  const t = String(v || '').trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+};
+
 function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []) {
   const items = [];
   for (const i of instructorCards) {
@@ -177,8 +184,8 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       rating: c.rating || 0,
       instructor: (c.instructors || [])[0]?.name || '',
       instructors_count: (c.instructors || []).length,
-      delivery: c.delivery || '',
-      duration_text: c.duration_text || '',
+      delivery: chip(c.delivery, 18),
+      duration_text: chip(c.duration_text),
       starts_at: nb?.starts_at || '',
       seats_available: nb && nb.seats_available != null ? nb.seats_available : null,
       location: nb?.location || '',

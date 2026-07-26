@@ -416,6 +416,26 @@ class Odoo:
                 "groups": groups, "outcomes": outcomes}
 
     # ------------------------------------------------------------------ sell
+    async def fetch_variant_ids(self, template_ids: Iterable[int]) -> dict[int, int]:
+        """template -> its first variant, for a whole card set in one query.
+
+        The checkout URL needs the VARIANT id, and asking per course put one
+        round-trip per card on the reply path — so most cards shipped without a
+        buy button at all.
+        """
+        ids = [int(i) for i in template_ids]
+        if not ids:
+            return {}
+        recs = await self.search_read(
+            "product.product", [["product_tmpl_id", "in", ids]],
+            ["id", "product_tmpl_id"], order="id asc")
+        out: dict[int, int] = {}
+        for r in recs:
+            tmpl = r.get("product_tmpl_id")
+            if isinstance(tmpl, list):
+                out.setdefault(tmpl[0], r["id"])
+        return out
+
     async def product_variant_id(self, template_id: int) -> int | None:
         recs = await self.search_read(
             "product.product", [["product_tmpl_id", "=", template_id]],

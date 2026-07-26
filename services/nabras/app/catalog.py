@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from . import curriculum
 from .config import get_settings
 from .odoo import COURSE_TYPE_LABELS, abs_url, image_url, odoo
 
@@ -98,6 +99,9 @@ class Course:
     certificate_text: str = ""
     category_ids: list[int] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
+    # The discipline as Engosoft's own course map assigns it — what a visitor
+    # means by "تخصص". The shop's categories are merchandising, not disciplines.
+    field_name: str = ""
     instructor_ids: list[int] = field(default_factory=list)
     instructor_tagline: str = ""
     channel_id: Optional[int] = None
@@ -201,9 +205,13 @@ async def refresh(full: bool = False) -> Snapshot:
         c.categories = [x for x in c.categories if x]
         # BOTH names go in the blob: the customer may type either, and an
         # Arabic-only blob would stop matching "navisworks".
+        # The KB's keyword tree is the difference between «تكييف» finding HVAC
+        # and finding nothing: Odoo holds none of the words customers type.
+        c.field_name = curriculum.field_for(c.id)
+        kb_words = curriculum.keywords_for(c.id)
         c._search_blob = tokens(" ".join(
             [c.name, c.subtitle, c.description[:600], c.duration_text,
-             c.delivery, c.instructor_tagline, *c.categories]))
+             c.delivery, c.instructor_tagline, *c.categories, *kb_words]))
         for names in snap.names_by_lang.values():
             if names.get(c.id):
                 c._search_blob |= tokens(names[c.id])
@@ -374,7 +382,8 @@ async def _refresh_events(snap: Snapshot) -> None:
 # --------------------------------------------------------------------------
 def search(query: str, top_k: int = 5,
            category: Optional[str] = None,
-           delivery: Optional[str] = None) -> list[Course]:
+           delivery: Optional[str] = None,
+           field_name: Optional[str] = None) -> list[Course]:
     """Token-overlap ranking over the whole catalogue.
 
     Exact enough at 75 rows, deterministic, and with no embedding call in the
@@ -387,6 +396,11 @@ def search(query: str, top_k: int = 5,
         if delivery and c.course_type != delivery:
             continue
         if category and not any(category.lower() in cat.lower() for cat in c.categories):
+            continue
+        # The discipline filter is the KB's, not the shop's: a question about
+        # «ميكانيكا» must never be answered with a BIM course because the shop
+        # happens to file it under a category that shares a word.
+        if field_name and c.field_name != field_name:
             continue
         if not q:
             scored.append((0.0, c))
@@ -432,6 +446,13 @@ def instructor_digest(limit: int = 300) -> str:
             bits.append(f"{n} كورس")
         lines.append(" | ".join(bits))
     return "\n".join(lines)
+
+
+def courses_in_field(field_name: str) -> list[Course]:
+    """Every catalogue course the KB assigns to this discipline, KB order."""
+    snap = snapshot()
+    return [snap.courses[i] for i in curriculum.fields().get(field_name, [])
+            if i in snap.courses]
 
 
 def catalog_digest(limit: int = 200) -> str:

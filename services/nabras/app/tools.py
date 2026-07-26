@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from langchain_core.tools import tool
 
-from . import catalog
+from . import catalog, curriculum
 from .config import get_settings
 from .odoo import OdooAccessDenied, abs_url, image_url, odoo
 from .schemas import (Batch, CourseCard, Instructor, PackageCard,
@@ -153,7 +153,16 @@ def _brief(course: "catalog.Course", card: dict) -> dict:
         "next_start": batches[0]["date_begin"] if batches else None,
         "seats_left": batches[0].get("seats_available") if batches else None,
         "why": (course.subtitle or course.description)[:180],
+        # who Engosoft says this course is for — the KB's own answer, so the
+        # recommendation can be matched to the person instead of the keyword
+        **{k: v for k, v in curriculum.audience_for(course.id).items() if v},
+        "field": course.field_name or None,
     }
+
+
+def _checkout_url(variant_id: int) -> str:
+    return (f"{get_settings().shop_base}/shop/cart/update"
+            f"?product_id={variant_id}&add_qty=1&express=1")
 
 
 async def _emit_courses(courses: list["catalog.Course"]) -> list[dict]:
@@ -163,14 +172,24 @@ async def _emit_courses(courses: list["catalog.Course"]) -> list[dict]:
     if not courses:
         return []
     currency = CURRENCY.get()
+    ids = [c.id for c in courses]
     try:
-        prices = await odoo.fetch_prices([c.id for c in courses], currency)
+        prices = await odoo.fetch_prices(ids, currency)
     except Exception:  # noqa: BLE001
         log.exception("price lookup failed")
         prices = {}
+    # A card without a buy button is a recommendation the customer has to go and
+    # act on somewhere else. One query gives every card one.
+    try:
+        variants = await odoo.fetch_variant_ids(ids)
+    except Exception:  # noqa: BLE001
+        log.exception("variant lookup failed — cards will show details only")
+        variants = {}
     out = []
     for c in courses:
         card = await _card_for(c, prices.get(c.id))
+        if variants.get(c.id) and card.get("price_display"):
+            card["checkout_url"] = _checkout_url(variants[c.id])
         _cards().append(card)
         out.append(_brief(c, card))
     return out
@@ -199,23 +218,18 @@ async def search_courses(query: str, top_k: int = 4,
             return json.dumps({"error": "catalog_unavailable", "detail": str(e)[:200]})
 
     found = catalog.search(query, top_k=max(1, min(top_k, 8)),
-                           category=category, delivery=delivery)
+                           category=category, delivery=delivery,
+                           field_name=curriculum.field_of_query(query)
+                           if not category else None)
+    if not found:                       # discipline too narrow -> plain search
+        found = catalog.search(query, top_k=max(1, min(top_k, 8)),
+                               category=category, delivery=delivery)
     if not found:
         return json.dumps({"results": [], "note": "no_match"}, ensure_ascii=False)
 
-    currency = CURRENCY.get()
-    try:
-        prices = await odoo.fetch_prices([c.id for c in found], currency)
-    except Exception:  # noqa: BLE001
-        log.exception("price lookup failed")
-        prices = {}
-
-    brief = []
-    for c in found:
-        card = await _card_for(c, prices.get(c.id))
-        _cards().append(card)
-        brief.append(_brief(c, card))
-    return json.dumps(brief, ensure_ascii=False)
+    # one path for pricing, carding and the buy button — search must not drift
+    # from what a track recommendation shows
+    return json.dumps(await _emit_courses(found), ensure_ascii=False)
 
 
 @tool
@@ -739,10 +753,17 @@ async def list_specializations() -> str:
     """
     snap = await _ensure_catalog()
     data = await catalog.ensure_packages()
+    # Engosoft's own disciplines first — those are the six the business trains
+    # in. Shop categories are only a fallback for a catalogue the map misses.
     by_cat: dict[str, list] = {}
-    for c in snap.courses.values():
-        for name in c.categories:
-            by_cat.setdefault(name, []).append(c)
+    for f in curriculum.fields():
+        rows = catalog.courses_in_field(f)
+        if rows:
+            by_cat[f] = rows
+    if not by_cat:
+        for c in snap.courses.values():
+            for name in c.categories:
+                by_cat.setdefault(name, []).append(c)
 
     out = []
     for name, courses in sorted(by_cat.items(), key=lambda kv: -len(kv[1])):
@@ -751,12 +772,13 @@ async def list_specializations() -> str:
         packages = _spec_packages(data, name)
         out.append({
             "specialization": name,
-            "label": SPEC_LABELS.get(name, name),
+            "label": curriculum.FIELD_LABELS.get(name, SPEC_LABELS.get(name, name)),
             "courses": len(courses),
             "examples": [catalog.title_for(c, LANG.get()) for c in courses[:3]],
             "tracks": [p.get("name") for p in packages][:4],
         })
-        _chips().append({"title": SPEC_LABELS.get(name, name),
+        _chips().append({"title": curriculum.FIELD_LABELS.get(
+                             name, SPEC_LABELS.get(name, name)),
                          "value": f"أنا في تخصص {name}"})
     return json.dumps({"specializations": out,
                        "packages_loaded": bool(data.get("available"))},
@@ -764,8 +786,7 @@ async def list_specializations() -> str:
 
 
 def resolve_specialization(query: str) -> Optional[str]:
-    """Map free text to a live catalogue category. Checks the real category
-    names too, so a category added in Odoo works without editing the table."""
+    """Map free text to a shop category (merchandising), for card filtering."""
     q = catalog.tokens(query)
     if not q:
         return None
@@ -779,6 +800,16 @@ def resolve_specialization(query: str) -> Optional[str]:
         if hit > score:
             best, score = name, hit
     return best
+
+
+def resolve_field(query: str) -> Optional[str]:
+    """The DISCIPLINE the question is about, from Engosoft's own course map.
+
+    This is the one that decides what gets recommended. It knows «تكييف» is
+    Mechanical because the KB lists that word under an HVAC course — no
+    hand-written synonym table can keep up with that.
+    """
+    return curriculum.field_of_query(query)
 
 
 def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Optional[dict]:
@@ -844,15 +875,46 @@ async def recommend_track(track: str, level: Optional[str] = None,
     packages = await catalog.ensure_packages()
     limit = max(1, min(top_k, 12))
     spec = resolve_specialization(track)
+    field_name = resolve_field(track)
+
+    # 1. Engosoft's own grouping rule, when the question names one. This is the
+    #    authoritative contents of "الميكانيكا الشاملة" and the rest — it beats
+    #    any search, because it is a list somebody wrote on purpose.
+    group = curriculum.match_group(track)
+    if group:
+        picked: list[catalog.Course] = []
+        missing: list[str] = []
+        for oid, name in curriculum.group_members(group):
+            course = snap.courses.get(oid) if oid else None
+            if course is None:                    # KB was ambiguous -> look it up
+                hit = catalog.search(name, top_k=1, field_name=field_name)
+                course = hit[0] if hit else None
+            if course is not None and course not in picked:
+                picked.append(course)
+            elif course is None:
+                missing.append(name)
+        if picked:
+            return json.dumps({
+                "track": None, "specialization": field_name or spec,
+                "label": curriculum.FIELD_LABELS.get(field_name or "", field_name),
+                "note": "engosoft_grouping_rule",
+                "rule": group.get("rule"),
+                "courses": await _emit_courses(picked[:limit]),
+                "not_in_catalogue": missing[:6],
+            }, ensure_ascii=False)
+
     pkg = _match_package(packages, track, spec)
 
     if not pkg:
         # No single track owns the question ("أنا في تخصص ميكانيكا"), so answer
         # with the specialization itself: its courses AND the tracks inside it,
         # which is what the trainee is really choosing between.
-        found = catalog.search(track, top_k=limit, category=spec)
-        if not found and spec:
-            found = catalog.search(spec, top_k=limit, category=spec)
+        # 2. the discipline: its own courses, in the order the KB teaches them
+        found = catalog.search(track, top_k=limit, field_name=field_name)
+        if not found and field_name:
+            found = catalog.courses_in_field(field_name)[:limit]
+        if not found:
+            found = catalog.search(track, top_k=limit, category=spec)
         if not found:
             found = catalog.search(track, top_k=limit)
         idx = _package_index(packages)
@@ -862,8 +924,9 @@ async def recommend_track(track: str, level: Optional[str] = None,
             _packages().append(card.model_dump())
             tracks.append(brief)
         return json.dumps({
-            "track": None, "specialization": spec,
-            "label": SPEC_LABELS.get(spec or "", spec),
+            "track": None, "specialization": field_name or spec,
+            "label": curriculum.FIELD_LABELS.get(field_name or "",
+                                                 SPEC_LABELS.get(spec or "", spec)),
             "note": "no_package_matched" if packages.get("available")
                     else "package_data_unavailable",
             "courses": await _emit_courses(found),
@@ -938,8 +1001,7 @@ async def build_checkout_link(course_id: int) -> str:
     if not variant:
         return json.dumps({"error": "variant_not_found", "course_id": course_id})
 
-    url = (f"{s.shop_base}/shop/cart/update"
-           f"?product_id={variant}&add_qty=1&express=1")
+    url = _checkout_url(variant)
     attached = False
     for card in _cards():
         if card.get("course_id") == course_id:

@@ -429,6 +429,14 @@ class FakeOdoo(Odoo):
             {"name": "Tamara", "code": "tamara", "test_mode": True},
         ]}
 
+    async def fetch_variant_ids(self, template_ids) -> dict:
+        self._boom()
+        out = {}
+        for v, t in sorted(VARIANTS.items()):
+            if t in [int(i) for i in template_ids]:
+                out.setdefault(t, v)
+        return out
+
     async def product_variant_id(self, template_id: int):
         self._boom()
         for v, t in VARIANTS.items():

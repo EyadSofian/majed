@@ -433,6 +433,34 @@ admin: it prints every custom `hr.employee` field with its label and a sample
 instructor. Nothing needs to be configured either way — this only tells you
 which fields the bot picked up.
 
+## 7-b. Engosoft's own course map
+
+Odoo says what exists and what it costs. It does not say which discipline a
+course belongs to *as a customer thinks about it*, what "الميكانيكا الشاملة"
+contains, or the Arabic phrases people actually type. That is in Engosoft's
+course KB, and without it «مسار ميكانيكا» was answered with BIM courses: the
+Arabic question shared no word with any Odoo category, the filter did nothing,
+and a plain keyword search picked whatever matched.
+
+`scripts/build_curriculum.py` compiles the KB markdown into
+`data/curriculum.json` (48 courses, 9 tracks, 8 grouping rules). Three things
+come out of it:
+
+| From the KB | Used for |
+|---|---|
+| **Keyword tree** | merged into the search index — «تكييف» finds HVAC, which Odoo holds nowhere |
+| **Category** | the discipline filter. `search`/`recommend_track` filter on it, not on shop categories |
+| **Grouping rules** | the exact courses in each named package, resolved to Odoo ids (26/28; the rest fall back to a catalogue search) |
+
+The join key is the product id at the end of each `Course Page` URL. A
+`/training_package/` URL ends with a *package* id and is excluded, or the two
+id spaces would silently mix.
+
+**It is an overlay, never a replacement.** A course in the KB that Odoo does not
+publish is not sellable and never offered; the KB only decides grouping,
+wording and discipline. Re-run the script whenever the KB changes — the service
+reads only the JSON, and `data/` ships in the image.
+
 ## 8. Models
 
 GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.

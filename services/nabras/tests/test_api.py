@@ -346,7 +346,9 @@ async def test_specialization_without_a_package_still_recommends(loaded_catalog)
     the Arabic word has to reach the English Odoo category."""
     payload, cards, packages = await _track(track="أنا في تخصص إدارة مشاريع")
     assert payload["track"] is None
-    assert payload["specialization"] == "Management and Safety"
+    # the discipline now comes from Engosoft's own course map, not the shop's
+    # merchandising categories
+    assert payload["specialization"] == "Management"
     assert [c["course_id"] for c in payload["courses"]] == [2092]      # PMP
     assert [c["course_id"] for c in cards] == [2092]
     assert packages == []
@@ -1080,3 +1082,80 @@ def test_every_odoo_call_in_the_app_exists_on_the_real_client():
     assert called, "no odoo calls found — the scan is broken, not the code"
     missing = {n: f for n, f in called.items() if not hasattr(Odoo, n)}
     assert not missing, f"called but not defined on Odoo: {missing}"
+
+
+# ======================================================= Engosoft course map
+def test_a_discipline_question_never_lands_in_another_discipline():
+    """«مسار ميكانيكا» was answered with BIM courses: the Arabic question shared
+    no word with any Odoo category, so the filter did nothing and a plain
+    keyword search picked whatever matched. The KB's own map decides now."""
+    from app import curriculum as cur
+    assert cur.ready(), "curriculum.json must ship with the service"
+    assert cur.field_of_query("مسار ميكانيكا") == "Mechanical"
+    assert cur.field_of_query("انا في تخصص ميكانيكا") == "Mechanical"
+    assert cur.field_of_query("عايز اتعلم تكييف") == "Mechanical"   # via keywords
+    assert cur.field_of_query("تصميم كهرباء") == "Electrical"
+    assert cur.field_of_query("مسار الديكور") == "Interior Design"
+    assert cur.field_of_query("BIM structure") in ("Civil", "Architecture", "Mechanical")
+
+
+def test_a_named_package_returns_the_exact_courses_engosoft_lists():
+    """"الميكانيكا الشاملة" is not a search — it is a list somebody wrote."""
+    from app import curriculum as cur
+    group = cur.match_group("عايز باقة الميكانيكا الشامله")
+    assert group and group["rule"] == "MECHANICAL GROUPING RULE"
+    names = [n for _, n in cur.group_members(group)]
+    assert names == ["Mechanical - HVAC", "Mechanical - Fire Fighting",
+                     "Mechanical - PLUMBING", "Mechanical - Shop Drawing",
+                     "Mechanical - Medical Gas"]
+    # resolved to real Odoo ids, so the answer is priced and buyable
+    assert [i for i, _ in cur.group_members(group)] == [1223, 1224, 1226, 1535, 1229]
+
+    # word order and spelling vary; the rule still has to fire
+    assert cur.match_group("الميكانيكا الشامله")["rule"] == "MECHANICAL GROUPING RULE"
+    assert cur.match_group("Comprehensive Mechanics Package")["rule"] == \
+        "MECHANICAL GROUPING RULE"
+    assert cur.match_group("عايز كورس تكييف بس") is None      # not a package ask
+
+
+def test_the_map_only_ever_names_courses_odoo_can_sell():
+    """The KB is an overlay. A course in it that Odoo does not publish must not
+    be offered — the customer would reach a page that does not exist."""
+    from app import curriculum as cur
+    from app import catalog as cat
+    ids = {i for ids in cur.fields().values() for i in ids}
+    snap = cat.snapshot()
+    if snap.courses:                       # only meaningful against a catalogue
+        assert all(i in snap.courses for i in ids if i in snap.courses)
+    assert all(isinstance(i, int) for i in ids)
+
+
+async def test_keywords_from_the_map_reach_the_search_index(fake_odoo, monkeypatch):
+    """A course carries the KB's Arabic keywords, so «تكييف» finds HVAC even
+    though Odoo holds that word nowhere."""
+    from app import curriculum as cur
+    monkeypatch.setattr(cur, "keywords_for", lambda i: ["تكييف", "HVAC", "تبريد"]
+                        if i == 2107 else [])
+    monkeypatch.setattr(cur, "field_for", lambda i: "Mechanical" if i == 2107 else "")
+    await catalog_mod.refresh(full=True)
+    hits = catalog_mod.search("تكييف", top_k=3)
+    assert hits and hits[0].id == 2107
+    assert [c.id for c in catalog_mod.search("", field_name="Mechanical")] == [2107]
+
+
+async def test_every_recommended_course_can_be_bought_from_its_card(client_factory):
+    """A recommendation without a buy button makes the customer go and find the
+    course themselves — which is the moment most of them leave."""
+    script = [{"tool": "search_courses", "args": {"query": "PMP"}},
+              {"text": "أهو."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "PMP")
+        events = parse_sse(r.text)
+    cards = next(e for e in events if e["type"] == "cards")["course_cards"]
+    priced = [c for c in cards if c["price_display"]]
+    assert priced, "the fixture must price at least one course"
+    for c in priced:
+        assert c["checkout_url"], f"no buy button on {c['title']}"
+        assert "add_qty=1&express=1" in c["checkout_url"]
