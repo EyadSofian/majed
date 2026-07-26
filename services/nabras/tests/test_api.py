@@ -463,6 +463,37 @@ async def test_lead_without_contact_is_refused(client_factory, fake_odoo):
     assert fake_odoo.leads == []
 
 
+def test_a_mechanical_query_picks_the_mechanical_track_not_a_bim_track():
+    """Regression (live bug): a mechanical engineer was recommended
+    "BIM MEP Professional Track" instead of the Mechanical one, because "MEP" is
+    a mechanical word that appears in that BIM track's NAME. A package's
+    discipline must be read from its COURSES, not its name."""
+    from app import tools
+    data = {
+        "available": True,
+        "packages": [
+            {"id": 6, "name": "Mechanical Engineering Professional Track ",
+             "public_categ_ids": []},
+            {"id": 12, "name": "BIM MEP Professional Track ", "public_categ_ids": []},
+        ],
+        # real Engosoft product ids: 1223/1224/1226 are Mechanical in the KB;
+        # 1988/1995 are BIM courses the KB does not field-map.
+        "lines": [
+            {"id": 1, "package_id": [6, "M"], "product_id": [1223, "HVAC System Design"]},
+            {"id": 2, "package_id": [6, "M"], "product_id": [1224, "Firefighting Design System"]},
+            {"id": 3, "package_id": [6, "M"], "product_id": [1226, "Plumbing Systems Design"]},
+            {"id": 4, "package_id": [12, "B"], "product_id": [1988, "BIM fundamentals Architecture"]},
+            {"id": 5, "package_id": [12, "B"], "product_id": [1995, "Navisworks Architecture"]},
+        ],
+        "attendee_lines": [], "levels": [], "groups": [], "outcomes": [],
+    }
+    lines_by = tools._by_package(data["lines"])
+    assert tools._package_field(lines_by[6]) == "Mechanical"
+    assert tools._package_field(lines_by[12]) is None
+    for q in ("ميكانيكا", "المسار الاحترافي للميكانيكا", "عايز مسار ميكانيكا"):
+        assert tools._match_package(data, q)["id"] == 6, q
+
+
 async def test_lead_carries_field_specialization_and_experience(client_factory,
                                                                 fake_odoo):
     """The funnel qualifies before it captures: the field, specialization and

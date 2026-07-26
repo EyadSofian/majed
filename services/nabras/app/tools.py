@@ -667,12 +667,21 @@ async def search_packages(query: Optional[str] = None) -> str:
 
     idx = _package_index(data)
     q = catalog.tokens(query or "")
+    field = curriculum.field_of_query(query or "")
     out = []
     for p in data.get("packages", []):
-        blob = catalog.tokens(" ".join(
-            [p.get("name") or ""] +
-            [str(l.get("name") or "") for l in idx["lines"].get(p["id"], [])]))
-        if q and not (q & blob):
+        plines = idx["lines"].get(p["id"], [])
+        blob = catalog.tokens(
+            " ".join([p.get("name") or ""] +
+                     [str(l.get("name") or "") for l in plines]))
+        token_match = bool(q & blob)
+        pkg_field = _package_field(plines)
+        # Discipline over spelling: on a field-scoped query keep only that
+        # discipline's tracks (a mechanical question never returns a BIM track),
+        # unless the name/lines matched the words directly.
+        if field and pkg_field and pkg_field != field and not token_match:
+            continue
+        if q and not token_match and not (field and pkg_field == field):
             continue
         card, brief = _build_package(p, idx)
         _packages().append(card.model_dump())
@@ -725,18 +734,60 @@ SPEC_LABELS = {
 # "specialization" tells a mechanical engineer nothing about where they belong.
 NOT_SPECIALIZATIONS = {"Best Seller", "Best Sellers", "All Courses"}
 
+# Shop specialization (the chip / TRACK_ALIASES key) -> the KB discipline field.
+# Lets a package's course-derived field be compared against what the visitor
+# picked. BIM has no single KB field (its courses aren't field-mapped), so it is
+# deliberately absent and falls back to name/category matching.
+SPEC_TO_FIELD = {
+    "Mechanical": "Mechanical",
+    "Electrical": "Electrical",
+    "Civil and Structural": "Civil",
+    "Interior Design and Decoration": "Interior Design",
+    "Management and Safety": "Management",
+}
+
+
+def _package_field(lines: list[dict]) -> Optional[str]:
+    """A package's discipline is its COURSES', not the words in its name.
+
+    "BIM MEP Professional Track" carries the mechanical word "MEP" in its name,
+    but its courses are BIM (Revit, Navisworks) — so a mechanical question must
+    never land on it. Reading the field from the member courses (via the KB) is
+    what tells the two apart; the majority discipline wins.
+    """
+    counts: dict[str, int] = {}
+    for line in lines:
+        pid = line.get("product_id")
+        if isinstance(pid, list):
+            f = curriculum.field_for(pid[0])
+            if f:
+                counts[f] = counts.get(f, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
 
 def _spec_packages(data: dict, spec: str) -> list[dict]:
-    """Tracks that belong to a specialization — by Odoo category when the data
-    has one, else by the specialization's words appearing in the track name."""
+    """Tracks that belong to a specialization.
+
+    Primary signal is the discipline of the track's own courses (the KB field);
+    Odoo category and name words are only fallbacks. A track whose courses are a
+    DIFFERENT discipline is excluded even if its name shares a word — that is the
+    "BIM MEP under Mechanical" bug.
+    """
     if not spec or not data.get("available"):
         return []
     categories = catalog.snapshot().categories
     words = _ALIAS_TOKENS.get(spec, set()) | catalog.tokens(spec)
+    lines_by = _by_package(_merged_lines(data))
+    want_field = SPEC_TO_FIELD.get(spec)
     out = []
     for p in data.get("packages", []):
+        pkg_field = _package_field(lines_by.get(p["id"], []))
+        if want_field and pkg_field and pkg_field != want_field:
+            continue                      # a different discipline — never here
+        by_field = bool(want_field) and pkg_field == want_field
         by_categ = spec in [categories.get(i) for i in (p.get("public_categ_ids") or [])]
-        if by_categ or (words & catalog.tokens(p.get("name") or "")):
+        by_name = bool(words & catalog.tokens(p.get("name") or ""))
+        if by_field or by_categ or by_name:
             out.append(p)
     return out
 
@@ -827,15 +878,23 @@ def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Option
     lines_by = _by_package(_merged_lines(data))
     spec_tokens = _ALIAS_TOKENS.get(spec or "", set()) | catalog.tokens(spec or "")
     categories = catalog.snapshot().categories
+    # The discipline the question is about, and (below) each package's own
+    # discipline read from its courses. A mechanical question must land on the
+    # mechanical track, not on a BIM track that merely has "MEP" in its name.
+    field = resolve_field(query) or SPEC_TO_FIELD.get(spec or "")
     best, best_score = None, 0.0
     for p in data.get("packages", []):
         name_tok = catalog.tokens(p.get("name") or "")
+        plines = lines_by.get(p["id"], [])
         line_hits = len(q & catalog.tokens(" ".join(
-            str(l.get("name") or "") for l in lines_by.get(p["id"], []))))
+            str(l.get("name") or "") for l in plines)))
         in_spec = spec and spec in [categories.get(i) for i in
                                     (p.get("public_categ_ids") or [])]
         score = (2.0 * len(q & name_tok) + 0.5 * line_hits
                  + 1.5 * len(spec_tokens & name_tok) + (2.0 if in_spec else 0))
+        pkg_field = _package_field(plines)
+        if field and pkg_field:
+            score += 4.0 if field == pkg_field else -3.0
         if score > best_score:
             best, best_score = p, score
     return best
