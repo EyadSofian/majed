@@ -353,8 +353,49 @@ async function resolveInboxId() {
   return resolvedInboxId;
 }
 
-// Chatwoot enforces unique email per account → retry without the email field on failure
-// (email stays visible inside custom_attributes). Guarantees sessions never 500 on duplicates.
+// Find an existing Chatwoot contact by email (case-insensitive), for reuse.
+async function cwFindContactByEmail(email) {
+  if (!email) return null;
+  try {
+    const { data } = await axios.get(cwUrl('contacts/search'),
+      { params: { q: email }, headers: cwHeaders(), timeout: 10000 });
+    const contacts = data?.payload || [];
+    const lower = String(email).toLowerCase();
+    return contacts.find((c) => String(c.email || '').toLowerCase() === lower) || contacts[0] || null;
+  } catch (e) {
+    console.warn('cwFindContactByEmail failed:', e.response?.status || e.message);
+    return null;
+  }
+}
+
+// The API-channel source_id for an existing contact: reuse its contact_inbox for
+// our inbox, or create one. Needed to open a conversation on a contact we did
+// not just create.
+async function cwContactSourceId(contactId, inboxId) {
+  try {
+    const { data } = await axios.get(cwUrl(`contacts/${contactId}`),
+      { headers: cwHeaders(), timeout: 10000 });
+    const c = data?.payload || data;
+    const ci = (c?.contact_inboxes || []).find(
+      (x) => String(x.inbox?.id || x.inbox_id) === String(inboxId));
+    if (ci?.source_id) return ci.source_id;
+  } catch (_) { /* fall through to create one */ }
+  try {
+    const { data } = await axios.post(cwUrl(`contacts/${contactId}/contact_inboxes`),
+      { inbox_id: Number(inboxId) }, { headers: cwHeaders(), timeout: 10000 });
+    const p = data?.payload || data;
+    return p?.source_id || null;
+  } catch (e) {
+    console.warn('cwContactSourceId failed:', e.response?.status || e.message);
+    return null;
+  }
+}
+
+// Chatwoot enforces unique email per account. On a duplicate we REUSE the
+// existing contact (so a returning trainee keeps one thread) instead of spawning
+// an anonymous contact per visit — that fragmentation created a new conversation
+// every message and dropped cards/context. Falls back to the old anonymous path
+// only if reuse cannot be completed, so this never regresses.
 async function cwCreateContact({ name, email, customAttributes }) {
   const inboxId = await resolveInboxId();
 
@@ -371,6 +412,16 @@ async function cwCreateContact({ name, email, customAttributes }) {
   try {
     data = await create(true);
   } catch (err) {
+    if (err.response?.status === 422 && email) {
+      const existing = await cwFindContactByEmail(email);
+      if (existing) {
+        const sourceId = await cwContactSourceId(existing.id, inboxId);
+        if (sourceId) {
+          console.log(`contact reuse (duplicate email): contact ${existing.id}`);
+          return { contactId: existing.id, sourceId };
+        }
+      }
+    }
     console.warn('contact create with email failed (', err.response?.status, ') — retry without email');
     data = await create(false);
   }
