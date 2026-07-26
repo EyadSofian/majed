@@ -400,12 +400,28 @@ stays as the warm cache; this is the freshness on top of it.
 
 ### The trainer's full profile
 
-The site renders a profile popup — biography, specialisations, experience list —
-from custom `hr.employee` fields. Their names are not knowable from here, so they
-are **discovered** with `fields_get` (once, cached) by matching name hints, and
-relational fields are resolved to their display names because ids mean nothing
-to a customer. HTML is stripped; a chat bubble is not a browser. A database
-without those fields simply returns the name and job title.
+The site renders a profile popup — biography, specialisations, experience —
+from four custom `hr.employee` fields, confirmed against the live database:
+
+| Field | Shown as |
+|---|---|
+| `description` | نبذة |
+| `specialists` | التخصصات |
+| `experience` | الخبرة |
+| `university_or_company` | جهة الخبرة |
+
+`specialists` and `experience` are **one text field holding a list**: lines of
+`✔ item`. They are split back into items, so the card renders a list instead of
+a paragraph with ticks in it.
+
+These four are read by name, in the popup's own order. Discovery by hint still
+runs for anything else, but only over free-text fields and behind a blocklist —
+because in this database `bio` matches **Biometric IDs** and `summary` matches
+**Next Activity Summary**, and a discovered field goes straight onto a
+customer-facing card. Both cases are covered by a test.
+
+`scripts/hr_fields_probe.js` prints what this database actually has (read-only,
+browser console, admin session) if the fields are ever renamed.
 
 Fetched only when the answer *is* the trainer (≤3 cards), never while listing.
 

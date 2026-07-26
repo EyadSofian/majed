@@ -255,45 +255,36 @@ class Odoo:
             r["url"] = abs_url(r.get("website_url"))
         return rows
 
-    # ------------------------------------------------------------ instructors
-    async def fetch_instructors(self, ids: Iterable[int]) -> dict[int, dict]:
-        rows = await self.read("hr.employee", list({int(i) for i in ids}),
-                               EMPLOYEE_FIELDS)
-        return {r["id"]: r for r in rows}
-
-    async def fetch_all_instructors(self) -> list[dict]:
-        """Everyone who teaches: by job title (English or Arabic) or by sitting
-        in an instructor department. Titles are free text in this database, so
-        the net is deliberately wide — a trainer missing from here is a customer
-        being told their trainer does not exist."""
-        return await self.search_read(
-            "hr.employee",
-            ["|", "|", "|",
-             ["job_title", "ilike", "instructor"],
-             ["job_title", "ilike", "trainer"],
-             ["job_title", "ilike", "مدرب"],
-             ["department_id.name", "ilike", "INSTRUCTORS"]],
-            EMPLOYEE_FIELDS, order="name asc")
-
     # ------------------------------------------------------------ instructor
-    # The site shows a full profile for a trainer — biography, specialisations,
-    # experience list. Those live in custom fields whose names we do not know
-    # from here, so they are DISCOVERED once with fields_get instead of guessed:
-    # a wrong field name would just silently return nothing.
-    _DETAIL_HINTS = ("bio", "about", "profile", "summary", "description",
-                     "special", "expert", "experience", "achiev", "certif",
-                     "linkedin", "title_ar", "job_title_ar")
-    # Studio fields are named x_studio_char_field_1a2b — meaningless. Their
-    # LABEL is the only thing that says what they hold, so labels are matched
-    # too, in both languages.
+    # Confirmed against the live database: this is where the site's trainer
+    # popup gets its content. Ordered as the popup renders it.
+    PROFILE_FIELDS: tuple[tuple[str, str], ...] = (
+        ("description", "نبذة"),
+        ("specialists", "التخصصات"),
+        ("experience", "الخبرة"),
+        ("university_or_company", "جهة الخبرة"),
+    )
+    # Odoo's own machinery matches innocent word hints — "Biometric IDs" on
+    # "bio", "Next Activity Summary" on "summary" — and a discovered field goes
+    # straight onto a customer-facing card. Anything chatter/system related is
+    # excluded by prefix; only free text can be discovered at all.
+    _NOISE = ("activity_", "message_", "website_message", "rating_", "device_",
+              "goal_", "badge_", "sign_", "slip_", "contract_", "appraisal_",
+              "allocation_", "resume_line", "employee_skill", "skill_",
+              "equipment_", "applicant_", "child_", "subordinate_",
+              "display_name", "work_permit")
+    _DETAIL_HINTS = ("bio", "about", "profile", "summary", "special",
+                     "expert", "experience", "achiev", "certif")
     _LABEL_HINTS = ("نبذة", "نبذه", "تعريف", "السيرة", "سيرة", "خبرة", "الخبرة",
-                    "تخصص", "التخصصات", "اعتماد", "شهادات", "إنجاز", "انجاز",
-                    "bio", "about", "profile", "special", "experience",
-                    "certificate", "achievement")
+                    "تخصص", "التخصصات", "اعتماد", "شهادات", "إنجاز", "انجاز")
     _detail_fields: Optional[dict[str, dict]] = None
 
     async def instructor_detail_fields(self) -> dict[str, dict]:
-        """Custom hr.employee fields that look like profile content."""
+        """Which hr.employee fields hold the trainer's profile, in display order.
+
+        The four confirmed field names come first; discovery only fills gaps, so
+        a database that renamed something still works without shipping junk.
+        """
         if self._detail_fields is not None:
             return self._detail_fields
         try:
@@ -303,27 +294,32 @@ class Odoo:
             log.warning("fields_get on hr.employee failed: %s", e)
             self._detail_fields = {}
             return self._detail_fields
+        meta = meta or {}
         picked: dict[str, dict] = {}
-        for fname, info in (meta or {}).items():
-            if fname in EMPLOYEE_FIELDS:
+        for fname, label in self.PROFILE_FIELDS:
+            if fname in meta:
+                picked[fname] = {**meta[fname], "label": label}
+        for fname, info in meta.items():
+            if len(picked) >= 6 or fname in picked or fname in EMPLOYEE_FIELDS:
                 continue
-            if info.get("type") not in ("char", "text", "html",
-                                        "one2many", "many2many"):
+            if info.get("type") not in ("text", "html"):
+                continue
+            if any(fname.startswith(n) for n in self._NOISE):
                 continue
             label = str(info.get("string") or "").lower()
-            by_name = any(h in fname.lower() for h in self._DETAIL_HINTS)
-            by_label = any(h in label for h in self._LABEL_HINTS)
-            if by_name or by_label:
-                picked[fname] = info
+            if any(h in fname.lower() for h in self._DETAIL_HINTS) or \
+                    any(h in label for h in self._LABEL_HINTS):
+                picked[fname] = {**info, "label": info.get("string") or fname}
         self._detail_fields = picked
-        log.info("instructor profile fields discovered: %s", sorted(picked))
+        log.info("instructor profile fields: %s", list(picked))
         return picked
 
     async def fetch_instructor_details(self, ids: list[int]) -> dict[int, dict]:
-        """Everything the site shows on a trainer's profile card.
+        """The trainer's profile as the site shows it.
 
-        Relational fields (the specialisation and experience lists) are resolved
-        to their names, because ids mean nothing to a customer.
+        The list fields arrive as one text blob of "✔ item" lines, which is a
+        list pretending to be a paragraph — it is split back into items so the
+        card can render it as one.
         """
         fields = await self.instructor_detail_fields()
         if not ids or not fields:
@@ -333,37 +329,17 @@ class Odoo:
         except Exception as e:  # noqa: BLE001
             log.warning("instructor detail read failed: %s", e)
             return {}
-        wanted: dict[str, set[int]] = {}
-        for r in rows:
-            for fname, info in fields.items():
-                if info.get("type") in ("one2many", "many2many") and r.get(fname):
-                    wanted.setdefault(info["relation"], set()).update(r[fname])
-        names: dict[str, dict[int, str]] = {}
-        for model, rec_ids in wanted.items():
-            try:
-                recs = await self.read(model, sorted(rec_ids), ["id", "display_name"])
-                names[model] = {x["id"]: x.get("display_name") or "" for x in recs}
-            except Exception:  # noqa: BLE001
-                names[model] = {}
         out: dict[int, dict] = {}
         for r in rows:
             data: dict[str, Any] = {}
             for fname, info in fields.items():
-                val = r.get(fname)
-                if not val:
+                text = strip_html(str(r.get(fname) or ""), keep_lines=True)
+                if not text:
                     continue
-                if info.get("type") in ("one2many", "many2many"):
-                    lookup = names.get(info.get("relation") or "", {})
-                    items = [lookup.get(i, "") for i in val]
-                    items = [x for x in items if x]
-                    if items:
-                        data[fname] = {"label": info.get("string") or fname,
-                                       "items": items[:12]}
-                else:
-                    text = strip_html(str(val))
-                    if text:
-                        data[fname] = {"label": info.get("string") or fname,
-                                       "text": text[:1200]}
+                items = split_list(text)
+                data[fname] = ({"label": info["label"], "items": items[:12]}
+                               if len(items) > 1
+                               else {"label": info["label"], "text": text[:1200]})
             if data:
                 out[r["id"]] = data
         return out
@@ -471,15 +447,38 @@ def abs_url(path: Optional[str]) -> str:
 _TAG = None
 
 
-def strip_html(value: str) -> str:
-    """Odoo html fields carry markup; a chat bubble is not a browser."""
+def strip_html(value: str, keep_lines: bool = False) -> str:
+    """Odoo html fields carry markup; a chat bubble is not a browser.
+
+    `keep_lines` preserves the newlines that make a text field a list.
+    """
     global _TAG
     if _TAG is None:
         import re as _re
-        _TAG = _re.compile(r"<[^>]+>")
+        _TAG = _re.compile(r"<\s*br\s*/?>|</\s*(p|li|div|tr)\s*>", _re.I)
     import html as _html
-    text = _TAG.sub(" ", value or "")
-    return " ".join(_html.unescape(text).split())
+    import re as _re
+    text = _TAG.sub("\n", value or "")
+    text = _re.sub(r"<[^>]+>", " ", text)
+    text = _html.unescape(text)
+    if not keep_lines:
+        return " ".join(text.split())
+    lines = [" ".join(l.split()) for l in text.splitlines()]
+    return "\n".join(l for l in lines if l)
+
+
+# The site writes these lists as "✔ item" lines inside one text field.
+_BULLETS = "✔✓✅•▪-–—*·"
+
+
+def split_list(text: str) -> list[str]:
+    """A multi-line bulleted blob back into the list it actually is."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip().lstrip(_BULLETS).strip()
+        if line:
+            out.append(line)
+    return out
 
 
 def image_url(model: str, rec_id: int, field: str = "image_1920") -> str:

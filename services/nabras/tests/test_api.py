@@ -968,13 +968,28 @@ async def test_instructor_answers_carry_a_card_with_a_photo(client_factory):
 
 async def test_the_full_site_profile_reaches_the_card(loaded_catalog):
     """The site shows a biography, specialisations and an experience list for a
-    trainer; the bot used to have none of it. Field names are custom, so they
-    are discovered rather than guessed."""
+    trainer; the bot used to have none of it. The lists live in ONE text field
+    as "✔ item" lines — a list pretending to be a paragraph."""
     out = await _ask_instructor(instructor_id=4129)
     card = out["instructors"][0]
     assert "أبرز الخبراء" in card["bio"]
-    section = next(s for s in card["sections"] if s["label"] == "التخصصات")
-    assert "إدارة المشاريع" in section["items"]
+    labels = [s["label"] for s in card["sections"]]
+    assert labels == ["التخصصات", "الخبرة", "جهة الخبرة"]   # the popup's order
+
+    spec = next(s for s in card["sections"] if s["label"] == "التخصصات")
+    assert spec["items"] == ["Facility Management", "Project Management",
+                             "Building Management Systems (BMS)"]
+    assert all("✔" not in x for x in spec["items"])
+
+
+async def test_odoo_internals_never_leak_onto_a_customer_card(loaded_catalog):
+    """"Biometric IDs" matches the hint "bio" and "Next Activity Summary"
+    matches "summary" — both are real hr.employee fields, and either one on a
+    trainer's card is nonsense the customer reads."""
+    out = await _ask_instructor(instructor_id=4129)
+    text = json.dumps(out, ensure_ascii=False)
+    for junk in ("Biometric", "HR Orientation", "Activity", "Messages"):
+        assert junk not in text
 
 
 async def test_a_database_without_those_fields_still_answers(fake_odoo):

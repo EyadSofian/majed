@@ -14,7 +14,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
-from app.odoo import OdooAccessDenied
+from app.odoo import Odoo, OdooAccessDenied
 
 # --------------------------------------------------------------------- model
 class ScriptedModel(BaseChatModel):
@@ -154,11 +154,34 @@ EVENTS = [
 
 # The profile the site renders in its own popup — biography plus the lists the
 # customer scrolls through. Stored in custom fields, hence discovered not guessed.
+EMPLOYEE_META = {
+    "description": {"string": "Description", "type": "text"},
+    "specialists": {"string": "Specialists", "type": "text"},
+    "experience": {"string": "Experience", "type": "text"},
+    "university_or_company": {"string": "University/Company", "type": "char"},
+    # both of these match an innocent hint ("bio" in Biometric, "summary" in
+    # Next Activity Summary) and must never reach a customer-facing card
+    "device_ids": {"string": "Biometric IDs", "type": "one2many",
+                   "relation": "hr.employee.devices_ids"},
+    "activity_summary": {"string": "Next Activity Summary", "type": "char"},
+    "message_ids": {"string": "Messages", "type": "one2many",
+                    "relation": "mail.message"},
+    "recorded_courses": {"string": "Recorded Courses", "type": "many2many",
+                         "relation": "product.template"},
+}
+
 PROFILES = {
-    4129: {"bio": "الدكتور أيمن عاطف من أبرز الخبراء في إدارة المشاريع بخبرة "
-                  "تتجاوز 20 عاماً، درّب أكثر من 1000 متخصص على شهادة PMP.",
-           "specializations": ["إدارة المشاريع", "التخطيط والجدولة",
-                               "تطوير المنظمات"]},
+    4129: {
+        "description": "الدكتور أيمن عاطف من أبرز الخبراء في إدارة المشاريع "
+                       "بخبرة تتجاوز 20 عاماً، درّب أكثر من 1000 متخصص.",
+        "specialists": "✔ Facility Management\n✔ Project Management\n"
+                       "✔ Building Management Systems (BMS)",
+        "experience": "✔ خبرة 25 عاماً بالمجال\n✔ درّب أكثر من 1000 شخص\n"
+                      "✔ معتمد من PMI - SMRP - IFMA",
+        "university_or_company": "Engosoft",
+        "activity_summary": "HR Orientation",
+        "device_ids": [],
+    },
 }
 
 EMPLOYEES = {
@@ -297,8 +320,14 @@ NAMES_BY_LANG = {
 }
 
 
-class FakeOdoo:
-    """Implements only what catalog.py and tools.py actually call."""
+class FakeOdoo(Odoo):
+    """Fakes the WIRE, not the logic.
+
+    Every method the code calls is overridden with canned Odoo responses, so
+    field discovery, the ✔-list parsing and the profile assembly all run for
+    real against real-shaped data. Anything not faked hits `execute` and raises,
+    which is how an unnoticed new query gets caught.
+    """
 
     def __init__(self, *, packages_denied: bool = False, fail: bool = False,
                  no_translations: bool = False):
@@ -362,33 +391,24 @@ class FakeOdoo:
         self._boom()
         return PACKAGES
 
+    async def execute(self, model, method, args, kwargs=None):
+        self._boom()
+        if model == "hr.employee" and method == "fields_get":
+            return {} if self.no_profiles else dict(EMPLOYEE_META)
+        raise NotImplementedError(f"{model}.{method}")
+
     async def read(self, model: str, ids, fields) -> list[dict]:
         self._boom()
+        if model == "hr.employee":
+            return [{"id": i, **{f: PROFILES.get(i, {}).get(f, False)
+                                 for f in fields if f != "id"}}
+                    for i in ids if i in PROFILES]
         if model == "product.public.category":
             return [{"id": i, "name": CATEGORIES[i]} for i in ids if i in CATEGORIES]
         if model == "hr.employee":
             return [EMPLOYEES[i] for i in ids if i in EMPLOYEES]
         return []
 
-    async def instructor_detail_fields(self) -> dict:
-        self._boom()
-        if self.no_profiles:
-            return {}
-        return {
-            "instructor_bio": {"string": "نبذة", "type": "html"},
-            "specialization_ids": {"string": "التخصصات", "type": "one2many",
-                                   "relation": "instructor.specialization"},
-        }
-
-    async def fetch_instructor_details(self, ids) -> dict:
-        self._boom()
-        if self.no_profiles:
-            return {}
-        return {i: {
-            "instructor_bio": {"label": "نبذة", "text": PROFILES[i]["bio"]},
-            "specialization_ids": {"label": "التخصصات",
-                                   "items": PROFILES[i]["specializations"]},
-        } for i in ids if i in PROFILES}
 
     async def read_in_language(self, model: str, ids, fields, lang: str) -> dict:
         self._boom()
