@@ -126,22 +126,65 @@ const fmtDuration = (v) => {
   return t;
 };
 
-function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []) {
+function toWidgetCards(courseCards = [], packageCards = [], instructorCards = [],
+                       lang = '') {
   const items = [];
+  const arabicUi = /^ar(?:[_-]|$)/i.test(String(lang || ''));
+  const hasArabic = (value) => /[\u0600-\u06ff]/u.test(String(value || ''));
+  const courseCountLabel = (value) => {
+    const count = Number(value) || 0;
+    if (!count) return '';
+    if (count === 1) return 'دورة واحدة';
+    if (count === 2) return 'دورتان';
+    if (count <= 10) return `${count} دورات`;
+    return `${count} دورة`;
+  };
+  const arabicInstructorTitle = (value) => {
+    const title = String(value || '');
+    if (/mechanical/i.test(title)) return 'مدرب ميكانيكا';
+    if (/electrical/i.test(title)) return 'مدرب كهرباء';
+    if (/architect/i.test(title)) return 'مدرب معماري';
+    if (/civil/i.test(title)) return 'مدرب مدني';
+    if (/(project|pmp|primavera)/i.test(title)) return 'مدرب إدارة مشروعات';
+    return 'مدرب';
+  };
+  const seenInstructors = new Set();
   for (const i of instructorCards) {
+    const instructorKey = i.id != null
+      ? `id:${i.id}`
+      : `name:${String(i.name || '').trim().toLowerCase()}`;
+    if (seenInstructors.has(instructorKey)) continue;
+    seenInstructors.add(instructorKey);
+
+    // The model still receives the complete Odoo profile and can summarise it
+    // in Arabic.  The structured card, however, must not switch the Arabic UI
+    // back to a long English biography when that Odoo field has no translation.
+    const bio = arabicUi && i.bio && !hasArabic(i.bio) ? '' : (i.bio || '');
+    const sections = (i.sections || []).slice(0, 3).map((section) => ({
+      ...section,
+      items: (section.items || []).filter(
+        (value) => !arabicUi || hasArabic(value)).slice(0, 12),
+    })).filter((section) => section.items.length);
+    const jobTitle = arabicUi && i.title && !hasArabic(i.title)
+      ? arabicInstructorTitle(i.title)
+      : (i.title || '');
     items.push({
       kind: 'instructor',
       instructor_id: i.id,
       title: i.name,
-      job_title: i.title || '',
-      department: i.department || '',
+      job_title: jobTitle,
+      department: (
+        arabicUi && i.department && !hasArabic(i.department)
+          ? ''
+          : (i.department || '')
+      ),
       media_url: i.image_url || '',
       courses_count: i.courses_count || 0,
       teaches: (i.teaches || []).slice(0, 4),
-      bio: i.bio || '',
-      sections: (i.sections || []).slice(0, 3),
+      bio,
+      sections,
       // legacy fallback
-      description: [i.title, i.courses_count ? `${i.courses_count} دورة` : '']
+      description: [jobTitle, courseCountLabel(i.courses_count)]
         .filter(Boolean).join(' · '),
       actions: [],
     });
@@ -438,7 +481,8 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   }
 
   reply = finalizeSalesReply(reply, courseCards);
-  const items = toWidgetCards(courseCards, packageCards, instructorCards);
+  const items = toWidgetCards(
+    courseCards, packageCards, instructorCards, resolveLang(userData));
   const contentType = items.length ? 'cards' : chips.length ? 'input_select' : 'text';
   const contentAttributes = {
     stream_id: streamId,

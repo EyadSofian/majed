@@ -333,24 +333,42 @@ class Odoo:
         log.info("instructor profile fields: %s", list(picked))
         return picked
 
-    async def fetch_instructor_details(self, ids: list[int]) -> dict[int, dict]:
+    async def fetch_instructor_details(self, ids: list[int],
+                                       lang: str = "") -> dict[int, dict]:
         """The trainer's profile as the site shows it.
 
         The list fields arrive as one text blob of "✔ item" lines, which is a
         list pretending to be a paragraph — it is split back into items so the
-        card can render it as one.
+        card can render it as one.  Read with the visitor's Odoo language when
+        available; otherwise an Arabic page receives the API user's English
+        biography even when Odoo stores an Arabic translation.
         """
         fields = await self.instructor_detail_fields()
-        if not ids or not fields:
+        if not ids:
             return {}
+        read_fields = ["id", "name", "job_title", "department_id", *fields]
         try:
-            rows = await self.read("hr.employee", ids, ["id", *fields])
+            localized = await self.read_in_language(
+                "hr.employee", ids, read_fields, lang) if lang else {}
+            rows = list(localized.values()) if localized else \
+                await self.read("hr.employee", ids, read_fields)
         except Exception as e:  # noqa: BLE001
             log.warning("instructor detail read failed: %s", e)
             return {}
         out: dict[int, dict] = {}
         for r in rows:
             data: dict[str, Any] = {}
+            dept = r.get("department_id")
+            identity = {
+                "name": str(r.get("name") or "").strip(),
+                "title": str(r.get("job_title") or "").strip(),
+                "department": (
+                    str(dept[1]).strip() if isinstance(dept, list) and
+                    len(dept) > 1 else ""
+                ),
+            }
+            if any(identity.values()):
+                data["__identity__"] = identity
             for fname, info in fields.items():
                 text = strip_html(str(r.get(fname) or ""), keep_lines=True)
                 if not text:

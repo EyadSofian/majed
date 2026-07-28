@@ -1098,6 +1098,44 @@ async def test_picking_an_id_from_that_list_returns_the_exact_person(
     assert out["instructors"][0]["teaches"]
 
 
+async def test_repeated_instructor_lookup_emits_one_card(loaded_catalog):
+    """The model may refine an answer with the same tool twice; one person must
+    still produce one card in the final assistant turn."""
+    from app import tools as tools_mod
+
+    sink_token = tools_mod.INSTRUCTOR_SINK.set([])
+    try:
+        await _ask_instructor(instructor_id=4129)
+        await _ask_instructor(instructor_id=4129)
+        cards = list(tools_mod.INSTRUCTOR_SINK.get() or [])
+    finally:
+        tools_mod.INSTRUCTOR_SINK.reset(sink_token)
+
+    assert len(cards) == 1
+    assert cards[0]["id"] == 4129
+
+
+async def test_instructor_profile_follows_the_visitors_arabic_language(
+        loaded_catalog, fake_odoo):
+    """Profile fields are translatable Odoo data just like course titles."""
+    from app import tools as tools_mod
+
+    lang_token = tools_mod.LANG.set("ar_001")
+    try:
+        out = await _ask_instructor(instructor_id=4129)
+    finally:
+        tools_mod.LANG.reset(lang_token)
+
+    card = out["instructors"][0]
+    assert card["name"] == "د. أيمن عاطف علي فوزي"
+    assert card["title"] == "مدرب بريمفيرا وإدارة المشروعات"
+    assert "إدارة المشروعات" in card["bio"]
+    specialisms = next(
+        s for s in card["sections"] if s["label"] == "التخصصات")
+    assert "إدارة المرافق" in specialisms["items"]
+    assert "ar_001" in fake_odoo.lang_calls
+
+
 async def test_an_id_that_is_not_a_person_does_not_pretend_to_be_one(
         loaded_catalog):
     out = await _ask_instructor(instructor_id=999999)

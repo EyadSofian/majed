@@ -282,6 +282,46 @@ function delivered() {
 })();
 
 // ---------------------------------------------------------------------------
+// The same instructor may be returned more than once by an older service, and
+// an Arabic card must never dump an untranslated English profile into the UI.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  const { toWidgetCards } = require('../nabras');
+  const a = require('assert');
+  const instructor = {
+    id: 77,
+    name: 'Eng. Michael Adel',
+    title: 'Mechanical Instructor',
+    department: 'TECHNICAL INSTRUCTORS',
+    courses_count: 6,
+    teaches: ['تصميم أنظمة التكييف', 'أعمال المكتب الفني'],
+    bio: 'Engineer Michael Adel is a distinguished mechanical expert.',
+    sections: [{
+      label: 'التخصصات',
+      items: ['Design and implementation of mechanical systems'],
+    }],
+  };
+
+  const ar = toWidgetCards([], [], [instructor, { ...instructor }], 'ar_001');
+  a.strictEqual(ar.length, 1);
+  a.strictEqual(ar[0].title, 'Eng. Michael Adel'); // official site name
+  a.strictEqual(ar[0].job_title, 'مدرب ميكانيكا');
+  a.ok(ar[0].description.endsWith('6 دورات'));
+  a.strictEqual(ar[0].bio, '');
+  a.deepStrictEqual(ar[0].sections, []);
+  a.deepStrictEqual(ar[0].teaches, [
+    'تصميم أنظمة التكييف', 'أعمال المكتب الفني',
+  ]);
+
+  const en = toWidgetCards([], [], [instructor], 'en_US');
+  a.strictEqual(en[0].job_title, 'Mechanical Instructor');
+  a.ok(en[0].bio.includes('mechanical expert'));
+  a.strictEqual(en[0].sections.length, 1);
+
+  console.log('✅ instructor cards: deduplicated and localized for Arabic UI');
+})();
+
+// ---------------------------------------------------------------------------
 // Odoo's add-to-cart route is POST-only: a model must never leak it as prose.
 (() => {
   delete require.cache[require.resolve('../nabras')];

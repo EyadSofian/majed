@@ -184,6 +184,29 @@ PROFILES = {
     },
 }
 
+INSTRUCTORS_BY_LANG = {
+    "ar_001": {
+        4129: {
+            "name": "د. أيمن عاطف علي فوزي",
+            "job_title": "مدرب بريمفيرا وإدارة المشروعات",
+            "department_id": [2226, "قسم المدربين غير التقنيين"],
+            "description": (
+                "الدكتور أيمن عاطف من أبرز الخبراء في إدارة المشروعات "
+                "بخبرة تتجاوز عشرين عامًا."
+            ),
+            "specialists": (
+                "✔ إدارة المرافق\n✔ إدارة المشروعات\n"
+                "✔ أنظمة إدارة المباني (BMS)"
+            ),
+            "experience": (
+                "✔ خبرة 25 عامًا بالمجال\n"
+                "✔ درّب أكثر من 1000 متخصص"
+            ),
+            "university_or_company": "إنجوسوفت",
+        },
+    },
+}
+
 EMPLOYEES = {
     4129: {"id": 4129, "name": "Dr.Ayman Atef Ali Fawzi",
            "job_title": "PRIMAVERA & PMP Instructor", "work_email": False,
@@ -415,6 +438,18 @@ class FakeOdoo(Odoo):
         self.lang_calls.append(lang)
         if not lang or self.no_translations:
             return {}
+        if model == "hr.employee":
+            translated = INSTRUCTORS_BY_LANG.get(lang, {})
+            return {
+                i: {
+                    "id": i,
+                    **{
+                        field: translated[i].get(field, False)
+                        for field in fields if field != "id"
+                    },
+                }
+                for i in ids if i in translated
+            }
         names = NAMES_BY_LANG.get(lang, {})
         return {i: {"id": i, "name": names[i]} for i in ids if i in names}
 

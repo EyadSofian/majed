@@ -449,13 +449,23 @@ async def _with_profile(cards: list[dict]) -> list[dict]:
     if not cards or len(cards) > 3:
         return cards
     try:
-        details = await odoo.fetch_instructor_details([c["id"] for c in cards])
+        details = await odoo.fetch_instructor_details(
+            [c["id"] for c in cards], LANG.get())
     except Exception:  # noqa: BLE001
         log.exception("instructor profile fetch failed")
         return cards
     for c in cards:
         data = details.get(c["id"]) or {}
+        identity = data.get("__identity__") or {}
+        for source, target in (
+            ("name", "name"), ("title", "title"),
+            ("department", "department"),
+        ):
+            if identity.get(source):
+                c[target] = identity[source]
         for key, val in data.items():
+            if key == "__identity__":
+                continue
             if "items" in val:
                 c["sections"].append({"label": val["label"], "items": val["items"]})
             elif not c.get("bio") and len(val.get("text", "")) > 60:
@@ -486,7 +496,17 @@ def _instructor_brief(e: dict, snap: "catalog.Snapshot") -> dict:
         department=dept[1] if isinstance(dept, list) else None,
         teaches=teaches[:8], courses_count=len(teaches),
     ).model_dump()
-    _instructor_cards().append(card)
+    # A model can call get_instructor twice while refining one answer.  Both
+    # calls refer to the same person, so the UI must receive one up-to-date card
+    # rather than two identical cards in the same assistant turn.
+    sink = _instructor_cards()
+    existing = next((x for x in sink if x.get("id") == card["id"]), None)
+    if existing is not None:
+        for key, value in card.items():
+            if value not in (None, "", []):
+                existing[key] = value
+        return existing
+    sink.append(card)
     return card
 
 

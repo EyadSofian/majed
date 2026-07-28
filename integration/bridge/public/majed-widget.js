@@ -49,7 +49,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '5.2.1';
+  var WIDGET_VERSION = '5.2.2';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -1309,7 +1309,10 @@
         esc(initials(it.title)) + '</div>\'"/>'
       : '<div class="mjd-ins-ph">' + esc(initials(it.title)) + '</div>';
     var h = ph + '<div class="mjd-ins-in"><b>' + esc(it.title) + '</b>';
-    var sub = [it.job_title, it.courses_count ? it.courses_count + ' دورة' : '']
+    var count = Number(it.courses_count) || 0;
+    var countLabel = !count ? '' : count === 1 ? 'دورة واحدة' :
+      count === 2 ? 'دورتان' : count <= 10 ? count + ' دورات' : count + ' دورة';
+    var sub = [it.job_title, countLabel]
       .filter(Boolean).join(' · ');
     if (sub) h += '<s>' + esc(sub) + '</s>';
     if ((it.teaches || []).length) {
