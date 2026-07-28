@@ -1113,6 +1113,67 @@ async def test_repeated_instructor_lookup_emits_one_card(loaded_catalog):
 
     assert len(cards) == 1
     assert cards[0]["id"] == 4129
+    assert len(cards[0]["sections"]) == len({
+        section["label"] for section in cards[0]["sections"]
+    })
+
+
+async def test_english_profile_content_is_translated_not_hidden(
+        loaded_catalog, fake_odoo, monkeypatch):
+    """The official name may stay as stored, but buying evidence must be Arabic."""
+    from app import localization
+    from app import tools as tools_mod
+
+    fake_odoo.no_translations = True
+    calls = []
+
+    async def translate(payload):
+        calls.append(payload)
+        return {
+            "title": "مدرب PRIMAVERA وPMP وإدارة المشروعات",
+            "department": "قسم المدربين غير التقنيين",
+            # Existing Arabic Odoo text is authoritative and stays byte-for-byte.
+            "bio": payload["bio"],
+            "sections": [
+                {
+                    "label": "التخصصات",
+                    "items": [
+                        "إدارة المرافق",
+                        "إدارة المشروعات",
+                        "أنظمة إدارة المباني (BMS)",
+                    ],
+                },
+                {
+                    "label": "الخبرة",
+                    "items": payload["sections"][1]["items"],
+                },
+                {
+                    "label": "جهة الخبرة",
+                    "items": ["Engosoft"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(localization, "_request_translation", translate)
+    lang_token = tools_mod.LANG.set("ar_001")
+    try:
+        first = await _ask_instructor(instructor_id=4129)
+        second = await _ask_instructor(instructor_id=4129)
+    finally:
+        tools_mod.LANG.reset(lang_token)
+
+    card = first["instructors"][0]
+    assert card["name"] == "Dr.Ayman Atef Ali Fawzi"  # official name is irrelevant
+    assert card["title"] == "مدرب PRIMAVERA وPMP وإدارة المشروعات"
+    assert "أبرز الخبراء" in card["bio"]
+    assert next(s for s in card["sections"] if s["label"] == "التخصصات")[
+        "items"] == [
+            "إدارة المرافق",
+            "إدارة المشروعات",
+            "أنظمة إدارة المباني (BMS)",
+        ]
+    assert second["instructors"][0]["sections"] == card["sections"]
+    assert len(calls) == 1  # repeated model calls do not pay for translation twice
 
 
 async def test_instructor_profile_follows_the_visitors_arabic_language(

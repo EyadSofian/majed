@@ -9,6 +9,7 @@ Prices are never cached: every quote goes to Odoo's pricelist for the visitor's
 currency, because `list_price` is 0 on the whole catalogue and a wrong number
 loses a sale.
 """
+import asyncio
 import contextvars
 import json
 import logging
@@ -18,6 +19,7 @@ from langchain_core.tools import tool
 
 from . import catalog, curriculum
 from .config import get_settings
+from .localization import localize_instructor_profile
 from .odoo import OdooAccessDenied, image_url, odoo
 from .schemas import (Batch, CourseCard, Instructor, PackageCard,
                       PriceOption)
@@ -448,13 +450,17 @@ async def _with_profile(cards: list[dict]) -> list[dict]:
     """
     if not cards or len(cards) > 3:
         return cards
+    details = {}
     try:
         details = await odoo.fetch_instructor_details(
             [c["id"] for c in cards], LANG.get())
     except Exception:  # noqa: BLE001
         log.exception("instructor profile fetch failed")
-        return cards
     for c in cards:
+        # A repeated tool call reuses the sink object. Rebuild its profile from
+        # the current Odoo read instead of appending every section a second time.
+        c["bio"] = None
+        c["sections"] = []
         data = details.get(c["id"]) or {}
         identity = data.get("__identity__") or {}
         for source, target in (
@@ -473,6 +479,15 @@ async def _with_profile(cards: list[dict]) -> list[dict]:
             elif val.get("text"):
                 c["sections"].append({"label": val["label"],
                                       "items": [val["text"]]})
+    # A result can contain up to three people. Translate those profiles in
+    # parallel so a comparison does not pay three sequential model round-trips.
+    localized_cards = await asyncio.gather(*(
+        localize_instructor_profile(c, LANG.get()) for c in cards
+    ))
+    for c, localized in zip(cards, localized_cards):
+        if localized is not c:
+            c.clear()
+            c.update(localized)
     return cards
 
 
@@ -502,9 +517,8 @@ def _instructor_brief(e: dict, snap: "catalog.Snapshot") -> dict:
     sink = _instructor_cards()
     existing = next((x for x in sink if x.get("id") == card["id"]), None)
     if existing is not None:
-        for key, value in card.items():
-            if value not in (None, "", []):
-                existing[key] = value
+        existing.clear()
+        existing.update(card)
         return existing
     sink.append(card)
     return card

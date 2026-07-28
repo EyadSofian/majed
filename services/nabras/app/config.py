@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     # switched off, and every turn here carries 9 tools. Empty string = never
     # send the field. See agent.reasoning_effort_for.
     agent_reasoning_effort: str = "none"
+    # Odoo profile fields are not consistently translated. When the visitor is
+    # using Arabic, translate the trainer's customer-facing title, biography,
+    # specialisations and experience without changing names, facts or
+    # credentials. Results are cached in-process, so a profile is translated
+    # only once per source revision.
+    profile_translation_enabled: bool = True
+    profile_translation_timeout: float = 12.0
+    profile_translation_cache_size: int = 256
 
     # ---- Odoo 17 ----
     odoo_url: str = "https://engosoft.com"

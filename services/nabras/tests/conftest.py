@@ -19,6 +19,7 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from app import agent as agent_mod  # noqa: E402
 from app import catalog as catalog_mod  # noqa: E402
 from app import curriculum as curriculum_mod  # noqa: E402
+from app import localization as localization_mod  # noqa: E402
 from app import tools as tools_mod  # noqa: E402
 
 from .fakes import FakeOdoo, ScriptedModel  # noqa: E402
@@ -44,6 +45,14 @@ def reset_rate_limits():
     main_mod._chat_hits.clear()
     main_mod._mint_hits.clear()
     yield
+
+
+@pytest.fixture(autouse=True)
+def reset_profile_translation_cache():
+    """Profile translations are cached in production but isolated in tests."""
+    localization_mod._reset_translation_cache_for_tests()
+    yield
+    localization_mod._reset_translation_cache_for_tests()
 
 
 @pytest.fixture

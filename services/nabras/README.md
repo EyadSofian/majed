@@ -451,6 +451,19 @@ browser console, admin session) if the fields are ever renamed.
 
 Fetched only when the answer *is* the trainer (≤3 cards), never while listing.
 
+For an Arabic visitor, Odoo's `ar_001` value is used first. If Odoo has no
+Arabic translation for a customer-facing value, `ROUTER_MODEL` translates the
+**title, biography, specialisations and experience** into Modern Standard
+Arabic before the structured card is emitted. The official person's name is
+not the target of this fallback and may remain exactly as Odoo stores it.
+
+The fallback is intentionally narrower than a free-form rewrite: it must return
+the same fields, sections and item count; existing Arabic must remain
+unchanged; and every number and technical credential (`PMP`, `PMI`, `BMS`,
+etc.) must survive. A response that fails any guard is discarded. Successful
+translations are cached by the source profile hash and repeated/concurrent
+lookups share the result.
+
 Discovery matches the field **name** and its **label**, in both languages —
 Studio fields are called `x_studio_char_field_1a2b` and only the label
 («نبذة», «التخصصات») says what they hold. To see exactly what this database has,
