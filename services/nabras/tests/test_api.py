@@ -743,8 +743,7 @@ async def test_health_reports_catalogue_state(client_factory, loaded_catalog):
 # ================================================================== ingest
 async def test_ingest_installs_packages_and_survives_a_denied_odoo_read(
         client_factory, fake_odoo, monkeypatch):
-    """n8n pushes what the bot's own Odoo user cannot read. A later refresh
-    that gets AccessError must NOT wipe what was pushed."""
+    """An n8n fallback survives a later direct Odoo AccessError."""
     from app import catalog as cat
     from app import main as main_mod
     from .fakes import PACKAGES
@@ -1257,18 +1256,45 @@ async def test_a_database_without_those_fields_still_answers(fake_odoo):
     assert out["instructors"][0]["name"] == "Dr.Ayman Atef Ali Fawzi"
 
 
-async def test_a_track_question_pulls_packages_now_not_in_20_minutes(
+async def test_a_track_question_refreshes_directly_from_odoo_before_n8n(
         fake_odoo, monkeypatch):
     """A trainee asking about a track is the highest-value question we get;
-    answering it from a snapshot taken 19 minutes ago — or from nothing after a
-    restart — is the one case worth a live call."""
+    Odoo is canonical now that training.package access has been granted."""
     from app import catalog as cat
     from app.config import get_settings
     s = get_settings()
     monkeypatch.setattr(s, "packages_webhook_url", "https://n8n.example/webhook/pkg")
     monkeypatch.setattr(s, "packages_max_age_seconds", 0)   # always stale
+    calls = []
+
+    class _Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, **kw):
+            calls.append(url)
+            raise AssertionError("n8n must not be called while Odoo is readable")
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    await catalog_mod.refresh(full=True)
+    data = await cat.ensure_packages()
+    assert fake_odoo.package_calls >= 2  # startup + forced stale refresh
+    assert calls == []                  # n8n is fallback, never the first source
+    assert data["available"] is True
+    assert catalog_mod.snapshot().packages_source == "odoo"
+
+
+async def test_n8n_is_only_used_when_direct_package_access_is_denied(
+        fake_odoo, monkeypatch):
+    from app import catalog as cat
+    from app.config import get_settings
     from .fakes import PACKAGES
 
+    s = get_settings()
+    monkeypatch.setattr(s, "packages_webhook_url", "https://n8n.example/webhook/pkg")
+    monkeypatch.setattr(s, "packages_max_age_seconds", 0)
+    fake_odoo.packages_denied = True
     calls = []
 
     class _Resp:
@@ -1288,9 +1314,27 @@ async def test_a_track_question_pulls_packages_now_not_in_20_minutes(
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     await catalog_mod.refresh(full=True)
     data = await cat.ensure_packages()
+    assert fake_odoo.package_calls >= 2
     assert calls == ["https://n8n.example/webhook/pkg"]
     assert data["available"] is True
     assert catalog_mod.snapshot().packages_source == "ingest"
+
+
+async def test_a_new_package_permission_is_detected_without_a_course_edit(
+        fake_odoo, monkeypatch):
+    """Granting training.package access must take effect on the next poll."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "packages_max_age_seconds", 0)
+    fake_odoo.packages_denied = True
+    await catalog_mod.refresh(full=True)
+    assert catalog_mod.snapshot().packages.get("available") is False
+
+    fake_odoo.packages_denied = False
+    await catalog_mod.refresh(full=False)  # fetch_courses(since=...) is empty
+    snap = catalog_mod.snapshot()
+    assert snap.packages.get("available") is True
+    assert snap.packages_source == "odoo"
 
 
 async def test_a_failed_pull_never_breaks_the_answer(fake_odoo, monkeypatch):
@@ -1300,17 +1344,24 @@ async def test_a_failed_pull_never_breaks_the_answer(fake_odoo, monkeypatch):
     monkeypatch.setattr(s, "packages_webhook_url", "https://n8n.example/webhook/pkg")
     monkeypatch.setattr(s, "packages_max_age_seconds", 0)
 
+    calls = []
+
     class _Client:
         def __init__(self, **kw): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
-        async def post(self, *a, **kw): raise RuntimeError("n8n down")
+        async def post(self, *a, **kw):
+            calls.append(True)
+            raise RuntimeError("n8n down")
 
     import httpx
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     await catalog_mod.refresh(full=True)
+    fake_odoo.packages_denied = True
     data = await cat.ensure_packages()          # must not raise
     assert data.get("available") is True        # falls back to what Odoo gave us
+    assert calls == [True]
+    assert catalog_mod.snapshot().packages_source == "odoo"
 
 
 # ============================================================ wiring guard

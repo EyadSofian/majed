@@ -278,14 +278,15 @@ URL": without the mode-and-cohort split there is no single correct number.
 
 > **Still unknown:** whether a trainee can buy *part* of a package. Not modelled.
 
-### Getting package data in without the permission grant
+### Package source: Odoo first, n8n fallback
 
-The bot's Odoo user cannot read `training.package*`; n8n's credential can. So
-n8n **pushes** a snapshot instead of the bot pulling through it:
+Nabras reads the published rows directly from `training.package` and its child
+models. The optional n8n workflow remains a fallback for a permission
+regression or Odoo outage:
 
 ```
-n8n (every 20 min) ──► POST /api/v1/internal/catalog/packages   [X-Ingest-Token]
-                        └─► held in memory, read by search_packages
+training.package* ──direct──► in-memory snapshot ──► search_packages
+        failure ──► n8n webhook / scheduled push ──┘
 ```
 
 `sync_packages.n8n.json` is the workflow — import it, then set `INGEST_TOKEN`
@@ -302,12 +303,9 @@ Why push and not proxy: a per-request proxy would add a hop to every chat turn
 and place an admin-rights credential in the request path of a public bot. This
 way the chat still reads from memory and never calls out.
 
-A denied Odoo read can no longer erase pushed data — including on a full
-rebuild, where the fresh snapshot inherits it (`packages_source`). `GET /health`
-reports `packages_source`, `packages_count` and `packages_age_seconds`.
-
-This is a bridge, not the destination: once the bot user has eLearning/Manager +
-Operation Group, it reads packages directly and the workflow can be switched off.
+A denied or failed Odoo read cannot erase the last known-good data. `GET
+/health` reports `packages_source`, `packages_count` and
+`packages_age_seconds`; the expected primary state is `packages_source: odoo`.
 
 ### Course names follow the visitor, not the server
 
@@ -393,15 +391,15 @@ fallback matches on the consonant skeleton that survives transliteration
 not just the listed ones — the list is capped at 300. And anyone attached to a
 live course is searchable regardless of their job title.
 
-### Packages: pulled when asked, not every 20 minutes
+### Packages: refreshed from Odoo when asked
 
 The scheduled n8n push leaves a track question answered from a snapshot up to 20
 minutes old — and from nothing at all after a restart. A trainee asking about a
 track is the highest-value question this bot gets, so `search_packages`,
 `recommend_track` and `list_specializations` call `catalog.ensure_packages()`
-first: if the data is missing or older than `PACKAGES_MAX_AGE_SECONDS`, one
-request to `PACKAGES_WEBHOOK_URL` fetches it live (`packages_on_demand.n8n.json`
-— the same six Odoo reads, returned in the response instead of pushed).
+first. If the data is missing or older than `PACKAGES_MAX_AGE_SECONDS`, Nabras
+re-reads the six package models directly from Odoo. Only if that read fails
+does `PACKAGES_WEBHOOK_URL` fetch the n8n snapshot.
 
 Bounded on purpose: an `asyncio.Lock` means ten concurrent chats trigger one
 fetch, the timeout is 12s, and **any failure is swallowed** — the customer is
@@ -419,10 +417,9 @@ PACKAGES_FETCH_TIMEOUT=12
 ```
 
 `GET /health` exposes `packages_webhook_configured` as well as package
-availability, count, source and age. A configured webhook with
-`packages_available: false` means the workflow or its Odoo credential still
-needs attention; the production logs currently show that the bot Odoo user
-itself lacks access to `training.package`, which is why this n8n path is needed.
+availability, count, source and age. `packages_available: true` together with
+`packages_source: odoo` confirms that the direct production credential can read
+the package family.
 
 ### The trainer's full profile
 
@@ -513,21 +510,14 @@ GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`
 
 ---
 
-## 9. Open item — package permissions
+## 9. Package access
 
-`training.package` and its four related models need groups the bot's Odoo user
-(`uid 15577`) does not have. Until they are granted, `search_packages` returns
-empty and the chat continues normally — packages are simply never offered, which
-costs the highest-value sale in the catalogue (70 of 85 upcoming batches belong
-to one).
+The Odoo UI now exposes the `training.package` list and form: package type,
+website publication, course lines, levels, pricing, events and card details.
+The service retries these models directly whenever its snapshot is stale, so a
+permission grant takes effect without waiting for a course edit or an n8n push.
 
-The package data used to build this was read through n8n, whose Odoo credential
-*does* have the rights — which confirms the gap is the bot user specifically,
-not the models. Routing the bot's package reads through n8n would work but is
-not recommended: it adds a hop to every request and puts an admin-rights
-credential in the request path of a public chatbot.
-
-**Grant on the bot user — recommended:** `eLearning / Manager` + `Operation Group`
+The production bot credential needs read access equivalent to:
 
 ```
 eLearning/Manager  →  training.package · training.package.level · target.audience.point
@@ -535,11 +525,9 @@ Operation Group    →  training.package.group · .product.line
                       .attendee.product.line · learning.outcome
 ```
 
-`Website / Editor and Designer` also covers all seven on its own, but it grants
-website-editing rights — too much for a read-only bot. The cleanest production
-answer is a dedicated read-only ACL on those models.
-
-Verify with `GET /health` → `packages_available: true`.
+`Website / Editor and Designer` also covers the models, but grants unnecessary
+website-editing rights. Prefer dedicated read-only ACLs. Verify with `GET
+/health` → `packages_available: true` and `packages_source: "odoo"`.
 
 ### Other known limits
 

@@ -97,6 +97,12 @@ const config = {
   // Webhook URL: https://chat.botpress.cloud/<id>).
   botpressChatBase: (process.env.BOTPRESS_CHAT_API_BASE || 'https://chat.botpress.cloud').replace(/\/$/, ''),
   botpressChatWebhookId: process.env.BOTPRESS_CHAT_WEBHOOK_ID || '',
+  // Botpress may schedule a proactive "still need help?" message long after
+  // Nabras has taken ownership of the conversation. Only accept Chat API
+  // replies shortly after this bridge actually forwarded a customer turn to
+  // Botpress; everything else is a stale/proactive reply from the other brain.
+  botpressReplyWindowMs:
+    Math.max(1, Number(process.env.BOTPRESS_REPLY_WINDOW_SECONDS || 120)) * 1000,
 
   // CORS — the Odoo site origin that hosts the widget.
   widgetOrigin: process.env.WIDGET_ORIGIN || '*',
@@ -714,6 +720,7 @@ const sseClients = new Map(); // cwConvId -> Set<res>
 const pushedIds = lruSet(5000); // chatwoot message ids already delivered to widget
 const bridgeIncomingIds = lruSet(5000); // incoming cw msg ids the bridge itself created (skip webhook echo)
 const bridgeIncomingEchoes = new Map(); // short-lived conv+content keys for Chatwoot echo skip
+const processedIncomingWebhookIds = lruSet(5000); // Chatwoot may retry a webhook
 const welcomedConvs = new Set();
 
 function echoKey(convId, content) {
@@ -785,6 +792,27 @@ function parseObject(value) {
     }
   }
   return {};
+}
+
+const BOT_FOLLOWUP_RE =
+  /هل\s+(?:ما\s+)?(?:زلت|تزال|لا\s+تزال).{0,50}(?:تحتاج|محتاج).{0,30}(?:مساعدة|مساعده)|(?:do|would)\s+you\s+still\s+need\s+help/i;
+
+function automatedIncomingReason(payload) {
+  const p = payload || {};
+  const attrs = parseObject(p.content_attributes);
+  if (attrs.bp_id || attrs.botpress_message_id ||
+      ['botpress', 'nabras', 'majed'].includes(String(attrs.majed_origin || attrs.origin || '').toLowerCase())) {
+    return 'bot_attributes';
+  }
+  const senderType = String(
+    p.sender?.type || p.sender_type || p.sender?.sender_type || ''
+  ).toLowerCase();
+  if (senderType && senderType !== 'contact' &&
+      /(?:agent[_ -]?bot|bot|user|administrator|agent)/.test(senderType)) {
+    return `non_contact_sender:${senderType}`;
+  }
+  if (BOT_FOLLOWUP_RE.test(String(p.content || ''))) return 'bot_followup_text';
+  return '';
 }
 
 function cleanUrl(raw) {
@@ -1063,6 +1091,28 @@ async function reviveIfResolved(convId) {
 const BP_IDLE_MS = 30 * 60 * 1000; // stop SSE listeners after 30 min inactivity
 const bpMap = new Map(); // cwConvId -> { userId, userKey, bpConvId, lastActivity, stream, seen }
 const bpEnsureInFlight = new Map(); // cwConvId -> Promise<mapping>; prevents duplicate prewarm races
+// Exactly one brain owns customer-visible replies for a conversation turn.
+// "routing" is set before Nabras starts, closing the race where a scheduled
+// Botpress timeout fires while Nabras is still composing its answer.
+const conversationBrain = new Map(); // cwConvId -> routing | nabras | botpress | human
+
+function blockBotpressReplies(cwConvId, owner = 'routing') {
+  const id = String(cwConvId);
+  conversationBrain.set(id, owner);
+  const mapping = bpMap.get(id);
+  if (mapping) mapping.replyAllowedUntil = 0;
+}
+
+function allowBotpressReplies(cwConvId, mapping) {
+  const id = String(cwConvId);
+  conversationBrain.set(id, 'botpress');
+  mapping.replyAllowedUntil = Date.now() + config.botpressReplyWindowMs;
+}
+
+function botpressReplyAllowed(cwConvId, mapping) {
+  return conversationBrain.get(String(cwConvId)) === 'botpress' &&
+    Date.now() <= Number(mapping?.replyAllowedUntil || 0);
+}
 
 function bpConfigured() {
   return Boolean(config.botpressChatWebhookId);
@@ -1133,6 +1183,7 @@ async function bpSendText(mapping, text) {
 const HANDOFF_RE = /\[\[\s*HANDOFF(?::(\d+))?\s*\]\]/i;
 
 async function performHandoff(cwConvId, teamId, meta = {}) {
+  blockBotpressReplies(cwConvId, 'human');
   await cwSetStatus(cwConvId, 'open');
   convStatus.set(cwConvId, 'open');
   if (teamId) await cwAssign(cwConvId, { team_id: Number(teamId) });
@@ -1492,6 +1543,10 @@ async function handleSseEvent(cwConvId, mapping, ev) {
     if (msg.userId && msg.userId === mapping.userId) return; // our own echo
     if (mapping.seen.has(msg.id)) return; // SSE reconnect duplicates
     mapping.seen.add(msg.id);
+    if (!botpressReplyAllowed(cwConvId, mapping)) {
+      console.log(`SKIP unsolicited Botpress reply (cw ${cwConvId}, owner=${conversationBrain.get(String(cwConvId)) || 'none'}): ${String(msg.payload?.text || msg.payload?.type || '').slice(0, 60)}`);
+      return;
+    }
     mapping.lastActivity = Date.now();
     console.log(`BOTPRESS reply (cw ${cwConvId}): ${(msg.payload?.text || msg.payload?.type || '').toString().slice(0, 60)}`);
     await handleBotReply(cwConvId, msg.payload || {}, msg.id);
@@ -1499,6 +1554,10 @@ async function handleSseEvent(cwConvId, mapping, ev) {
   }
 
   if (type === 'event_created') {
+    if (!botpressReplyAllowed(cwConvId, mapping)) {
+      console.log(`SKIP unsolicited Botpress event (cw ${cwConvId})`);
+      return;
+    }
     const p = data?.payload || {};
     const action = (p.action || p.type || '').toString().toLowerCase();
     if (action === 'handoff') {
@@ -1552,6 +1611,7 @@ async function ensureBotpressUncached(cwConvId, { name, userData }) {
         lastActivity: Date.now(),
         stream: null,
         seen: lruSet(500),
+        replyAllowedUntil: 0,
       };
       bpMap.set(cwConvId, mapping);
       bpStartListener(cwConvId, mapping);
@@ -1565,7 +1625,11 @@ async function ensureBotpressUncached(cwConvId, { name, userData }) {
   // fresh: create real Botpress user + conversation (Chat API)
   const { userId, userKey } = await bpCreateUser({ name, userData, cwConvId });
   const bpConvId = await bpCreateConversation(userKey);
-  mapping = { userId, userKey, bpConvId, ctxSig: '', welcomeNoted: false, lastActivity: Date.now(), stream: null, seen: lruSet(500) };
+  mapping = {
+    userId, userKey, bpConvId, ctxSig: '', welcomeNoted: false,
+    lastActivity: Date.now(), stream: null, seen: lruSet(500),
+    replyAllowedUntil: 0,
+  };
   bpMap.set(cwConvId, mapping);
   bpStartListener(cwConvId, mapping);
   console.log(`BOTPRESS created user ${userId} + conv ${bpConvId} (cw ${cwConvId})`);
@@ -1713,6 +1777,9 @@ async function deliverNabras(cwConvId, msg) {
 }
 
 async function forwardToBot(cwConvId, text, { name, userData }) {
+  // Close Botpress at the very start of the turn — even before status/history
+  // network reads — so no scheduled timeout can win a race with routing.
+  blockBotpressReplies(cwConvId, 'routing');
   // First customer message of a conversation → one "live chat" alert to ops.
   if (config.notifyOnLiveChat && !notifiedLive.has(String(cwConvId))) {
     notifiedLive.add(String(cwConvId));
@@ -1725,6 +1792,7 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   const status0 = await getConvStatus(cwConvId);
   if (botPausedFor(cwConvId, status0)) {
     const why = status0 === 'open' ? 'status=open' : 'agent assigned';
+    blockBotpressReplies(cwConvId, 'human');
     console.log(`SKIP bot (${why}) conv ${cwConvId}`);
     return;
   }
@@ -1741,7 +1809,10 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
       stream: emitToWidget,
       handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
     });
-    if (handled) return;
+    if (handled) {
+      blockBotpressReplies(cwConvId, 'nabras');
+      return;
+    }
   } catch (e) {
     console.error('NABRAS router error — falling back to Botpress:', e.message);
   }
@@ -1753,6 +1824,7 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   const status = status0;
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
+  allowBotpressReplies(cwConvId, mapping);
 
   // Prepend, on the first forwarded message only: a note that the widget already greeted
   // (so the bot doesn't re-greet) + the trainee context (re-sent only when the data changes).
@@ -1761,23 +1833,31 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
   const prefix = [welcomeNote, ctxBlock].filter(Boolean).join('\n\n');
   const outText = prefix ? prefix + '\n\n' + text : text;
 
-  await bpSendText(mapping, outText);
+  try {
+    await bpSendText(mapping, outText);
+  } catch (e) {
+    blockBotpressReplies(cwConvId, 'routing');
+    throw e;
+  }
   console.log(`SEND Botpress (cw ${cwConvId} → bp ${mapping.bpConvId}): ${text.slice(0, 60)}`);
 }
 
 // Forward a customer attachment to Botpress as a real media payload (status-gated).
 async function forwardMediaToBot(cwConvId, media, { name, userData }) {
+  blockBotpressReplies(cwConvId, 'routing');
   if (!bpConfigured()) {
     console.warn('SKIP Botpress (not configured) — set BOTPRESS_CHAT_WEBHOOK_ID');
     return;
   }
   const status = await getConvStatus(cwConvId);
   if (status === 'open') {
+    blockBotpressReplies(cwConvId, 'human');
     console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
     return;
   }
   const mapping = await ensureBotpress(cwConvId, { name, userData });
   if (!mapping) return;
+  allowBotpressReplies(cwConvId, mapping);
 
   const welcomeNote = welcomeNoteIfNeeded(mapping, cwConvId);
   if (welcomeNote) await bpSendText(mapping, welcomeNote);
@@ -1793,8 +1873,13 @@ async function forwardMediaToBot(cwConvId, media, { name, userData }) {
   else if (media.kind === 'video') payload = { type: 'video', videoUrl: url };
   else payload = { type: 'file', fileUrl: url, title };
 
-  await bpSendPayload(mapping, payload);
-  if (media.caption) await bpSendText(mapping, media.caption);
+  try {
+    await bpSendPayload(mapping, payload);
+    if (media.caption) await bpSendText(mapping, media.caption);
+  } catch (e) {
+    blockBotpressReplies(cwConvId, 'routing');
+    throw e;
+  }
   console.log(`SEND Botpress media (cw ${cwConvId} → bp ${mapping.bpConvId}): ${media.kind} ${title}`);
 }
 
@@ -1846,6 +1931,7 @@ app.get('/debug/config', (_req, res) => {
       chatApiBase: config.botpressChatBase,
       chatWebhookId: bpConfigured(),
       activeMappings: bpMap.size,
+      replyWindowSeconds: config.botpressReplyWindowMs / 1000,
     },
     widgetOrigin: config.widgetOrigin,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
@@ -2301,7 +2387,13 @@ app.post('/botpress/webhook', async (req, res) => {
     if (Array.isArray(body.responses)) items.push(...body.responses);
     if (!items.length && (body.text || body.content)) items.push(body);
 
-    for (const it of items) {
+    let deliveredItems = 0;
+    const owner = conversationBrain.get(String(convId));
+    const messagesSuppressed = owner === 'routing' || owner === 'nabras' || owner === 'human';
+    if (messagesSuppressed && items.length) {
+      console.log(`SKIP legacy Botpress messages (cw ${convId}, owner=${owner})`);
+    }
+    for (const it of messagesSuppressed ? [] : items) {
       const text = it.text || it.content || it.payload?.text || '';
       const contentType = it.content_type || it.payload?.content_type;
       const contentAttributes = it.content_attributes || it.payload?.content_attributes;
@@ -2314,12 +2406,14 @@ app.post('/botpress/webhook', async (req, res) => {
       });
       console.log(`OUT Chatwoot conv ${convId} (flow): ${(text || '').toString().slice(0, 60)}`);
       pushToWidget(convId, created);
+      deliveredItems++;
     }
 
     const actions = [];
     if (Array.isArray(body.actions)) actions.push(...body.actions);
     if (body.handoff) actions.push(typeof body.handoff === 'object' ? { type: 'handoff', ...body.handoff } : { type: 'handoff' });
-    for (const a of actions.filter((x) => x && x.type)) {
+    const allowedActions = messagesSuppressed ? [] : actions;
+    for (const a of allowedActions.filter((x) => x && x.type)) {
       const type = String(a.type).toLowerCase();
       if (type === 'handoff') {
         await performHandoff(convId, a.team_id);
@@ -2332,7 +2426,13 @@ app.post('/botpress/webhook', async (req, res) => {
       }
     }
 
-    return res.json({ status: 'ok', messages: items.length, actions: actions.length });
+    return res.json({
+      status: 'ok',
+      messages: deliveredItems,
+      suppressed_messages: messagesSuppressed ? items.length : 0,
+      actions: allowedActions.length,
+      suppressed_actions: messagesSuppressed ? actions.length : 0,
+    });
   } catch (err) {
     console.error('botpress webhook error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'botpress_failed' });
@@ -2411,6 +2511,20 @@ app.post('/chatwoot/webhook', async (req, res) => {
       // Echo of a message the bridge itself wrote → already forwarded. Skip.
       if (isBridgeIncomingEcho(convId, p)) {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_echo' });
+      }
+      const incomingKey = p.id == null ? '' : `${convId}:${p.id}`;
+      if (incomingKey && processedIncomingWebhookIds.has(incomingKey)) {
+        return res.status(200).json({
+          status: 'skipped', reason: 'duplicate_incoming_webhook',
+        });
+      }
+      if (incomingKey) processedIncomingWebhookIds.add(incomingKey);
+      const automatedReason = automatedIncomingReason(p);
+      if (automatedReason) {
+        console.log(`SKIP automated incoming conv ${convId}: ${automatedReason}`);
+        return res.status(200).json({
+          status: 'skipped', reason: 'automated_incoming',
+        });
       }
       if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
       // Genuinely external incoming message (created by some other client) → forward to bot.

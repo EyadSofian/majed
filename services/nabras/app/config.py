@@ -64,14 +64,13 @@ class Settings(BaseSettings):
     allow_crm_writes: bool = True
 
     # ---- Package ingest (n8n push) ----
-    # The bot's Odoo user cannot read training.package*. n8n can, so it PUSHES a
-    # snapshot on a schedule instead of the bot pulling through it: no extra hop
-    # on the chat path and no admin credential in a public request path.
+    # Odoo is the primary package source. Keep n8n ingest configured as a
+    # recoverable fallback for an Odoo permission regression or outage.
     ingest_token: str = ""
     # A scheduled push is fine for a catalogue that changes daily, but a
     # customer asking about a track NOW should not be answered from a snapshot
     # taken 19 minutes ago — or from nothing at all after a restart. When this
-    # webhook is set, the first package question pulls a fresh snapshot itself.
+    # webhook is set, it is called only after a direct Odoo refresh fails.
     packages_webhook_url: str = ""
     packages_max_age_seconds: int = 600
     packages_fetch_timeout: float = 12.0

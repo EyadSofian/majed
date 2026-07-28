@@ -362,6 +362,7 @@ class FakeOdoo(Odoo):
         self.fail = fail
         self.leads: list = []
         self.price_calls: list = []
+        self.package_calls = 0
 
     def _boom(self):
         if self.fail:
@@ -408,6 +409,7 @@ class FakeOdoo(Odoo):
         return list(EMPLOYEES.values())
 
     async def fetch_packages(self) -> dict:
+        self.package_calls += 1
         if self.packages_denied:
             return {"available": False, "reason": "access_denied",
                     "packages": [], "lines": [], "levels": [], "groups": []}

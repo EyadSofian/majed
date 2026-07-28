@@ -113,10 +113,9 @@ async def ingest_packages(payload: dict, request: Request,
                           x_ingest_token: str | None = Header(default=None)):
     """Receive a package snapshot pushed by n8n.
 
-    The bot's Odoo user cannot read `training.package*`; n8n's credential can.
-    Rather than proxying every chat request through n8n — an extra hop plus an
-    admin credential sitting in a public request path — n8n pushes here on a
-    schedule and the chat keeps reading from memory.
+    Direct `training.package*` reads are primary. This endpoint remains as a
+    fallback for a future Odoo permission regression or outage; the chat still
+    reads the installed snapshot from memory.
     """
     if not s.ingest_token:
         raise HTTPException(503, "ingest disabled: set INGEST_TOKEN")

@@ -16,9 +16,9 @@ Every quirk below was found by probing the live database, not assumed:
 * `slide.channel.website_url` is absolute, `product.template.website_url` is
   relative. Concatenating a base onto both produces `engosoft.comhttps://…`.
 * Images are binary columns, never URLs — the URL is built from the record id.
-* The `training.package*` models need eLearning/Manager + Operation Group. Until
-  the bot's Odoo user has them, package reads raise AccessError; every package
-  method degrades to empty instead of breaking the chat.
+* The `training.package*` models need eLearning/Manager + Operation Group.
+  Package reads are direct and canonical; an AccessError degrades safely so the
+  catalogue layer can use its last snapshot or the optional n8n fallback.
 """
 import asyncio
 import logging
@@ -383,8 +383,7 @@ class Odoo:
 
     # -------------------------------------------------------------- packages
     async def fetch_packages(self) -> dict[str, Any]:
-        """Training packages. Returns `{"available": False, ...}` when the bot's
-        Odoo user has not been granted eLearning/Manager + Operation Group."""
+        """Published training packages and all child rows needed by the card."""
         try:
             packages = await self.search_read(
                 "training.package", [["website_published", "=", True]],

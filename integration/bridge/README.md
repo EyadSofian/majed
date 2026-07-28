@@ -28,6 +28,16 @@ BOTPRESS_PAT=optional_botpress_pat
 - `POST /botpress/webhook` - Receives responses from Botpress
 - `GET /` - Health check
 
+## One reply owner
+
+Every customer turn is owned by exactly one brain. Nabras gets first refusal;
+when it handles the turn, Botpress replies are closed immediately. Botpress is
+allowed to emit only for a short window after the bridge actually forwards that
+turn to it (`BOTPRESS_REPLY_WINDOW_SECONDS`, default `120`). Scheduled
+Botpress follow-ups such as “هل ما زلت تحتاج مساعدة؟” are therefore ignored
+after Nabras has taken over, and repeated Chatwoot incoming webhook IDs are
+processed once.
+
 ## Configuration
 
 After deploying on Railway, you'll get a URL like:

@@ -29,6 +29,7 @@ const state = {
   bpUsers: 0,
   bpConvs: 0,
   bpMessages: [], // { text, payload }
+  nabrasChats: 0,
   sseRes: null, // botpress listen stream
   msgSeq: 1000,
 };
@@ -36,6 +37,17 @@ const state = {
 function mockApp() {
   const m = express();
   m.use(express.json());
+
+  // — Nabras —
+  m.post('/api/v1/user/guest-session/create/', (_q, r) =>
+    r.json({ data: { guest_token: 'nabras-test-token' } })
+  );
+  m.post('/api/v1/ai-chat/chat/', (_q, r) => {
+    state.nabrasChats++;
+    r.setHeader('Content-Type', 'text/event-stream');
+    r.write('data: {"type":"token","content":"رد نبراس فقط."}\n\n');
+    r.end('data: {"type":"done"}\n\n');
+  });
 
   // — Chatwoot —
   m.get('/api/v1/accounts/2/inboxes', (_q, r) =>
@@ -207,6 +219,10 @@ function check(name, cond, extra) {
       CHATWOOT_INBOX_ID: '29',
       BOTPRESS_CHAT_API_BASE: `${MOCK}/bp`,
       BOTPRESS_CHAT_WEBHOOK_ID: 'wh1',
+      BOTPRESS_REPLY_WINDOW_SECONDS: '1',
+      NABRAS_ENABLED: 'true',
+      NABRAS_URL: MOCK,
+      NABRAS_ALLOW: 'nabras@example.com',
       WIDGET_ORIGIN: 'https://demo.engosoft.com',
       WELCOME_ENABLED: 'false',
       SUBSCRIBE_ADMIN_TOKEN: 'admin-token',
@@ -262,6 +278,34 @@ function check(name, cond, extra) {
     check('bot reply reached widget via SSE', ws.events.some((e) => e.content === 'رد البوت: مرحبا'));
     check('mapping persisted in conversation attrs', st.cwAttrs.bp_conv_id === 'bpconv-1' && !!st.cwAttrs.bp_user_key && !!st.cwAttrs.bp_ctx_sig);
 
+    console.log('TEST 3b — Nabras owns the turn; stale Botpress timeout is suppressed');
+    const bpBeforeNabras = st.bpMessages.length;
+    await axios.post(`${BRIDGE}/widget/message`, {
+      conversationId: '9001',
+      text: 'سؤال يخص نبراس',
+      userData: { email: 'nabras@example.com' },
+    });
+    await sleep(300);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('Nabras answered without forwarding the turn to Botpress',
+      st.nabrasChats === 1 && st.bpMessages.length === bpBeforeNabras);
+    check('Nabras answer reached the widget',
+      ws.events.some((e) => String(e.content || '').includes('رد نبراس فقط')));
+    sseSend({
+      type: 'message_created',
+      data: {
+        id: 'bot-stale-timeout',
+        userId: 'bot-1',
+        conversationId: 'bpconv-1',
+        payload: { type: 'text', text: 'هل لا تزال تحتاج مساعدة؟' },
+      },
+    });
+    await sleep(250);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('stale Botpress follow-up is not shown or persisted',
+      !ws.events.some((e) => e.content === 'هل لا تزال تحتاج مساعدة؟') &&
+      !st.cwMessages.some((m) => m.body.content === 'هل لا تزال تحتاج مساعدة؟'));
+
     console.log('TEST 4 — agent outgoing via Chatwoot webhook → widget (no re-forward to bot)');
     const bpCountBefore = st.bpMessages.length;
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'message_created', id: 777, message_type: 'outgoing', content: 'رد الموظف', conversation: { id: 9001, status: 'pending' } });
@@ -305,6 +349,34 @@ function check(name, cond, extra) {
     await sleep(400);
     st = (await axios.get(`${MOCK}/__state`)).data;
     check('external incoming forwarded to bot', st.bpMessages.some((m) => m.text === 'رسالة خارجية'));
+    const externalCount = st.bpMessages.filter((m) => m.text === 'رسالة مكررة').length;
+    const externalPayload = {
+      event: 'message_created',
+      id: 999998,
+      message_type: 'incoming',
+      content: 'رسالة مكررة',
+      conversation: { id: 9001, status: 'pending' },
+      sender: { name: 'عميل', type: 'contact' },
+    };
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, externalPayload);
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, externalPayload);
+    await sleep(350);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('repeated Chatwoot webhook id is forwarded once',
+      st.bpMessages.filter((m) => m.text === 'رسالة مكررة').length === externalCount + 1);
+    const autoIncoming = await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'message_created',
+      id: 999997,
+      message_type: 'incoming',
+      content: 'هل ما زلت تحتاج مساعدة؟',
+      conversation: { id: 9001, status: 'pending' },
+      sender: { name: 'Botpress', type: 'agent_bot' },
+    });
+    await sleep(150);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('automated incoming follow-up never becomes a customer turn',
+      autoIncoming.data.reason === 'automated_incoming' &&
+      !st.bpMessages.some((m) => m.text === 'هل ما زلت تحتاج مساعدة؟'));
 
     console.log('TEST 9 — handoff marker from bot');
     await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'عايز موظف', userData: {} });

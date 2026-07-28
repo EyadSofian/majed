@@ -150,6 +150,37 @@ def snapshot() -> Snapshot:
     return _snap
 
 
+async def _refresh_packages_from_odoo(
+        snap: Snapshot, *, force: bool = False) -> bool:
+    """Refresh packages directly from their canonical Odoo models.
+
+    A previous access denial may have been fixed without a deploy, so stale
+    package data must retry Odoo rather than remaining on n8n forever. A
+    transient failure never erases the last known-good snapshot.
+    """
+    s = get_settings()
+    if (not force and (snap.packages or {}).get("available")
+            and time.time() - snap.packages_at < s.packages_max_age_seconds):
+        return True
+    try:
+        fetched = await odoo.fetch_packages()
+    except Exception:  # noqa: BLE001
+        log.exception("direct Odoo package refresh failed")
+        return False
+    if fetched.get("available"):
+        snap.packages = fetched
+        snap.packages_source = "odoo"
+        snap.packages_at = time.time()
+        log.info("packages refreshed directly from Odoo: %d",
+                 len(fetched.get("packages") or []))
+        return True
+    if not (snap.packages or {}).get("available"):
+        snap.packages = fetched
+        snap.packages_source = "odoo"
+        snap.packages_at = time.time()
+    return False
+
+
 # --------------------------------------------------------------------------
 async def refresh(full: bool = False) -> Snapshot:
     """Rebuild the snapshot. `full=False` still refetches events (they move on
@@ -161,15 +192,17 @@ async def refresh(full: bool = False) -> Snapshot:
 
     changed = await odoo.fetch_courses(since=since)
     if since and not changed:
-        # Nothing edited — only refresh the volatile parts.
+        # Nothing edited — refresh the volatile parts. Package permissions or
+        # contents can change independently of product.template.write_date.
         await _refresh_events(_snap)
+        await _refresh_packages_from_odoo(_snap)
         _snap.loaded_at = time.time()
         return _snap
 
     if full or not _snap.ready:
         snap = Snapshot()
-        # A full rebuild must not discard a snapshot n8n pushed — that data is
-        # the only copy, since the bot's own Odoo user cannot re-read it.
+        # A full rebuild must not discard the last known-good package snapshot
+        # before the direct Odoo refresh (or its n8n fallback) succeeds.
         snap.packages = _snap.packages
         snap.packages_source = _snap.packages_source
         snap.packages_at = _snap.packages_at
@@ -234,12 +267,7 @@ async def refresh(full: bool = False) -> Snapshot:
 
     await _attach_channels(snap)
     await _refresh_events(snap)
-    fetched = await odoo.fetch_packages()
-    # A denied read must not erase a snapshot n8n already pushed.
-    if fetched.get("available") or snap.packages_source != "ingest":
-        snap.packages = fetched
-        snap.packages_source = "odoo"
-        snap.packages_at = time.time()
+    await _refresh_packages_from_odoo(snap, force=True)
 
     snap.last_write_date = max(
         [r.get("write_date") for r in rows if r.get("write_date")] +
@@ -485,10 +513,9 @@ _pkg_lock: Optional["asyncio.Lock"] = None
 async def ensure_packages(max_age: Optional[float] = None) -> dict:
     """Make sure package data is present and fresh enough to answer with.
 
-    The scheduled n8n push keeps this warm, but "warm" is up to 20 minutes old
-    and is empty entirely after a restart — and a trainee asking about a track
-    is the highest-value question we get. If a pull webhook is configured, one
-    is fetched on the spot; otherwise we answer with whatever we have.
+    Odoo is the canonical and first source. n8n remains a fallback only for an
+    Odoo access denial/outage. A trainee asking about a track is the
+    highest-value question we get, so stale data is refreshed on that turn.
     """
     global _pkg_lock
     s = get_settings()
@@ -496,7 +523,7 @@ async def ensure_packages(max_age: Optional[float] = None) -> dict:
     limit = s.packages_max_age_seconds if max_age is None else max_age
     fresh = bool((snap.packages or {}).get("available")) and \
         (time.time() - snap.packages_at) < limit
-    if fresh or not s.packages_webhook_url:
+    if fresh:
         return snap.packages or {}
 
     if _pkg_lock is None:
@@ -506,6 +533,10 @@ async def ensure_packages(max_age: Optional[float] = None) -> dict:
         if bool((snap.packages or {}).get("available")) and \
                 (time.time() - snap.packages_at) < limit:
             return snap.packages
+        if await _refresh_packages_from_odoo(snap, force=True):
+            return snap.packages
+        if not s.packages_webhook_url:
+            return snap.packages or {}
         try:
             import httpx
             headers = {"X-Ingest-Token": s.ingest_token} if s.ingest_token else {}
