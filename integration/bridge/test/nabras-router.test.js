@@ -115,11 +115,11 @@ function delivered() {
     assert.ok(d.streamed.some((m) => m.content_attributes.stream_state === 'start'));
     assert.ok(d.streamed.some((m) => m.content_attributes.stream_state === 'delta'));
     assert.strictEqual(items.length, 1);
-    // Each fact travels in its own field — the widget cannot lay out a price,
-    // a seat count and a date that were already glued into one string.
+    // Each customer-facing fact travels in its own field. Seat scarcity is
+    // deliberately not exposed in the card.
     assert.strictEqual(items[0].kind, 'course');
     assert.strictEqual(items[0].price_display, '4,815 EGP');
-    assert.strictEqual(items[0].seats_available, 3);
+    assert.strictEqual(Object.hasOwn(items[0], 'seats_available'), false);
     assert.strictEqual(items[0].delivery, 'مسجّل');
     assert.strictEqual(items[0].starts_at, '2026-08-20 16:00:00');
     assert.ok(items[0].checkout_url.includes('product_id=2059'));
@@ -128,6 +128,8 @@ function delivered() {
     assert.strictEqual(items[0].actions[0].text, 'عرض صفحة الدورة');
     assert.strictEqual(items[0].actions[0].uri,
                        'https://engosoft.com/shop/navisworks-mep-2107');
+    assert.ok(d.out[0].content.endsWith(
+      'استخدم زر «اشترِ الدورة الآن» في البطاقة لإضافتها مباشرةً إلى سلة الشراء.'));
   })();
 
   // 5) نبراس down mid-request -> silent fallback, nothing shown to the customer
@@ -277,4 +279,25 @@ function delivered() {
   ]);
 
   console.log('✅ language + history: shop language and bounded recovery context');
+})();
+
+// ---------------------------------------------------------------------------
+// Odoo's add-to-cart route is POST-only: a model must never leak it as prose.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  const { finalizeSalesReply } = require('../nabras');
+  const a = require('assert');
+  const raw = 'أضف الدورة إلى السلة من خلال هذا الرابط:\n' +
+    'https://engosoft.com/shop/cart/update?product_id=1116&add_qty=1&express=1';
+  const clean = finalizeSalesReply(raw, [{ checkout_url: 'internal' }]);
+  a.ok(!clean.includes('/shop/cart/update'));
+  a.ok(clean.endsWith(
+    'استخدم زر «اشترِ الدورة الآن» في البطاقة لإضافتها مباشرةً إلى سلة الشراء.'));
+  const markdown = finalizeSalesReply(
+    'اشترِ عبر هذا الرابط: [إضافة إلى السلة]' +
+    '(https://engosoft.com/shop/cart/update?product_id=1116&add_qty=1)',
+    [{ checkout_url: 'internal' }]);
+  a.ok(!markdown.includes('/shop/cart/update'));
+  a.ok(!markdown.includes('هذا الرابط'));
+  console.log('✅ checkout copy: no broken GET link, direct card CTA appended');
 })();

@@ -18,7 +18,7 @@ from langchain_core.tools import tool
 
 from . import catalog, curriculum
 from .config import get_settings
-from .odoo import OdooAccessDenied, abs_url, image_url, odoo
+from .odoo import OdooAccessDenied, image_url, odoo
 from .schemas import (Batch, CourseCard, Instructor, PackageCard,
                       PriceOption)
 
@@ -156,7 +156,6 @@ def _brief(course: "catalog.Course", card: dict) -> dict:
         "categories": course.categories, "rating": card["rating"],
         "open_batches": len(batches),
         "next_start": batches[0]["date_begin"] if batches else None,
-        "seats_left": batches[0].get("seats_available") if batches else None,
         "why": (course.subtitle or course.description)[:180],
         # who Engosoft says this course is for — the KB's own answer, so the
         # recommendation can be matched to the person instead of the keyword
@@ -240,8 +239,8 @@ async def search_courses(query: str, top_k: int = 4,
 @tool
 async def get_course_details(course_id: int) -> str:
     """Full detail for one course: live price, delivery format, duration,
-    certificate, instructors, and every upcoming bookable batch with its dates
-    and remaining seats. Call before recommending a specific course strongly."""
+    certificate, instructors, and every upcoming bookable batch with its dates.
+    Call before recommending a specific course strongly."""
     snap = await _ensure_catalog()
     c = snap.courses.get(course_id)
     if not c:
@@ -271,7 +270,6 @@ async def get_course_details(course_id: int) -> str:
             "event_id": b["id"], "starts": b["date_begin"], "ends": b.get("date_end"),
             "timezone": b.get("date_tz"),
             "location": b["address_id"][1] if isinstance(b.get("address_id"), list) else None,
-            "seats_left": b.get("seats_available"), "seats_max": b.get("seats_max"),
         } for b in batches[:6]],
     }, ensure_ascii=False)
 
@@ -279,9 +277,8 @@ async def get_course_details(course_id: int) -> str:
 @tool
 async def get_upcoming_batches(course_id: Optional[int] = None,
                                limit: int = 8) -> str:
-    """Upcoming bookable batches — dates, location, timezone and remaining
-    seats. Omit `course_id` for the soonest batches across the whole catalogue.
-    Use the remaining-seats number honestly; never inflate scarcity."""
+    """Upcoming bookable batches — dates, location and timezone.
+    Omit `course_id` for the soonest batches across the whole catalogue."""
     snap = await _ensure_catalog()
     if course_id:
         rows = _open_batches(course_id)
@@ -304,7 +301,6 @@ async def get_upcoming_batches(course_id: Optional[int] = None,
             "starts": b.get("date_begin"), "ends": b.get("date_end"),
             "timezone": b.get("date_tz"),
             "location": b["address_id"][1] if isinstance(b.get("address_id"), list) else None,
-            "seats_left": b.get("seats_available"), "seats_max": b.get("seats_max"),
             "sessions": b.get("total_lectures_number"),
             "url": b.get("url"),
         })
@@ -1084,10 +1080,12 @@ async def recommend_track(track: str, level: Optional[str] = None,
 
 @tool
 async def build_checkout_link(course_id: int) -> str:
-    """Build an express add-to-cart -> checkout link for a course, and attach it
-    to that course's card so the buy button appears. Confirm the live price with
-    get_price first."""
-    s = get_settings()
+    """Attach a direct-purchase action to a course card.
+
+    The internal Odoo endpoint is POST-only and must NEVER be written in the
+    answer as a link. The widget submits it correctly from the card's purchase
+    button. Confirm the live price with get_price first.
+    """
     snap = await _ensure_catalog()
     course = snap.courses.get(course_id)
     try:
@@ -1116,9 +1114,16 @@ async def build_checkout_link(course_id: int) -> str:
         card["checkout_url"] = url
         _cards().append(card)
         attached = True
-    return json.dumps({"checkout_url": url, "attached_to_card": attached,
-                       "course_url": course.url if course else abs_url("")},
-                      ensure_ascii=False)
+    # Deliberately do not return the raw `/shop/cart/update` URL to the model:
+    # opening it as a normal link sends GET and Odoo responds Method Not Allowed.
+    return json.dumps({
+        "purchase_action": "attached_to_course_card" if attached else "unavailable",
+        "attached_to_card": attached,
+        "instruction": (
+            "اختم الرد بدعوة العميل إلى استخدام زر «اشترِ الدورة الآن» في البطاقة. "
+            "لا تكتب رابطًا داخل النص."
+        ),
+    }, ensure_ascii=False)
 
 
 @tool

@@ -172,6 +172,28 @@ async def test_close_only_turn_still_emits_a_buyable_card(client_factory):
     assert cards[0]["checkout_url"].endswith("product_id=2046&add_qty=1&express=1")
 
 
+async def test_checkout_tool_keeps_post_only_url_out_of_model_text(loaded_catalog):
+    """The widget needs the internal URL, but exposing it to the model makes it
+    paste a broken GET link into the answer."""
+    from app import tools as tools_mod
+
+    cards: list = []
+    ct = tools_mod.CARD_SINK.set(cards)
+    cu = tools_mod.CURRENCY.set("EGP")
+    try:
+        raw = await tools_mod.build_checkout_link.ainvoke({"course_id": 2092})
+    finally:
+        tools_mod.CARD_SINK.reset(ct)
+        tools_mod.CURRENCY.reset(cu)
+    payload = json.loads(raw)
+
+    assert payload["purchase_action"] == "attached_to_course_card"
+    assert "checkout_url" not in payload
+    assert "/shop/cart/update" not in raw
+    assert cards[0]["checkout_url"].endswith(
+        "product_id=2046&add_qty=1&express=1")
+
+
 async def test_checkout_only_attaches_to_the_chosen_course(client_factory):
     script = [{"tool": "search_courses", "args": {"query": "PMP"}},
               {"tool": "build_checkout_link", "args": {"course_id": 2092}},

@@ -141,7 +141,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       bio: i.bio || '',
       sections: (i.sections || []).slice(0, 3),
       // legacy fallback
-      description: [i.title, i.courses_count ? `${i.courses_count} كورس` : '']
+      description: [i.title, i.courses_count ? `${i.courses_count} دورة` : '']
         .filter(Boolean).join(' · '),
       actions: [],
     });
@@ -149,7 +149,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
   for (const p of packageCards) {
     const bits = [];
     if (p.price_from_display) bits.push(`يبدأ من ${p.price_from_display}`);
-    if (p.courses_count) bits.push(`${p.courses_count} كورس`);
+    if (p.courses_count) bits.push(`${p.courses_count} دورة`);
     if (p.training_hours) bits.push(`${p.training_hours} ساعة`);
     if (p.attendance) bits.push(p.attendance);
     items.push({
@@ -200,7 +200,6 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       delivery: chip(c.delivery, 18),
       duration_text: chip(fmtDuration(c.duration_text), 20),
       starts_at: nb?.starts_at || '',
-      seats_available: nb && nb.seats_available != null ? nb.seats_available : null,
       location: nb?.location || '',
       url: c.url || '',
       checkout_url: c.checkout_url || '',
@@ -217,6 +216,39 @@ function compactHistory(history = []) {
     .map((m) => ({ role: m.role, content: String(m.content || '').trim().slice(0, 4000) }))
     .filter((m) => m.content)
     .slice(-24);
+}
+
+function finalizeSalesReply(value, courseCards = []) {
+  let text = String(value || '').trim();
+  const checkoutMarkdown =
+    /\[[^\]]*\]\(https?:\/\/[^\s<>()]+\/shop\/cart\/update\?[^\s<>()]+\)/giu;
+  const hadMarkdownCheckoutLink = checkoutMarkdown.test(text);
+  checkoutMarkdown.lastIndex = 0;
+  text = text.replace(checkoutMarkdown, '');
+  const checkoutUrl = /https?:\/\/[^\s<>()]+\/shop\/cart\/update\?[^\s<>()]+/giu;
+  const hadBrokenCheckoutLink = hadMarkdownCheckoutLink || checkoutUrl.test(text);
+  checkoutUrl.lastIndex = 0;
+  text = text.replace(checkoutUrl, '');
+
+  if (hadBrokenCheckoutLink) {
+    // Remove the orphaned introduction left behind after deleting the URL.
+    text = text
+      .replace(/(?:من خلال|عبر)\s+(?:هذا\s+)?الرابط\s*[:：]?\s*/giu, '')
+      .replace(/(?:هذا\s+)?الرابط\s*[:：]\s*(?=\n|$)/giu, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  const hasDirectPurchase = courseCards.some((card) => card?.checkout_url);
+  const alreadyHasCardCta =
+    /زر[^.\n؟]{0,45}(?:اشتر|الشراء)[^.\n؟]{0,80}البطاقة/u.test(text);
+  if (hasDirectPurchase && !alreadyHasCardCta) {
+    const cta =
+      'استخدم زر «اشترِ الدورة الآن» في البطاقة لإضافتها مباشرةً إلى سلة الشراء.';
+    text = text ? `${text}\n\n${cta}` : cta;
+  }
+  return text;
 }
 
 const isTrackIntent = (text) =>
@@ -372,9 +404,10 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
     flushTokens();
     console.warn(`NABRAS chat failed (conv ${cwConvId}): ${e.message} — falling back`);
     if (liveStarted && reply.trim()) {
+      const safeReply = finalizeSalesReply(reply);
       await deps.deliver(cwConvId, {
         id: `${streamId}-final`,
-        content: `${reply.trim()}\n\nتعذّر إكمال الرد. يُرجى إعادة إرسال سؤالك.`,
+        content: `${safeReply}\n\nتعذّر إكمال الرد. يُرجى إعادة إرسال سؤالك.`,
         content_type: 'text',
         content_attributes: { stream_id: streamId, incomplete: true },
       });
@@ -404,6 +437,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
     return false;
   }
 
+  reply = finalizeSalesReply(reply, courseCards);
   const items = toWidgetCards(courseCards, packageCards, instructorCards);
   const contentType = items.length ? 'cards' : chips.length ? 'input_select' : 'text';
   const contentAttributes = {
@@ -431,4 +465,5 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
 }
 
 module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
-                   resolveLang, compactHistory, consumeSseStream, isTrackIntent, cfg };
+                   resolveLang, compactHistory, consumeSseStream, isTrackIntent,
+                   finalizeSalesReply, cfg };

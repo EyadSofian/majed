@@ -49,7 +49,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '5.1.0';
+  var WIDGET_VERSION = '5.2.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -441,7 +441,7 @@
     'background:#001d36;color:#fff;font-size:12px;line-height:1;display:grid;place-items:center;box-shadow:0 4px 10px rgba(0,29,54,.3)}',
     '#mjd-root[data-side="right"] #mjd-tz .mjd-tz-x{left:auto;right:-9px}',
     '/* panel */',
-    '#mjd-panel{position:absolute;bottom:80px;left:0;width:408px;max-width:calc(100vw - 40px);height:640px;max-height:calc(100vh - 108px);',
+    '#mjd-panel{position:absolute;bottom:80px;left:0;width:384px;max-width:calc(100vw - 28px);height:610px;max-height:calc(100vh - 108px);',
     'border-radius:22px;overflow:hidden;display:none;flex-direction:column;box-shadow:0 28px 70px rgba(0,29,54,.28);',
     'opacity:0;transform:translateY(10px) scale(.98);transition:opacity .22s ease,transform .22s ease}',
     '#mjd-root[data-side="right"] #mjd-panel{left:auto;right:0}',
@@ -481,14 +481,14 @@
     '.mjd-cb.mjd-vo{opacity:.62}',
     '.mjd-cb .mjd-soon{font-size:9px;font-weight:800;background:#f59e0b;color:#fff;border-radius:999px;padding:1px 6px}',
     '/* body */',
-    '.mjd-bd{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px;display:flex;flex-direction:column;gap:12px;transition:padding-top .25s ease}',
+    '.mjd-bd{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px 12px;display:flex;flex-direction:column;gap:10px;transition:padding-top .25s ease}',
     '/* فقاعات الشات داخل column flex لازم flex-shrink:0 — غيره فقاعات الصور بتنهرس لارتفاع صفر أول ما المحادثة تطول */',
     '.mjd-bd>*{flex-shrink:0}',
     '.mjd-row{display:flex;gap:8px;align-items:flex-end;max-width:92%;min-width:0;animation:mjdRise .3s ease both}',
     '.mjd-row.mjd-bot{align-self:flex-start}.mjd-row.mjd-me{align-self:flex-end}',
     '@keyframes mjdRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
     '.mjd-mini{width:27px;height:27px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line)}',
-    '.mjd-bub{font-size:14.5px;line-height:1.75;padding:11px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;word-break:normal;text-align:start;max-width:100%;min-width:0}',
+    '.mjd-bub{font-size:13.5px;line-height:1.65;padding:10px 12px;border-radius:15px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;word-break:normal;text-align:start;max-width:100%;min-width:0}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
     '.mjd-bub a{color:var(--brand);text-decoration:underline;font-weight:600;word-break:break-all}',
     '.mjd-me .mjd-bub a{color:#fff}',
@@ -496,7 +496,7 @@
     '/* rich (markdown) bot message */',
     '.mjd-bub.mjd-md{white-space:normal}',
     '.mjd-md>:first-child{margin-top:0}.mjd-md>:last-child{margin-bottom:0}',
-    '.mjd-md p{margin:0 0 9px}',
+    '.mjd-md p{margin:0 0 7px}',
     '.mjd-md strong{font-weight:800;color:var(--text)}',
     '.mjd-md em{font-style:italic}',
     '.mjd-md code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;background:var(--surf2);border:1px solid var(--botbd);border-radius:5px;padding:1px 5px}',
@@ -504,7 +504,7 @@
     '.mjd-md li{margin:4px 0;line-height:1.65}',
     '.mjd-md li::marker{color:var(--brand)}',
     '.mjd-md .mjd-h{font-weight:800;line-height:1.45;margin:10px 0 5px}',
-    '.mjd-md .mjd-h1{font-size:15.5px}.mjd-md .mjd-h2{font-size:14.5px}.mjd-md .mjd-h3{font-size:13.5px}',
+    '.mjd-md .mjd-h1{font-size:14.5px}.mjd-md .mjd-h2{font-size:13.75px}.mjd-md .mjd-h3{font-size:13px}',
     '.mjd-md hr{border:0;border-top:1px solid var(--botbd);margin:10px 0}',
     '.mjd-card{align-self:flex-start;width:86%;background:var(--surf);border:1px solid var(--botbd);border-radius:14px;overflow:hidden;animation:mjdRise .3s ease both}',
     '.mjd-card img{width:100%;max-height:160px;object-fit:cover;display:block;background:var(--surf2)}',
@@ -513,11 +513,11 @@
     '.mjd-card a:hover,.mjd-card button:hover{background:var(--surf2)}',
     '/* One assistant turn: streamed copy, recommendation, price, and CTA share one surface. */',
     '.mjd-row.mjd-answer-row{align-items:flex-start;align-self:flex-start;max-width:100%;width:100%;gap:9px}',
-    '.mjd-answer{width:min(100%,350px);min-width:0;background:var(--surf);border:1px solid var(--botbd);border-radius:18px 18px 7px 18px;overflow:hidden;',
+    '.mjd-answer{width:min(100%,328px);min-width:0;background:var(--surf);border:1px solid var(--botbd);border-radius:17px 17px 7px 17px;overflow:hidden;',
     'box-shadow:0 10px 30px rgba(0,29,54,.09);transition:border-color .2s ease,box-shadow .2s ease}',
     '#mjd-panel[data-theme="dark"] .mjd-answer{box-shadow:0 10px 30px rgba(0,0,0,.18)}',
     '.mjd-answer.mjd-streaming{border-color:color-mix(in srgb,var(--brand) 45%,var(--botbd));box-shadow:0 0 0 3px var(--focus),0 10px 30px rgba(0,29,54,.09)}',
-    '.mjd-answer .mjd-answer-copy{border:0!important;border-radius:0!important;background:transparent!important;padding:13px 14px 11px}',
+    '.mjd-answer .mjd-answer-copy{border:0!important;border-radius:0!important;background:transparent!important;padding:11px 12px 9px}',
     '.mjd-answer .mjd-answer-copy:empty{display:none}',
     '.mjd-answer-rich{display:flex;flex-direction:column;gap:10px;padding:0 10px 10px}',
     '.mjd-answer-rich:empty{display:none}',
@@ -535,17 +535,17 @@
        bubble so they group together instead of floating apart. */
     '.mjd-row.mjd-bot + .mjd-crs,.mjd-row.mjd-bot + .mjd-pkg,.mjd-row.mjd-bot + .mjd-ins,' +
     '.mjd-crs + .mjd-crs,.mjd-pkg + .mjd-crs,.mjd-crs + .mjd-pkg{margin-top:-4px}',
-    '.mjd-crs-top{display:flex;gap:11px;padding:13px 13px 0}',
-    '.mjd-crs-th{width:50px;height:50px;flex:0 0 50px;border-radius:12px;object-fit:cover;background:',
+    '.mjd-crs-top{display:flex;gap:9px;padding:11px 11px 0}',
+    '.mjd-crs-th{width:44px;height:44px;flex:0 0 44px;border-radius:11px;object-fit:cover;background:',
     'linear-gradient(135deg,rgba(2,82,217,.18),rgba(29,111,233,.18));display:block}',
     '.mjd-crs-hd{min-width:0;flex:1;display:flex;flex-direction:column;gap:6px;padding-top:1px}',
-    '.mjd-crs-t{font-size:14px;font-weight:800;line-height:1.45;color:var(--text);',
+    '.mjd-crs-t{font-size:13px;font-weight:800;line-height:1.45;color:var(--text);',
     'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
     '.mjd-crs-by{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:var(--muted)}',
     '.mjd-crs-by .mjd-in{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;',
     'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-rt{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-weight:800;font-size:12px}',
-    '.mjd-tags{display:flex;flex-wrap:wrap;gap:6px;padding:10px 13px 0}',
+    '.mjd-tags{display:flex;flex-wrap:wrap;gap:5px;padding:8px 11px 0}',
     '.mjd-tag{font-size:11px;font-weight:700;line-height:1;padding:5px 8px;border-radius:7px;',
     'background:var(--surf2);color:var(--muted);border:1px solid var(--line);white-space:nowrap;',
     /* Odoo free-text fields run long ("...Completion Certificate from Engosoft
@@ -553,8 +553,8 @@
     'max-width:100%;overflow:hidden;text-overflow:ellipsis}',
     '.mjd-tag.mjd-tag-b{background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 30%,transparent);color:var(--brand)}',
     '.mjd-tag.mjd-tag-hot{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:#d97706}',
-    '.mjd-crs-ft{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;padding:11px 13px;margin-top:11px;border-top:1px solid var(--line)}',
-    '.mjd-price{font-size:16px;font-weight:800;line-height:1.15;color:var(--accent);white-space:nowrap;font-variant-numeric:tabular-nums}',
+    '.mjd-crs-ft{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;margin-top:9px;border-top:1px solid var(--line)}',
+    '.mjd-price{font-size:15px;font-weight:800;line-height:1.15;color:var(--accent);white-space:nowrap;font-variant-numeric:tabular-nums}',
     /* margin-inline-start flips with the RTL panel and glued the currency to
        the number ("2,500EGP"); a symmetric margin reads right in both. */
     '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin:0 4px}',
@@ -563,7 +563,7 @@
     '.mjd-cta{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;width:100%;margin:0}',
     '.mjd-cta>:only-child{grid-column:1/-1}',
     '.mjd-buy,.mjd-det{display:inline-flex;align-items:center;gap:5px;border-radius:9px;font:inherit;font-size:12px;',
-    'font-weight:800;text-decoration:none;padding:8px 9px;cursor:pointer;border:1px solid transparent;white-space:nowrap;justify-content:center;min-width:0}',
+    'font-weight:800;text-decoration:none;padding:7px 8px;min-height:44px;cursor:pointer;border:1px solid transparent;white-space:nowrap;justify-content:center;min-width:0}',
     '.mjd-buy{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;box-shadow:0 6px 16px var(--focus)}',
     '.mjd-buy:hover{filter:brightness(1.07)}',
     '.mjd-buy-form{display:flex;margin:0;min-width:0}',
@@ -608,9 +608,9 @@
     'max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '/* narrow panels (phones, or a short window): keep cards readable, not wide */',
     '@media (max-width:520px){',
-    '  #mjd-panel{width:calc(100vw - 24px);height:calc(100dvh - 96px)}',
-    '  .mjd-bd{padding:12px 10px;gap:10px}',
-    '  .mjd-crs-th{width:46px;height:46px;flex:0 0 46px}',
+    '  #mjd-panel{width:min(384px,calc(100vw - 20px));height:min(610px,calc(100dvh - 96px))}',
+    '  .mjd-bd{padding:11px 9px;gap:9px}',
+    '  .mjd-crs-th{width:42px;height:42px;flex:0 0 42px}',
     '  .mjd-crs-ft{flex-wrap:wrap;gap:8px}',
     '  .mjd-cta{margin-inline-start:0;width:100%}',
     '  .mjd-buy,.mjd-det{flex:1;justify-content:center}',
@@ -1250,7 +1250,7 @@
       if (csrf) hidden += '<input type="hidden" name="csrf_token" value="' + esc(csrf) + '"/>';
       return '<form class="mjd-buy-form" method="post" action="' +
         esc(url.origin + url.pathname) + '" target="_blank">' + hidden +
-        '<button class="mjd-buy" type="submit">' + I.cart + 'اشترِ الآن</button></form>';
+        '<button class="mjd-buy" type="submit">' + I.cart + 'اشترِ الدورة الآن</button></form>';
     } catch (_) {
       return '';
     }
@@ -1271,11 +1271,6 @@
 
     var tags = tag(it.delivery, 'mjd-tag-b') + tag(it.duration_text);
     if (it.starts_at) tags += tag('تبدأ ' + fmtDay(it.starts_at));
-    if (it.seats_available != null && it.seats_available >= 0) {
-      tags += it.seats_available <= 5
-        ? tag('آخر ' + it.seats_available + ' مقاعد', 'mjd-tag-hot')
-        : tag(it.seats_available + ' مقعد متاح');
-    }
     if (tags) h += '<div class="mjd-tags">' + tags + '</div>';
 
     h += '<div class="mjd-crs-ft">' + priceBlock(it.price_display) + '<div class="mjd-cta">';
