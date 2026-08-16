@@ -58,6 +58,11 @@ DEFER_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
 # as a paragraph of text is not the same as seeing it.
 INSTRUCTOR_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
     "nabras_instructors", default=None)
+# A captured contact. The bridge turns this into the ops alert — the moment a
+# visitor leaves a number is the moment a human wants to know, not the next
+# time somebody opens the CRM. Mutated in place like every sink above.
+LEAD_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "nabras_lead", default=None)
 
 
 def _cards() -> list:
@@ -1334,15 +1339,21 @@ async def create_lead(name: str, phone: Optional[str] = None,
                       field: Optional[str] = None,
                       specialization: Optional[str] = None,
                       experience: Optional[str] = None,
+                      job_title: Optional[str] = None,
+                      goal: Optional[str] = None,
                       notes: Optional[str] = None) -> str:
     """Create a CRM lead in Odoo for the sales advisor.
 
     This is the funnel's capture step, not just an escape hatch: call it once the
-    visitor has given a contact method, folding in what you already qualified —
-    their `field` (المجال), `specialization` (التخصص) and `experience` (سنوات
-    الخبرة) — so the advisor opens the lead already knowing who this is. A name
-    plus one contact method (phone or email) is enough; never ask for anything
-    more sensitive.
+    visitor has given a contact method, folding in everything you qualified —
+    `field` (المجال), `specialization` (التخصص), `job_title` (المسمى الوظيفي),
+    `experience` (سنوات الخبرة) and `goal` (الهدف من الدورة) — so the advisor
+    opens the lead already knowing who this is. A name plus one contact method
+    (phone or email) is enough; never ask for anything more sensitive.
+
+    The lead is filed with a follow-up activity dated today, so it appears in the
+    advisor's «Activity Today» and ages into «Overdue» exactly like a lead a
+    human captured.
     """
     if not (phone or email):
         return json.dumps({"error": "need_contact",
@@ -1354,9 +1365,14 @@ async def create_lead(name: str, phone: Optional[str] = None,
         qual.append(f"المجال: {field}")
     if specialization:
         qual.append(f"التخصص: {specialization}")
+    if job_title:
+        qual.append(f"المسمى الوظيفي: {job_title}")
     if experience:
         qual.append(f"سنوات الخبرة: {experience}")
+    if goal:
+        qual.append(f"الهدف: {goal}")
     description = "\n".join([p for p in (" · ".join(qual), notes) if p])
+    interest = course_interest or specialization or field or "استفسار عن كورس"
     if not s.allow_crm_writes:
         # Trial mode: exercise the whole funnel without polluting the live CRM
         # with test leads. The agent still gets a success-shaped result.
@@ -1365,11 +1381,20 @@ async def create_lead(name: str, phone: Optional[str] = None,
         return json.dumps({"lead_id": None, "simulated": True,
                            "note": "trial mode — not written to Odoo"})
     payload = {
-        "name": f"[ماجد] {course_interest or specialization or field or 'استفسار عن كورس'} — {name}",
+        "name": f"[ماجد] {interest} — {name}",
         "contact_name": name, "type": "lead",
         "user_id": s.sales_advisor_id,
         "description": description, "phone": phone or "", "email_from": email or "",
     }
+    # Which leads came from Majed has to be a filter in the CRM, not a guess
+    # from the name prefix.
+    if s.lead_source_name:
+        try:
+            source_id = await odoo.utm_source_id(s.lead_source_name)
+            if source_id:
+                payload["source_id"] = source_id
+        except Exception:  # noqa: BLE001
+            log.warning("lead source lookup failed — filing without it")
     try:
         lead_id = await odoo.create_lead(payload)
     except OdooAccessDenied as e:
@@ -1377,7 +1402,36 @@ async def create_lead(name: str, phone: Optional[str] = None,
     except Exception as e:  # noqa: BLE001
         log.exception("create_lead failed")
         return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
-    return json.dumps({"lead_id": lead_id, "assigned_to": s.sales_advisor_id})
+
+    # The SLA runs on activities. Without one this lead is in no queue and
+    # nobody is ever late on it — so it is scheduled, but never at the cost of
+    # the capture itself: the lead is already saved by this point.
+    activity_id = None
+    if s.lead_activity_enabled:
+        try:
+            activity_id = await odoo.schedule_activity(
+                "crm.lead", lead_id,
+                summary=s.lead_activity_summary,
+                note=description or interest,
+                days=s.lead_activity_days,
+                user_id=s.sales_advisor_id)
+            if activity_id is None:
+                log.warning("lead %s filed without an activity: Odoo did not "
+                            "return an activity type or model id", lead_id)
+        except Exception:  # noqa: BLE001
+            log.exception("scheduling the follow-up activity failed (lead %s)",
+                          lead_id)
+
+    # Tell ops a real person left their number, the moment it happens.
+    sink = LEAD_SINK.get()
+    if sink is not None:
+        sink.update({"captured": True, "lead_id": lead_id, "name": name,
+                     "phone": phone or "", "email": email or "",
+                     "field": field or "", "specialization": specialization or "",
+                     "job_title": job_title or "", "experience": experience or "",
+                     "goal": goal or "", "course_interest": course_interest or ""})
+    return json.dumps({"lead_id": lead_id, "assigned_to": s.sales_advisor_id,
+                       "activity_id": activity_id})
 
 
 @tool

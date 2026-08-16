@@ -389,7 +389,7 @@
     ].concat(SHOP_MOTIVATION_TEASERS, CART_MOTIVATION_TEASERS);
 
   // ---------- state ----------
-  var convId = null, es = null, started = false, userData = {};
+  var convId = null, convTok = '', es = null, started = false, userData = {};
   var ctxPromise = null;          // user-context fetch (once)
   var seenIds = {};               // message-id de-dup between transcript + SSE
   var responseStreams = {};       // stream_id -> one progressive assistant message
@@ -1614,24 +1614,28 @@
       return String(d.conversationId);
     } catch (e) { return ''; }
   }
-  function saveStoredConv(id) {
-    try { localStorage.setItem(storageKey(), JSON.stringify({ conversationId: id, ts: Date.now() })); } catch (e) {}
+  function saveStoredConv(id, tok) {
+    try { localStorage.setItem(storageKey(), JSON.stringify({ conversationId: id, tok: tok || '', ts: Date.now() })); } catch (e) {}
   }
+  // Read token for the current conversation (empty when the bridge does not
+  // require one — WIDGET_TOKEN_SECRET unset). Appended to every call that
+  // returns message content, so a conversation id alone reads nothing.
+  function tokenParam() { return convTok ? '&t=' + encodeURIComponent(convTok) : ''; }
   // history list (newest first, max 10) — the widget remembers its own conversations
   function listConvs() {
     try {
       var arr = JSON.parse(localStorage.getItem(listKey()) || '[]');
       if (!(arr instanceof Array)) arr = [];
       var legacy = loadStoredConv();
-      if (legacy && !arr.some(function (e) { return String(e.id) === legacy; })) arr.push({ id: legacy, ts: Date.now() });
+      if (legacy && !arr.some(function (e) { return String(e.id) === legacy; })) arr.push({ id: legacy, tok: convTok, ts: Date.now() });
       return arr;
     } catch (e) { return []; }
   }
-  function rememberConv(id) {
+  function rememberConv(id, tok) {
     if (!id) return;
     try {
       var arr = listConvs().filter(function (e) { return String(e.id) !== String(id); });
-      arr.unshift({ id: String(id), ts: Date.now() });
+      arr.unshift({ id: String(id), tok: tok || '', ts: Date.now() });
       localStorage.setItem(listKey(), JSON.stringify(arr.slice(0, 10)));
     } catch (e) {}
   }
@@ -1640,7 +1644,7 @@
 
   function openStream() {
     if (!convId || es) return;
-    es = new EventSource(BRIDGE + '/widget/stream?conversationId=' + encodeURIComponent(convId));
+    es = new EventSource(BRIDGE + '/widget/stream?conversationId=' + encodeURIComponent(convId) + tokenParam());
     es.addEventListener('message', function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (loadingTranscript) { pendingEvents.push(m); return; }
@@ -1681,7 +1685,7 @@
   // transcript restore (reopen / switch from history)
   function loadMessages(id) {
     loadingTranscript = true;
-    return fetch(BRIDGE + '/widget/messages?conversationId=' + encodeURIComponent(id))
+    return fetch(BRIDGE + '/widget/messages?conversationId=' + encodeURIComponent(id) + tokenParam())
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         var msgs = (d && d.messages) || [];
@@ -1722,9 +1726,10 @@
       sessionConfig = d || {};
       if (d && d.conversationId) {
         convId = d.conversationId;
+        convTok = d.token || '';
         forceNew = false;
-        saveStoredConv(convId);
-        rememberConv(convId);
+        saveStoredConv(convId, convTok);
+        rememberConv(convId, convTok);
         var p = d.reused ? loadMessages(convId) : Promise.resolve();
         return p.then ? p.then(function () { openStream(); }) : openStream();
       }
@@ -1928,7 +1933,9 @@
         return;
       }
       var ids = entries.map(function (e) { return e.id; }).join(',');
-      fetch(BRIDGE + '/widget/conversations?ids=' + encodeURIComponent(ids))
+      var toks = entries.map(function (e) { return e.tok || ''; }).join(',');
+      fetch(BRIDGE + '/widget/conversations?ids=' + encodeURIComponent(ids) +
+            '&tokens=' + encodeURIComponent(toks))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           var list = (d && d.conversations) || [];

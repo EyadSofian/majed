@@ -436,6 +436,13 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
       else if (ev.type === 'instructors') instructorCards = ev.instructor_cards || [];
       else if (ev.type === 'defer') deferred = ev;
       else if (ev.type === 'handoff') handoff = ev;
+      // A visitor left a phone number. Ops wants to know now, not the next
+      // time somebody opens the CRM — and never at the cost of the reply, so
+      // the alert is fired and forgotten rather than awaited.
+      else if (ev.type === 'lead' && ev.captured && deps.lead) {
+        Promise.resolve(deps.lead(cwConvId, ev))
+          .catch((e) => console.warn('NABRAS lead notify failed:', e.message));
+      }
       else if (ev.type === 'error') {
         // the exception class travels in the log line, so "why did it fail?"
         // is answerable without opening the service's own logs

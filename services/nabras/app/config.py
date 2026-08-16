@@ -63,6 +63,18 @@ class Settings(BaseSettings):
     # CRM leads. Set false while testing on demo.engosoft.com.
     allow_crm_writes: bool = True
 
+    # ---- Lead follow-up (the sales SLA) ----
+    # "Activity Today" and "Overdue Activities" are views over mail.activity, so
+    # a lead with no activity sits in neither and nobody is ever late on it.
+    # Every lead Majed captures therefore gets a dated follow-up; 0 days = due
+    # today, which is where the SLA expects a fresh website lead to land.
+    lead_activity_enabled: bool = True
+    lead_activity_days: int = 0
+    lead_activity_summary: str = "متابعة عميل جديد من ماجد"
+    # utm.source on the lead, so "how many came from Majed?" is a CRM filter
+    # next to Unpaid / AbanteCart / Signup. Empty disables the lookup.
+    lead_source_name: str = "ماجد"
+
     # ---- Package ingest (n8n push) ----
     # Odoo is the primary package source. Keep n8n ingest configured as a
     # recoverable fallback for an Odoo permission regression or outage.

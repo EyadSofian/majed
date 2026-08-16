@@ -22,7 +22,7 @@ Every quirk below was found by probing the live database, not assumed:
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Optional
 
 import httpx
@@ -483,6 +483,89 @@ class Odoo:
 
     async def create_lead(self, payload: dict) -> int:
         return await self.execute("crm.lead", "create", [payload])
+
+    # --------------------------------------------------------------- SLA hook
+    # A lead with no activity is invisible to the sales SLA: "Activity Today"
+    # and "Overdue Activities" are both views over mail.activity, so a lead
+    # without one is never in either list and nobody is ever late on it.
+    # These three lookups are the price of putting Majed's leads in the queue.
+    _ref_cache: dict[str, Optional[int]] = {}
+
+    async def _xmlid(self, module: str, name: str) -> Optional[int]:
+        key = f"{module}.{name}"
+        if key in self._ref_cache:
+            return self._ref_cache[key]
+        rows = await self.search_read(
+            "ir.model.data",
+            [["module", "=", module], ["name", "=", name]], ["res_id"], limit=1)
+        value = rows[0]["res_id"] if rows else None
+        self._ref_cache[key] = value
+        return value
+
+    async def model_id(self, model: str) -> Optional[int]:
+        key = f"ir.model:{model}"
+        if key in self._ref_cache:
+            return self._ref_cache[key]
+        rows = await self.search_read("ir.model", [["model", "=", model]],
+                                      ["id"], limit=1)
+        value = rows[0]["id"] if rows else None
+        self._ref_cache[key] = value
+        return value
+
+    async def activity_type_id(self) -> Optional[int]:
+        """The activity type a follow-up call should carry.
+
+        Resolved by xmlid rather than by name, because the label is translated
+        and this database renders Arabic. Falls back through to *any* type: a
+        follow-up filed under the wrong type still reaches the SLA views, while
+        no activity at all does not.
+        """
+        for module, name in (("mail", "mail_activity_data_call"),
+                             ("mail", "mail_activity_data_todo")):
+            found = await self._xmlid(module, name)
+            if found:
+                return found
+        rows = await self.search_read("mail.activity.type", [], ["id"], limit=1)
+        return rows[0]["id"] if rows else None
+
+    async def schedule_activity(self, model: str, res_id: int, *, summary: str,
+                                note: str = "", days: int = 0,
+                                user_id: Optional[int] = None) -> Optional[int]:
+        """Put a dated follow-up on a record. Returns None when Odoo cannot
+        tell us the ids it needs — the lead itself is already saved, so a
+        missing activity must never fail the capture."""
+        res_model_id = await self.model_id(model)
+        type_id = await self.activity_type_id()
+        if not res_model_id or not type_id:
+            return None
+        deadline = (date.today() + timedelta(days=max(0, days))).isoformat()
+        payload = {
+            "res_model_id": res_model_id, "res_model": model, "res_id": res_id,
+            "activity_type_id": type_id, "summary": summary[:200],
+            "note": note[:2000], "date_deadline": deadline,
+        }
+        if user_id:
+            payload["user_id"] = user_id
+        return await self.execute("mail.activity", "create", [payload])
+
+    async def utm_source_id(self, name: str) -> Optional[int]:
+        """The lead's source, so «كم عميلًا جاء من ماجد؟» is a filter and not a
+        guess. Created once if the shop does not have it yet."""
+        key = f"utm.source:{name}"
+        if key in self._ref_cache:
+            return self._ref_cache[key]
+        rows = await self.search_read("utm.source", [["name", "=", name]],
+                                      ["id"], limit=1)
+        value = rows[0]["id"] if rows else None
+        if value is None:
+            try:
+                value = await self.execute("utm.source", "create", [{"name": name}])
+            except Exception:  # noqa: BLE001
+                log.warning("could not create utm.source %r — lead stays unsourced",
+                            name)
+                value = None
+        self._ref_cache[key] = value
+        return value
 
     # ------------------------------------------------------------- freshness
     async def latest_write_date(self, model: str, domain: list) -> Optional[str]:

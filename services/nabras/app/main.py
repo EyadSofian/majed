@@ -18,8 +18,8 @@ from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .schemas import ChatRequest
 from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
-                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, PACKAGE_SINK,
-                    active_field_from_messages)
+                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, LEAD_SINK,
+                    PACKAGE_SINK, active_field_from_messages)
 
 log = logging.getLogger("nabras")
 s = get_settings()
@@ -178,6 +178,7 @@ async def chat(req: ChatRequest, request: Request,
         lang_tok = LANG.set(lang)
         defer_tok = DEFER_SINK.set({})
         instr_tok = INSTRUCTOR_SINK.set([])
+        lead_tok = LEAD_SINK.set({})
         transcript = [item.content for item in (req.history or [])
                       if item.role == "user"] + [req.message]
         field_tok = ACTIVE_FIELD.set(active_field_from_messages(transcript))
@@ -263,6 +264,11 @@ async def chat(req: ChatRequest, request: Request,
             chips = CHIP_SINK.get() or []
             if chips:
                 yield _ev("chips", {"chips": chips})
+            # A captured contact is worth an alert even on a turn that also
+            # handed off, so it is emitted before the handoff, not instead of it.
+            lead = LEAD_SINK.get()
+            if lead and lead.get("captured"):
+                yield _ev("lead", lead)
             handoff = HANDOFF_SINK.get()
             if handoff and handoff.get("requested"):
                 # The bridge owns Chatwoot; we only signal.
@@ -289,6 +295,7 @@ async def chat(req: ChatRequest, request: Request,
             LANG.reset(lang_tok)
             DEFER_SINK.reset(defer_tok)
             INSTRUCTOR_SINK.reset(instr_tok)
+            LEAD_SINK.reset(lead_tok)
             ACTIVE_FIELD.reset(field_tok)
 
     return StreamingResponse(sse(), media_type="text/event-stream",

@@ -44,6 +44,13 @@ const DEFER_SSE = [
   'data: {"type":"done"}',
 ].join('\n\n') + '\n\n';
 
+const LEAD_SSE = [
+  'data: {"type":"token","content":"تمام، هيتواصل معك مستشار."}',
+  'data: {"type":"lead","captured":true,"lead_id":5001,"name":"إياد",' +
+    '"phone":"0100000000","specialization":"HVAC","job_title":"مهندس"}',
+  'data: {"type":"done"}',
+].join('\n\n') + '\n\n';
+
 let mode = 'ok';
 const server = http.createServer((req, res) => {
   if (req.url.includes('guest-session')) {
@@ -54,18 +61,22 @@ const server = http.createServer((req, res) => {
   if (mode === 'chat_fail') { res.writeHead(502); return res.end('bad gateway'); }
   if (mode === 'empty') { res.writeHead(200); return res.end('data: {"type":"done"}\n\n'); }
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  res.end(mode === 'track' ? TRACK_SSE : mode === 'defer' ? DEFER_SSE : OK_SSE);
+  res.end(mode === 'track' ? TRACK_SSE : mode === 'defer' ? DEFER_SSE
+          : mode === 'lead' ? LEAD_SSE : OK_SSE);
 });
 
 function delivered() {
   const out = [];
   const streamed = [];
+  const leads = [];
   return {
     out,
     streamed,
+    leads,
     deliver: async (id, m) => { out.push(m); },
     stream: (id, m) => { streamed.push(m); },
     handoff: async () => {},
+    lead: async (id, l) => { leads.push({ id, l }); },
   };
 }
 
@@ -215,6 +226,28 @@ function delivered() {
     { type: 'token', content: 'مرحبًا' },
     { type: 'done' },
   ]);
+
+  // a captured contact raises the ops alert that used to be written but never
+  // fired — and never at the cost of the customer's reply
+  await withEnv(ON, async (t) => {
+    mode = 'lead';
+    const d = delivered();
+    assert.strictEqual(await t(9, 'رقمي 0100000000', { userData: me }, d), true);
+    await new Promise((r) => setImmediate(r));   // the alert is fire-and-forget
+    assert.strictEqual(d.leads.length, 1);
+    assert.strictEqual(d.leads[0].id, 9);
+    assert.strictEqual(d.leads[0].l.name, 'إياد');
+    assert.strictEqual(d.leads[0].l.phone, '0100000000');
+    assert.strictEqual(d.out.length, 1, 'the reply is still delivered once');
+  })();
+
+  // a bridge with no lead handler (older wiring) must not throw
+  await withEnv(ON, async (t) => {
+    mode = 'lead';
+    const d = delivered();
+    delete d.lead;
+    assert.strictEqual(await t(10, 'رقمي 0100000000', { userData: me }, d), true);
+  })();
 
   server.close();
   console.log('✅ nabras router: streaming, one-message replies, and safe fallback passed');

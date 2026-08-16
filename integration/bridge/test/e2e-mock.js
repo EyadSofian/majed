@@ -15,8 +15,10 @@ const fs = require('fs');
 
 const MOCK_PORT = 4801;
 const BRIDGE_PORT = 4802;
+const GUARDED_PORT = 4803;   // second bridge, WIDGET_TOKEN_SECRET set
 const MOCK = `http://localhost:${MOCK_PORT}`;
 const BRIDGE = `http://localhost:${BRIDGE_PORT}`;
+const GUARDED = `http://localhost:${GUARDED_PORT}`;
 
 // ─────────────────────────── mock server ───────────────────────────
 const state = {
@@ -207,6 +209,7 @@ function check(name, cond, extra) {
 (async () => {
   const mock = mockApp().listen(MOCK_PORT);
   const subscribeStore = path.join(__dirname, 'tmp-subscribers.jsonl');
+  let guarded = null;
   try { fs.unlinkSync(subscribeStore); } catch (_) {}
 
   const bridge = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')], {
@@ -539,11 +542,62 @@ function check(name, cond, extra) {
     check('subscriber CSV without token is hidden', blocked);
 
     ws.close();
+
+    // TEST 20 — the read hole. Chatwoot conversation ids are sequential, so
+    // until now anyone who could count could read any transcript. A second
+    // bridge, same mock, with WIDGET_TOKEN_SECRET set: reads must now be
+    // signed, while the FIRST bridge (secret unset, every test above) proves
+    // the guard is opt-in and upgrading breaks nothing.
+    console.log('TEST 20 — widget read tokens (opt-in)');
+    guarded = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')], {
+      env: { ...process.env, PORT: String(GUARDED_PORT), CHATWOOT_BASE_URL: MOCK,
+             CHATWOOT_ACCOUNT_ID: '2', CHATWOOT_API_TOKEN: 'test-token',
+             CHATWOOT_INBOX_ID: '29', BOTPRESS_CHAT_API_BASE: `${MOCK}/bp`,
+             BOTPRESS_CHAT_WEBHOOK_ID: 'wh1', WIDGET_ORIGIN: '*',
+             WELCOME_ENABLED: 'false', WIDGET_TOKEN_SECRET: 'a-long-random-secret' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    guarded.stderr.on('data', (d) => process.stdout.write('  [guarded!] ' + d));
+    await sleep(900);
+
+    const gs = (await axios.post(`${GUARDED}/widget/session`, { name: 'إياد' })).data;
+    check('session mints a read token', typeof gs.token === 'string' && gs.token.length === 32,
+      JSON.stringify(gs));
+
+    const status = async (url) => {
+      try { return (await axios.get(url)).status; } catch (e) { return e.response?.status || 0; }
+    };
+    const convId = gs.conversationId;
+    check('transcript without a token is refused',
+      (await status(`${GUARDED}/widget/messages?conversationId=${convId}`)) === 403);
+    check('transcript with a forged token is refused',
+      (await status(`${GUARDED}/widget/messages?conversationId=${convId}&t=${'0'.repeat(32)}`)) === 403);
+    check('transcript with the minted token is served',
+      (await status(`${GUARDED}/widget/messages?conversationId=${convId}&t=${gs.token}`)) === 200);
+    // the whole point: a neighbouring id is not readable with your own token
+    check("another conversation's transcript stays closed",
+      (await status(`${GUARDED}/widget/messages?conversationId=9002&t=${gs.token}`)) === 403);
+    check('live stream without a token is refused',
+      (await status(`${GUARDED}/widget/stream?conversationId=${convId}`)) === 403);
+
+    const summaries = async (qs) => (await axios.get(`${GUARDED}/widget/conversations?${qs}`)).data.conversations;
+    check('history summaries need a matching token per id',
+      (await summaries(`ids=${convId},9002&tokens=${gs.token},`)).map((c) => c.id).join() === String(convId));
+    check('history summaries are empty without tokens',
+      (await summaries(`ids=${convId},9002`)).length === 0);
+    check('debug config advertises the guard without leaking the secret', await (async () => {
+      const d = (await axios.get(`${GUARDED}/debug/config`)).data;
+      return d.widgetReadTokens === true && !JSON.stringify(d).includes('a-long-random-secret');
+    })());
+    // and the unguarded bridge above still serves reads with no token at all
+    check('secret unset stays wide open (opt-in, no forced migration)',
+      (await status(`${BRIDGE}/widget/messages?conversationId=9001`)) === 200);
   } catch (e) {
     fail++;
     console.error('FATAL test error:', e.response ? `${e.response.status} ${JSON.stringify(e.response.data)}` : e.message);
   } finally {
     bridge.kill();
+    if (guarded) guarded.kill();
     mock.close();
     try { fs.unlinkSync(subscribeStore); } catch (_) {}
     console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

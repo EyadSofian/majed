@@ -361,6 +361,13 @@ class FakeOdoo(Odoo):
         self.lang_calls: list[str] = []
         self.fail = fail
         self.leads: list = []
+        self.activities: list = []
+        self.sources: dict = {}
+        # Odoo can decline to tell us the ids an activity needs (a locked-down
+        # API user), and the shop may not let us touch utm.source. Both must
+        # degrade without losing the captured contact.
+        self.no_activity_type = False
+        self.no_utm = False
         self.price_calls: list = []
         self.package_calls = 0
 
@@ -485,3 +492,22 @@ class FakeOdoo(Odoo):
         self._boom()
         self.leads.append(payload)
         return 5000 + len(self.leads)
+
+    async def schedule_activity(self, model: str, res_id: int, *, summary: str,
+                                note: str = "", days: int = 0,
+                                user_id: Optional[int] = None):
+        self._boom()
+        if self.no_activity_type:
+            return None
+        from datetime import date, timedelta
+        self.activities.append({
+            "model": model, "res_id": res_id, "summary": summary, "note": note,
+            "user_id": user_id,
+            "date_deadline": (date.today() + timedelta(days=days)).isoformat()})
+        return 7000 + len(self.activities)
+
+    async def utm_source_id(self, name: str):
+        self._boom()
+        if self.no_utm:
+            return None
+        return self.sources.setdefault(name, 900 + len(self.sources))

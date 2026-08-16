@@ -17,8 +17,11 @@
 3. أنشئ Standard Node باسم **complaintHandoff** → 6 كروت (القسم 3).
 4. أنشئ Standard Node باسم **salesHandoff** → 5 كروت (القسم 4).
 5. من كل node منهم: transition «always» راجع للـ Autonomous Node.
-6. في كارت `sendPrivateNote` وكارت `openAndAssign` (في النودين): حط التوكن بتاعك مكان
-   `REPLACE_WITH_CHATWOOT_API_TOKEN` — تجيبه من Chatwoot → Profile → Access Token.
+6. **Studio → Settings → Environment Variables** → ضيف متغير اسمه
+   `CHATWOOT_API_TOKEN` وقيمته التوكن من Chatwoot → Profile → Access Token.
+   الكروت بتقراه من `env.CHATWOOT_API_TOKEN` — **متكتبش التوكن جوه الكود**:
+   لو مكتوب في ٤ كروت، تدويره بيكسر الفلو من غير ما حد ياخد باله، وبيتسرّب مع
+   أي تصدير أو سكرين شوت للفلو.
 7. جرّب من الويدجت الحقيقي (مش الـ Emulator!) — راجع checklist آخر الملف.
 
 ---
@@ -150,7 +153,7 @@ if (!cwConvId) {
   console.log('No cwConvId — skipping private note');
 } else {
   const BASE  = 'https://chat.engosoft.com/api/v1/accounts/2';
-  const TOKEN = 'REPLACE_WITH_CHATWOOT_API_TOKEN';  // Chatwoot → Profile → Access Token
+  const TOKEN = env.CHATWOOT_API_TOKEN;  // Studio → Settings → Environment Variables
 
   try {
     await axios.post(
@@ -184,7 +187,7 @@ if (!cwConvId) {
   console.log('No cwConvId — skipping assign+open');
 } else {
   const BASE    = 'https://chat.engosoft.com/api/v1/accounts/2';
-  const TOKEN   = 'REPLACE_WITH_CHATWOOT_API_TOKEN';  // same token as sendPrivateNote
+  const TOKEN   = env.CHATWOOT_API_TOKEN;  // same variable as sendPrivateNote
   const TEAM_ID = 2;                                   // Moderation Team
   const headers = { 'api_access_token': TOKEN, 'Content-Type': 'application/json' };
 
@@ -283,7 +286,8 @@ if (!cwConvId) {
 | Botpress Studio | الخطوات أعلاه | يدوي في Studio |
 
 **مفيش env vars جديدة مطلوبة في Railway لفلو الـ handoff.**
-توكن شاتووت بيتحط جوّه كروت Execute Code نفسها.
+توكن شاتووت بيتحط **مرة واحدة** في Botpress Studio → Settings → Environment
+Variables باسم `CHATWOOT_API_TOKEN`، والكروت بتقراه من `env`. مكان واحد للتدوير.
 
 ---
 

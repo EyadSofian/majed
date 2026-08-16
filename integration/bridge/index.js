@@ -112,11 +112,16 @@ const config = {
   welcomeCardEnabled: (process.env.WELCOME_CARD_ENABLED || 'false').toLowerCase() === 'true',
   welcomeText:
     process.env.WELCOME_TEXT ||
-    'مرحبًا 👋 أنا ماجد، مستشارك التعليمي في Engosoft. اسألني عن أي دورة أو عن تقدّمك في التعلّم.',
-  // choice buttons sent right after the welcome text (values go to the bot as the user's message)
-  welcomeChoicesText: process.env.WELCOME_CHOICES_TEXT || 'اختر ما يناسبك:',
+    'مرحبًا 👋 أنا ماجد، مستشارك التعليمي في Engosoft.',
+  // Choice buttons sent right after the welcome text; the value the visitor taps
+  // is delivered to the bot as their message. These are step 1 of the sales
+  // flow — «اختر حالتك» — so the opening turn already carries the experience
+  // band and Majed continues at the specialization instead of re-asking.
+  // Keep in step with `mapping.states` in services/nabras/data/curriculum.json.
+  welcomeChoicesText: process.env.WELCOME_CHOICES_TEXT || 'اختر حالتك لأرشّح لك الأنسب:',
   welcomeChoices: (process.env.WELCOME_CHOICES ||
-    'أبحث عن دورة مناسبة لي|أسعار الدورات|مجالات التدريب المتاحة|تواصل مع فريق المبيعات')
+    'حديث التخرج|خبرة أقل من سنة|خبرة من سنة إلى سنتين|خبرة من سنتين إلى 5 سنوات|' +
+    'خبرة أكثر من 5 سنوات|أبحث عن وظيفة|أرغب في تغيير المجال|أخرى')
     .split('|').map((s) => s.trim()).filter(Boolean),
   waNumber: (process.env.WA_NUMBER || '966920016295').replace(/[^\d]/g, ''),
   supportEmail: process.env.SUPPORT_EMAIL || 'aibot@engosoft.com',
@@ -149,6 +154,16 @@ const config = {
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
   deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
   deepgramLanguage: process.env.DEEPGRAM_LANGUAGE || 'ar',
+
+  // ── Widget read authorisation ────────────────────────────────────
+  // Chatwoot conversation ids are sequential integers, so /widget/messages,
+  // /widget/stream and /widget/conversations were readable for ANY conversation
+  // by anyone who could count. Set this to a long random string and each of
+  // those calls must carry a token derived from the id, which only the bridge
+  // can mint (at /widget/session, where identity is already established).
+  // Unset = no enforcement, i.e. exactly today's behaviour, so turning it on is
+  // a deliberate act and cannot break a deployment by upgrading.
+  widgetTokenSecret: process.env.WIDGET_TOKEN_SECRET || '',
 
   // ── Agent takeover: assign → Majed stops ─────────────────────────
   // When a human agent assigns a conversation to themselves in Chatwoot, Majed
@@ -332,6 +347,32 @@ app.get('/majed-widget.js', (_req, res) => {
   res.send(WIDGET_CONFIG_PREFIX + src);
 });
 app.use(express.static(PUBLIC_DIR));
+
+// ── Widget read tokens ─────────────────────────────────────────────
+// A conversation id proves nothing — it is a number in a sequence. The token is
+// HMAC(secret, id), so it is stable (a returning visitor's stored token keeps
+// working), unguessable, and needs no server-side store.
+function convToken(convId) {
+  if (!config.widgetTokenSecret) return '';
+  return crypto.createHmac('sha256', config.widgetTokenSecret)
+    .update(String(convId)).digest('hex').slice(0, 32);
+}
+
+function tokenValid(convId, token) {
+  if (!config.widgetTokenSecret) return true;      // feature off → allow
+  const expected = convToken(convId);
+  const got = String(token || '');
+  if (got.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+
+// Guard for the endpoints that return message content.
+function denyUnauthorizedRead(req, res, convId) {
+  if (tokenValid(convId, req.query.t)) return false;
+  console.warn(`DENY widget read conv ${convId}: bad or missing token`);
+  res.status(403).json({ error: 'forbidden' });
+  return true;
+}
 
 // ── Chatwoot Application API ───────────────────────────────────────
 function cwHeaders() {
@@ -1808,6 +1849,12 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
       deliver: deliverNabras,
       stream: emitToWidget,
       handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
+      lead: (id, l) => notify(config, 'lead', {
+        name: l.name, phone: l.phone, email: l.email,
+        field: l.field, specialization: l.specialization,
+        experience: l.experience, course_interest: l.course_interest,
+        convId: id, convUrl: convUrl(id),
+      }),
     });
     if (handled) {
       blockBotpressReplies(cwConvId, 'nabras');
@@ -1934,6 +1981,7 @@ app.get('/debug/config', (_req, res) => {
       replyWindowSeconds: config.botpressReplyWindowMs / 1000,
     },
     widgetOrigin: config.widgetOrigin,
+    widgetReadTokens: Boolean(config.widgetTokenSecret),
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
     subscribe: {
       enabled: config.subscribeEnabled,
@@ -2006,7 +2054,7 @@ app.post('/widget/session', async (req, res) => {
     if (reusable) {
       console.log(`Widget session reuse: conv ${reusable.conversationId} (${reusable.status})`);
       prewarmBotpress(reusable.conversationId, reusable.status, { name, userData });
-      return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status, subscribe: widgetSubscribeConfig() });
+      return res.json({ conversationId: reusable.conversationId, reused: true, status: reusable.status, token: convToken(reusable.conversationId), subscribe: widgetSubscribeConfig() });
     }
 
     // ── Case 2: no conv ID (new conversation button) — search for existing contact
@@ -2030,7 +2078,7 @@ app.post('/widget/session', async (req, res) => {
         // so ensureBotpress doesn't recover the bp_* attributes we just wiped.
         cleared.then(() => prewarmBotpress(cvId, 'pending', { name, userData }));
         console.log(`Widget session reuse-by-email (${email}): conv ${cvId} — bot context reset`);
-        return res.json({ conversationId: cvId, reused: true, status: 'pending', subscribe: widgetSubscribeConfig() });
+        return res.json({ conversationId: cvId, reused: true, status: 'pending', token: convToken(cvId), subscribe: widgetSubscribeConfig() });
       }
     }
 
@@ -2045,7 +2093,7 @@ app.post('/widget/session', async (req, res) => {
     convStatus.set(convId, 'pending');
     console.log(`Widget session new: contact ${contactId} → conv ${convId}`);
     prewarmBotpress(convId, 'pending', { name, userData });
-    return res.json({ conversationId: convId, reused: false, status: 'pending', subscribe: widgetSubscribeConfig() });
+    return res.json({ conversationId: convId, reused: false, status: 'pending', token: convToken(convId), subscribe: widgetSubscribeConfig() });
   } catch (err) {
     console.error('session error:', err.response?.data || err.message);
     return res.status(500).json({ error: 'session_failed' });
@@ -2056,6 +2104,7 @@ app.post('/widget/session', async (req, res) => {
 app.get('/widget/stream', async (req, res) => {
   const convId = String(req.query.conversationId || '');
   if (!convId) return res.status(400).end();
+  if (denyUnauthorizedRead(req, res, convId)) return;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -2312,6 +2361,7 @@ app.get('/widget/messages', async (req, res) => {
   try {
     const convId = cleanId(req.query.conversationId);
     if (!convId) return res.status(400).json({ error: 'missing_conversation' });
+    if (denyUnauthorizedRead(req, res, convId)) return;
 
     // up to 3 pages (~60 messages), oldest → newest
     let all = [];
@@ -2343,7 +2393,19 @@ app.get('/widget/messages', async (req, res) => {
 //     GET /widget/conversations?ids=12,15,18 (the widget remembers its own ids locally)
 app.get('/widget/conversations', async (req, res) => {
   try {
-    const ids = [...new Set(String(req.query.ids || '').split(',').map(cleanId).filter(Boolean))].slice(0, 15);
+    const rawIds = String(req.query.ids || '').split(',').map(cleanId);
+    const rawTokens = String(req.query.tokens || '').split(',');
+    // Each id is summarised only if its own token checks out. A stored id from
+    // before the secret was turned on simply drops out of the enriched list —
+    // the widget still has it locally and regains the token on next open.
+    const seenId = new Set();
+    const ids = [];
+    for (let i = 0; i < rawIds.length && ids.length < 15; i++) {
+      const id = rawIds[i];
+      if (!id || seenId.has(id)) continue;
+      seenId.add(id);
+      if (tokenValid(id, rawTokens[i])) ids.push(id);
+    }
     if (!ids.length) return res.json({ conversations: [] });
 
     const results = await Promise.allSettled(

@@ -1736,3 +1736,103 @@ async def test_the_mapping_audit_names_the_dead_branches(loaded_catalog, capsys)
     assert "does not sell it at all" in fmp
     assert "Revit Electrical Design" in structure
     assert "closest titles in the shop" in structure
+
+
+# ============================================== lead capture reaches the SLA
+async def _capture(fake_odoo, **args) -> tuple[dict, dict]:
+    """Run create_lead with the lead sink a real turn installs."""
+    from app import tools as tools_mod
+    lead: dict = {}
+    lt = tools_mod.LEAD_SINK.set(lead)
+    try:
+        raw = await tools_mod.create_lead.ainvoke(
+            {"name": "إياد", "phone": "0100000000", **args})
+    finally:
+        tools_mod.LEAD_SINK.reset(lt)
+    return json.loads(raw), lead
+
+
+async def test_a_captured_lead_lands_in_the_advisors_activity_queue(fake_odoo):
+    """«Activity Today» and «Overdue» are views over mail.activity. A lead with
+    no activity is in neither, so nobody is ever late on it — which is how every
+    lead Majed captured used to fall outside the sales SLA entirely."""
+    from datetime import date
+    payload, _ = await _capture(
+        fake_odoo, field="Mechanical", specialization="HVAC",
+        job_title="مهندس", experience="4", goal="شهادة احترافية")
+
+    assert payload["lead_id"] == 5001
+    assert payload["activity_id"] is not None
+    activity = fake_odoo.activities[0]
+    assert activity["model"] == "crm.lead" and activity["res_id"] == 5001
+    assert activity["date_deadline"] == date.today().isoformat()   # due today
+    assert activity["user_id"] == 2                                # the advisor
+
+    # the advisor opens the lead already knowing who this is
+    description = fake_odoo.leads[0]["description"]
+    for expected in ("المجال: Mechanical", "التخصص: HVAC",
+                     "المسمى الوظيفي: مهندس", "سنوات الخبرة: 4",
+                     "الهدف: شهادة احترافية"):
+        assert expected in description, expected
+    # and "how many came from Majed?" is a CRM filter, not a guess from the name
+    assert fake_odoo.leads[0]["source_id"] == fake_odoo.sources["ماجد"]
+
+
+async def test_the_contact_survives_when_the_follow_up_cannot_be_filed(fake_odoo):
+    """The lead is saved before the activity is scheduled. If Odoo will not give
+    us an activity type, we lose the queue entry — never the phone number."""
+    fake_odoo.no_activity_type = True
+    fake_odoo.no_utm = True
+    payload, lead = await _capture(fake_odoo)
+    assert payload["lead_id"] == 5001
+    assert payload["activity_id"] is None
+    assert "source_id" not in fake_odoo.leads[0]
+    assert lead["captured"] is True          # ops is still told
+
+
+async def test_trial_mode_captures_nothing_at_all(fake_odoo, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "allow_crm_writes", False)
+    payload, lead = await _capture(fake_odoo)
+    assert payload["simulated"] is True
+    assert fake_odoo.leads == [] and fake_odoo.activities == []
+    assert lead == {}                        # and no alert for a fake lead
+
+
+async def test_a_lead_without_a_contact_method_is_refused(fake_odoo):
+    from app import tools as tools_mod
+    payload = json.loads(await tools_mod.create_lead.ainvoke({"name": "إياد"}))
+    assert payload["error"] == "need_contact"
+    assert fake_odoo.leads == []
+
+
+async def test_the_captured_contact_reaches_the_bridge_as_a_lead_event(client_factory):
+    """The ops alert for a captured lead was written and unit-tested in the
+    bridge but never fired, because nothing told the bridge a lead happened.
+    This is that signal."""
+    script = [{"tool": "create_lead",
+               "args": {"name": "إياد", "phone": "0100000000",
+                        "specialization": "HVAC", "job_title": "مهندس"}},
+              {"text": "تمام، هيتواصل معك مستشار."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "رقمي 0100000000")
+        events = parse_sse(r.text)
+    lead = next(e for e in events if e["type"] == "lead")
+    assert lead["captured"] is True
+    assert lead["name"] == "إياد" and lead["phone"] == "0100000000"
+    assert lead["specialization"] == "HVAC" and lead["job_title"] == "مهندس"
+    assert events[-1]["type"] == "done"
+
+
+def test_the_prompt_refuses_to_guess_the_four_unanswerable_questions():
+    """هدف · رسوم الاختبار الدولي · لغة الشرح · التطبيق العملي — four of the most
+    asked questions have no tool and no field behind them. Guessing any of them
+    costs a customer, so each has a scripted honest answer instead."""
+    from app import prompts
+    p = prompts.build_system_prompt()
+    assert "صندوق تنمية الموارد البشرية" in p        # هدف, named explicitly
+    assert "رسوم الاختبار الدولي تُدفع للجهة المانحة" in p
+    assert "لغة الشرح غير مسجّلة في بيانات الدورة" in p
+    assert "لا تَعِد بتطبيق عملي لم يُذكر فيه" in p
