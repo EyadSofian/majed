@@ -1706,3 +1706,33 @@ def test_the_prompt_teaches_the_mapping_and_its_order():
     # the goal branches, and only the certification branch asks about years
     assert "المتغيّر الذي يفرّع هو الهدف" in p
     assert "**هنا فقط** اسأل عن مجال العمل + سنوات الخبرة" in p
+
+
+async def test_the_mapping_audit_names_the_dead_branches(loaded_catalog, capsys):
+    """`scripts/check_mapping_catalog.py` answers "does the shop actually sell
+    what the mapping recommends?". It must use the production matcher, so its
+    verdict is the same one a customer would get — and it must point at the
+    near-miss titles, because a dead branch is usually a naming difference."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import check_mapping_catalog as audit
+
+    # the fake shop publishes PMP and two BIM courses, and no FMP/CFM/CMRP
+    assert audit._report("cert", "PMP", ["PMP", "Project Management Professional"])
+    assert audit._report("bim", "BIM Electrical", ["Revit Electrical"])
+    assert not audit._report("cert", "FMP", ["FMP", "Facility Management Professional"])
+    assert not audit._report("bim", "BIM Structure", ["Revit Structure", "BIM Structure"])
+
+    out = capsys.readouterr().out
+    assert "PMP Preparation Course" in out
+    assert out.count("NOT PUBLISHED") == 2
+
+    # two different dead branches, two different diagnoses: nothing in the shop
+    # shares a word with FMP, so it is simply not sold — while "Revit Structure"
+    # shares "Revit" with a course that IS sold, which is the shape of a naming
+    # difference the operator can fix in `match`.
+    fmp, structure = out.split("BIM Structure")[0], out.split("BIM Structure")[1]
+    assert "does not sell it at all" in fmp
+    assert "Revit Electrical Design" in structure
+    assert "closest titles in the shop" in structure
