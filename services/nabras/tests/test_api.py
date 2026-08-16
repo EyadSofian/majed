@@ -1445,7 +1445,7 @@ def test_the_map_carries_relations_and_audience_and_nothing_else():
     from pathlib import Path
     raw = _json.loads((Path(__file__).resolve().parents[1] /
                       "data" / "curriculum.json").read_text(encoding="utf-8"))
-    assert set(raw) == {"source", "fields", "courses", "groups"}
+    assert set(raw) == {"source", "fields", "courses", "groups", "mapping"}
     for row in raw["courses"].values():
         assert set(row) == {"field", "audience", "level", "keywords"}
     for g in raw["groups"]:
@@ -1453,6 +1453,54 @@ def test_the_map_carries_relations_and_audience_and_nothing_else():
     # nothing outside the six disciplines the business sells against
     assert set(raw["fields"]) == {"Mechanical", "Electrical", "Civil",
                                   "Architecture", "Interior Design", "Management"}
+
+
+def test_the_sales_mapping_holds_a_decision_tree_not_a_catalogue():
+    """The mapping is the sales tree — states, goals, routes. The same scope
+    guard applies to it: the moment it starts carrying a price, a duration or a
+    course URL, the shop has a rival copy of itself that nobody updates."""
+    import json as _json
+    from pathlib import Path
+    raw = _json.loads((Path(__file__).resolve().parents[1] /
+                      "data" / "curriculum.json").read_text(encoding="utf-8"))
+    m = raw["mapping"]
+    assert set(m) == {"note", "states", "job_titles", "goals", "comprehensive",
+                      "bim_tracks", "work_fields", "certifications",
+                      "interest_topics"}
+
+    # every goal routes somewhere the tool can actually execute
+    assert {g["route"] for g in m["goals"]} == {"comprehensive", "bim",
+                                                "certification"}
+    # comprehensive tracks are referenced by RULE, never by a copied course list
+    rules = {g["rule"] for g in raw["groups"]}
+    for spec, wanted in m["comprehensive"].items():
+        assert spec in raw["fields"], spec
+        assert set(wanted) <= rules, spec
+    # certifications point at a declared work field and carry no course ids:
+    # whether a programme is sellable is the live catalogue's answer, not ours
+    work_fields = {w["key"] for w in m["work_fields"]}
+    for cert in m["certifications"]:
+        assert cert["work_field"] in work_fields
+        assert set(cert) == {"code", "work_field", "min_years", "max_years",
+                             "label", "match"}
+
+    # no Odoo-owned attribute anywhere in the tree, at any depth
+    owned = {"price", "price_display", "currency", "url", "website_url",
+             "image_url", "duration", "duration_text", "description",
+             "instructor", "instructors", "rating", "seats", "product_id",
+             "course_id", "course_ids"}
+
+    def walk(node, path="mapping"):
+        if isinstance(node, dict):
+            leaked = owned & set(node)
+            assert not leaked, f"{path} carries Odoo's data: {leaked}"
+            for k, v in node.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]")
+
+    walk(m)
 
 
 async def test_keywords_from_the_map_reach_the_search_index(fake_odoo, monkeypatch):
