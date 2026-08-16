@@ -172,6 +172,124 @@ def field_of_query(query: str) -> Optional[str]:
     return best
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# The Digital-Sales mapping: state -> specialization -> job title -> GOAL.
+# The goal is the branching variable, so a maintenance engineer asking for a
+# certificate and one asking to learn HVAC stop sharing a path.
+# ─────────────────────────────────────────────────────────────────────────
+def mapping() -> dict:
+    return _data().get("mapping", {})
+
+
+# Arabic proclitics. A goal arrives as free prose — «اتأهل لسوق العمل»,
+# «عايز الشهادة» — so the trigger word is rarely bare. Both sides of the
+# comparison get the same treatment, which makes this a normalisation rather
+# than a lookup: over-stemming a word cannot cause a mismatch, only a shared
+# shorter form. The length floor keeps «بيم» and «فني» whole.
+_PROCLITICS = ("وال", "بال", "كال", "فال", "لل", "ال", "و", "ب", "ك", "ف", "ل")
+
+
+def _stem(word: str) -> str:
+    for p in _PROCLITICS:
+        if word.startswith(p) and len(word) - len(p) >= 3:
+            return word[len(p):]
+    return word
+
+
+def _words(text: str) -> set[str]:
+    return {_stem(w) for w in _norm(text).split()}
+
+
+def _match_triggers(query: str, rows: Iterable[dict]) -> Optional[dict]:
+    """The row whose trigger words all appear in *query*; longest trigger wins.
+
+    Word sets, not substrings: people write «عايز شهاده اداريه» and «اتأهل
+    لسوق العمل», never the spelling in this file.
+    """
+    q = _words(query)
+    if not q:
+        return None
+    best, best_len = None, 0
+    for row in rows:
+        for trigger in row.get("triggers", []):
+            words = _words(trigger)
+            if words and len(words) > best_len and words <= q:
+                best, best_len = row, len(words)
+    return best
+
+
+def resolve_goal(query: str) -> Optional[dict]:
+    """Which of the four goals is this? None when the visitor has not said."""
+    return _match_triggers(query, mapping().get("goals", []))
+
+
+def resolve_work_field(query: str) -> Optional[dict]:
+    """Facility management / maintenance / project management — the second
+    question of the certification branch."""
+    return _match_triggers(query, mapping().get("work_fields", []))
+
+
+def resolve_state(query: str) -> Optional[dict]:
+    """Map «حديث التخرج» / «خبرة من سنتين إلى 5 سنوات» to a state row.
+
+    Matched on the label because these arrive as taps on the chips this file
+    defines, so the text is ours, not free prose.
+    """
+    q = _words(query)
+    for row in mapping().get("states", []):
+        words = _words(row.get("label", ""))
+        if words and words <= q:
+            return row
+    return None
+
+
+def certification_for(work_field: str, years: Optional[float]) -> Optional[dict]:
+    """The one programme this person qualifies for.
+
+    Rows without a year bound (CMRP) match on the work field alone. A row with
+    bounds is skipped when the years are unknown, so the caller asks instead of
+    quietly recommending the entry-level certificate to a 10-year manager.
+    """
+    rows = [c for c in mapping().get("certifications", [])
+            if c.get("work_field") == work_field]
+    if not rows:
+        return None
+    unbounded = [c for c in rows
+                 if c.get("min_years") is None and c.get("max_years") is None]
+    if years is None:
+        return unbounded[0] if len(rows) == 1 or unbounded else None
+    for c in rows:
+        lo, hi = c.get("min_years"), c.get("max_years")
+        if (lo is None or years >= lo) and (hi is None or years <= hi):
+            return c
+    # Below every bound (e.g. 6 months in facility management): the lowest rung
+    # is still the honest recommendation, and the prompt says to flag the gap.
+    return min(rows, key=lambda c: c.get("min_years") or 0)
+
+
+def comprehensive_groups(specialization: str) -> list[dict]:
+    """The comprehensive track(s) of a specialization, as grouping rules.
+
+    Civil deliberately returns three — Engosoft sells concrete, infrastructure
+    and steel as separate tracks, and pretending there is one «مدني شاملة»
+    would put a bridge engineer in a concrete-design path they did not pick.
+    """
+    wanted = mapping().get("comprehensive", {}).get(specialization) or []
+    by_rule = {g.get("rule"): g for g in _data().get("groups", [])}
+    return [by_rule[r] for r in wanted if r in by_rule]
+
+
+def bim_track(specialization: str) -> Optional[dict]:
+    return mapping().get("bim_tracks", {}).get(specialization)
+
+
+def chips_for(kind: str) -> list[dict]:
+    """The tappable options of one qualification step, widget-shaped."""
+    rows = mapping().get(kind) or []
+    return [{"title": r["label"], "value": r["label"]}
+            for r in rows if isinstance(r, dict) and r.get("label")]
+
+
 def ready() -> bool:
     return bool(fields())
 

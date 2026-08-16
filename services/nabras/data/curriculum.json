@@ -1780,5 +1780,307 @@
     1900
    ]
   }
- ]
+ ],
+ "mapping": {
+  "note": "Engosoft Digital-Sales mapping: client state -> specialization -> job title -> GOAL. The goal is what branches.",
+  "states": [
+   {
+    "key": "fresh_grad",
+    "label": "حديث التخرج",
+    "years": 0
+   },
+   {
+    "key": "under_1",
+    "label": "خبرة أقل من سنة",
+    "years": 0.5
+   },
+   {
+    "key": "y1_2",
+    "label": "خبرة من سنة إلى سنتين",
+    "years": 1.5
+   },
+   {
+    "key": "y2_5",
+    "label": "خبرة من سنتين إلى 5 سنوات",
+    "years": 3.5
+   },
+   {
+    "key": "y5_plus",
+    "label": "خبرة أكثر من 5 سنوات",
+    "years": 6
+   },
+   {
+    "key": "job_seeker",
+    "label": "أبحث عن وظيفة",
+    "years": null
+   },
+   {
+    "key": "career_shift",
+    "label": "أرغب في تغيير المجال",
+    "years": null
+   },
+   {
+    "key": "other",
+    "label": "أخرى",
+    "years": null
+   }
+  ],
+  "job_titles": [
+   {
+    "key": "engineer",
+    "label": "مهندس",
+    "audience": "Engineer"
+   },
+   {
+    "key": "technician",
+    "label": "فني",
+    "audience": "Technician"
+   },
+   {
+    "key": "supervisor",
+    "label": "مشرف",
+    "audience": "Supervisor"
+   },
+   {
+    "key": "manager",
+    "label": "مدير",
+    "audience": "Administrator"
+   },
+   {
+    "key": "other",
+    "label": "أخرى",
+    "audience": ""
+   }
+  ],
+  "goals": [
+   {
+    "key": "job_market",
+    "route": "comprehensive",
+    "label": "التأهيل لسوق العمل",
+    "triggers": [
+     "سوق العمل",
+     "التأهيل لسوق العمل",
+     "تأهيل",
+     "شغل",
+     "وظيفة",
+     "توظيف",
+     "ابدأ من الصفر",
+     "job market",
+     "employability"
+    ]
+   },
+   {
+    "key": "design",
+    "route": "comprehensive",
+    "label": "تعلّم التصميم الهندسي",
+    "triggers": [
+     "تصميم",
+     "التصميم الهندسي",
+     "اتعلم تصميم",
+     "تعلم التصميم",
+     "design",
+     "engineering design"
+    ]
+   },
+   {
+    "key": "bim",
+    "route": "bim",
+    "label": "نمذجة وتقنيات BIM",
+    "triggers": [
+     "bim",
+     "بيم",
+     "نمذجة",
+     "نمذجة المعلومات",
+     "revit",
+     "ريفيت",
+     "navisworks",
+     "نافيسوركس",
+     "modeling"
+    ]
+   },
+   {
+    "key": "certification",
+    "route": "certification",
+    "label": "شهادة احترافية أو إدارية",
+    "triggers": [
+     "شهادة",
+     "شهادات",
+     "احترافية",
+     "ادارية",
+     "اعتماد",
+     "certificate",
+     "certification",
+     "professional certificate",
+     "pmp",
+     "cfm",
+     "cmrp",
+     "fmp"
+    ]
+   }
+  ],
+  "comprehensive": {
+   "Mechanical": [
+    "MECHANICAL GROUPING RULE"
+   ],
+   "Electrical": [
+    "ELECTRICAL GROUPING RULE"
+   ],
+   "Civil": [
+    "CONCRETE/STRUCTURAL DESIGN RULE",
+    "INFRASTRUCTURE GROUPING RULE",
+    "STEEL DESIGN GROUPING RULE"
+   ],
+   "Architecture": [
+    "ARCHITECTURAL DESIGN RULE"
+   ],
+   "Interior Design": [
+    "INTERIOR DESIGN GROUPING RULE"
+   ]
+  },
+  "bim_tracks": {
+   "Mechanical": {
+    "code": "BIM Mechanical",
+    "match": [
+     "Revit MEP",
+     "BIM Mechanical",
+     "Navisworks MEP",
+     "ريفيت ميكانيكا",
+     "بيم ميكانيكا"
+    ]
+   },
+   "Electrical": {
+    "code": "BIM Electrical",
+    "match": [
+     "Revit Electrical",
+     "BIM Electrical",
+     "ريفيت كهرباء",
+     "بيم كهرباء"
+    ]
+   },
+   "Civil": {
+    "code": "BIM Structure",
+    "match": [
+     "Revit Structure",
+     "BIM Structure",
+     "ريفيت انشائي",
+     "بيم انشائي"
+    ]
+   },
+   "Architecture": {
+    "code": "BIM Architecture",
+    "match": [
+     "Revit Architecture",
+     "BIM Architecture",
+     "ريفيت معماري",
+     "بيم معماري"
+    ]
+   }
+  },
+  "work_fields": [
+   {
+    "key": "facility_management",
+    "label": "إدارة المرافق",
+    "triggers": [
+     "ادارة المرافق",
+     "المرافق",
+     "فاسيليتي",
+     "facility",
+     "facilities",
+     "fm",
+     "مرافق"
+    ]
+   },
+   {
+    "key": "maintenance",
+    "label": "الصيانة والاعتمادية",
+    "triggers": [
+     "صيانه",
+     "الصيانه",
+     "اعتماديه",
+     "الاعتماديه",
+     "maintenance",
+     "reliability"
+    ]
+   },
+   {
+    "key": "project_management",
+    "label": "إدارة المشاريع",
+    "triggers": [
+     "ادارة المشاريع",
+     "مشاريع",
+     "مشروعات",
+     "بريمافيرا",
+     "primavera",
+     "project management",
+     "planning",
+     "تخطيط"
+    ]
+   }
+  ],
+  "certifications": [
+   {
+    "code": "FMP",
+    "work_field": "facility_management",
+    "min_years": 1,
+    "max_years": 3,
+    "label": "Facility Management Professional",
+    "match": [
+     "FMP",
+     "Facility Management Professional"
+    ]
+   },
+   {
+    "code": "CFM",
+    "work_field": "facility_management",
+    "min_years": 5,
+    "max_years": null,
+    "label": "Certified Facility Manager",
+    "match": [
+     "CFM",
+     "Certified Facility Manager"
+    ]
+   },
+   {
+    "code": "CMRP",
+    "work_field": "maintenance",
+    "min_years": null,
+    "max_years": null,
+    "label": "Certified Maintenance & Reliability Professional",
+    "match": [
+     "CMRP",
+     "Maintenance and Reliability",
+     "Maintenance & Reliability"
+    ]
+   },
+   {
+    "code": "PMP",
+    "work_field": "project_management",
+    "min_years": 3,
+    "max_years": null,
+    "label": "Project Management Professional",
+    "match": [
+     "PMP",
+     "Project Management Professional"
+    ]
+   }
+  ],
+  "interest_topics": [
+   {
+    "key": "content",
+    "label": "محتوى الدورة"
+   },
+   {
+    "key": "next_batch",
+    "label": "موعد أقرب دفعة"
+   },
+   {
+    "key": "fees",
+    "label": "الرسوم والعروض الحالية"
+   },
+   {
+    "key": "instalments",
+    "label": "نظام السداد والتقسيط"
+   }
+  ]
+ }
 }

@@ -1504,3 +1504,157 @@ def test_deep_details_routing_follows_the_setting(monkeypatch):
     assert prompts._DETAILS_MARKER not in in_nabras
     assert "الريفيوهات" not in in_nabras
     assert "get_course_details" in in_nabras
+
+
+# ================================================== digital-sales mapping
+def test_the_goal_is_what_branches_not_the_specialization():
+    """The sales doc's tree: four goals, and only the certification branch asks
+    about years. A maintenance engineer who wants a certificate and one who
+    wants to learn design must not share a path."""
+    from app import curriculum as cur
+    assert cur.resolve_goal("عايز اتأهل لسوق العمل")["route"] == "comprehensive"
+    assert cur.resolve_goal("نفسي اتعلم التصميم الهندسي")["route"] == "comprehensive"
+    assert cur.resolve_goal("عايز اتعلم نمذجة BIM")["route"] == "bim"
+    assert cur.resolve_goal("عايز شهادة احترافيه")["route"] == "certification"
+    # nothing said about a goal -> the caller must ask, never guess
+    assert cur.resolve_goal("انا مهندس ميكانيكا") is None
+
+
+def test_certification_is_chosen_by_work_field_and_years():
+    """إدارة المرافق 1-3 → FMP · 5+ → CFM · الصيانة → CMRP · المشاريع 3+ → PMP."""
+    from app import curriculum as cur
+    assert cur.resolve_work_field("بشتغل في ادارة المرافق")["key"] == "facility_management"
+    assert cur.resolve_work_field("انا في الصيانه")["key"] == "maintenance"
+    assert cur.resolve_work_field("بشتغل ادارة المشاريع")["key"] == "project_management"
+
+    assert cur.certification_for("facility_management", 2)["code"] == "FMP"
+    assert cur.certification_for("facility_management", 6)["code"] == "CFM"
+    assert cur.certification_for("project_management", 5)["code"] == "PMP"
+    # CMRP has no year bound, so it resolves on the work field alone
+    assert cur.certification_for("maintenance", None)["code"] == "CMRP"
+    # two bounded rungs and unknown years -> refuse to pick, so the bot asks
+    assert cur.certification_for("facility_management", None) is None
+
+
+def test_the_comprehensive_track_of_a_specialization_is_a_written_list():
+    from app import curriculum as cur
+    rules = [g["rule"] for g in cur.comprehensive_groups("Mechanical")]
+    assert rules == ["MECHANICAL GROUPING RULE"]
+    # Civil is genuinely sold as three tracks — collapsing them into one
+    # «المدني الشاملة» would put a bridge engineer in a concrete-design path
+    assert len(cur.comprehensive_groups("Civil")) == 3
+    assert cur.bim_track("Electrical")["code"] == "BIM Electrical"
+    assert cur.bim_track("Management and Safety") is None
+
+
+async def _by_goal(**args) -> tuple[dict, list, list]:
+    """Run the mapping tool with the sinks a real turn installs."""
+    from app import tools as tools_mod
+    cards: list = []
+    chips: list = []
+    ct = tools_mod.CARD_SINK.set(cards)
+    ch = tools_mod.CHIP_SINK.set(chips)
+    cu = tools_mod.CURRENCY.set("EGP")
+    try:
+        raw = await tools_mod.recommend_by_goal.ainvoke(args)
+    finally:
+        tools_mod.CARD_SINK.reset(ct)
+        tools_mod.CHIP_SINK.reset(ch)
+        tools_mod.CURRENCY.reset(cu)
+    return json.loads(raw), cards, chips
+
+
+async def test_an_unknown_goal_asks_instead_of_recommending(loaded_catalog):
+    payload, cards, chips = await _by_goal(goal="مش عارف", specialization="ميكانيكا")
+    assert payload["need"] == "goal"
+    assert not cards                                  # nothing recommended yet
+    assert {c["title"] for c in chips} == {
+        "التأهيل لسوق العمل", "تعلّم التصميم الهندسي",
+        "نمذجة وتقنيات BIM", "شهادة احترافية أو إدارية"}
+
+
+async def test_certification_branch_asks_for_the_work_field_first(loaded_catalog):
+    payload, cards, chips = await _by_goal(goal="عايز شهادة احترافيه")
+    assert payload["need"] == "work_field"
+    assert not cards
+    assert "إدارة المرافق" in {c["title"] for c in chips}
+
+
+async def test_certification_returns_the_programme_as_a_priced_card(loaded_catalog):
+    """A 5-year project manager maps to PMP — and the answer is the real,
+    buyable Odoo course, not the model's memory of what PMP is."""
+    payload, cards, _ = await _by_goal(
+        goal="عايز شهادة احترافيه", work_field="ادارة المشاريع",
+        experience_years=5, specialization="ادارة", job_title="مدير")
+    assert payload["code"] == "PMP"
+    assert payload["rationale"]["job_title"] == "مدير"
+    assert payload["rationale"]["experience_years"] == 5
+    assert [c["course_id"] for c in cards] == [2092]
+    assert cards[0]["price_display"] == "6,900 EGP"        # live pricelist
+    assert cards[0]["checkout_url"].endswith("product_id=2046&add_qty=1&express=1")
+
+
+async def test_a_mapped_programme_the_shop_does_not_sell_says_so(loaded_catalog):
+    """The mapping says FMP; the catalogue has no FMP. Substituting the nearest
+    certificate would quote a customer a programme they did not ask for, so the
+    tool returns nothing and the prompt has to admit it."""
+    payload, cards, _ = await _by_goal(
+        goal="عايز شهادة", work_field="ادارة المرافق", experience_years=2)
+    assert payload["status"] == "not_in_catalog"
+    assert payload["code"] == "FMP"
+    assert not cards
+
+
+async def test_bim_goal_returns_the_bim_track_of_that_discipline(loaded_catalog):
+    payload, cards, _ = await _by_goal(goal="نمذجة BIM", specialization="كهرباء")
+    assert payload["code"] == "BIM Electrical"
+    assert [c["course_id"] for c in cards] == [2116]       # Revit Electrical Design
+
+    payload, cards, _ = await _by_goal(goal="BIM", specialization="ميكانيكا")
+    assert payload["code"] == "BIM Mechanical"
+    assert [c["course_id"] for c in cards] == [2107]       # Navisworks MEP
+
+
+async def test_the_mapping_reaches_the_widget_as_cards(client_factory):
+    """End to end: one turn, and the recommendation arrives as a card the
+    widget can render — the same surface search_courses uses."""
+    script = [{"tool": "recommend_by_goal",
+               "args": {"goal": "شهادة احترافيه", "work_field": "ادارة المشاريع",
+                        "experience_years": 4}},
+              {"text": "بناءً على خبرتك وهدفك أرشح لك PMP."}]
+    client, _ = client_factory(script)
+    async with client:
+        tok = await _token(client)
+        r = await _chat(client, tok, "عايز شهادة في ادارة المشاريع")
+        events = parse_sse(r.text)
+    cards = next(e for e in events if e["type"] == "cards")["course_cards"]
+    assert [c["course_id"] for c in cards] == [2092]
+    assert events[-1]["type"] == "done"
+
+
+async def test_client_state_chips_open_the_qualification(loaded_catalog):
+    from app import tools as tools_mod
+    chips: list = []
+    ch = tools_mod.CHIP_SINK.set(chips)
+    try:
+        payload = json.loads(await tools_mod.list_client_states.ainvoke({}))
+    finally:
+        tools_mod.CHIP_SINK.reset(ch)
+    assert len(payload["states"]) == 8
+    titles = {c["title"] for c in chips}
+    assert "حديث التخرج" in titles and "أرغب في تغيير المجال" in titles
+    # the state carries the experience band, so it is not asked twice
+    from app import curriculum as cur
+    assert cur.resolve_state("خبرة أكثر من 5 سنوات")["years"] == 6
+
+
+def test_the_prompt_teaches_the_mapping_and_its_order():
+    from app import prompts
+    p = prompts.build_system_prompt()
+    for marker in ("list_client_states", "recommend_by_goal", "المسمى الوظيفي",
+                   "الهدف من الدورة", "FMP", "CFM", "CMRP", "PMP",
+                   "not_in_catalog"):
+        assert marker in p, marker
+    # the goal branches, and only the certification branch asks about years
+    assert "المتغيّر الذي يفرّع هو الهدف" in p
+    assert "**هنا فقط** اسأل عن مجال العمل + سنوات الخبرة" in p

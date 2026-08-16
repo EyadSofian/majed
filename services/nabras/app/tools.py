@@ -1112,6 +1112,173 @@ async def recommend_track(track: str, level: Optional[str] = None,
     }, ensure_ascii=False)
 
 
+# ------------------------------------------------- the Digital-Sales mapping
+def _find_named(match_terms: list[str], limit: int = 3) -> list["catalog.Course"]:
+    """Courses whose TITLE actually contains one of these terms.
+
+    Deliberately a subset test on the title, not the ranked search: the ranked
+    search always returns its best row, so asking it for "FMP" in a catalogue
+    with no FMP hands back some unrelated course and the customer is quoted a
+    programme they did not ask for. Empty here means "we do not sell it", which
+    is the answer the prompt is allowed to give.
+    """
+    snap = catalog.snapshot()
+    wanted = [t for t in (catalog.tokens(m) for m in match_terms) if t]
+    hits: list["catalog.Course"] = []
+    for course in snap.courses.values():
+        title = catalog.tokens(course.name)
+        if any(term <= title for term in wanted):
+            hits.append(course)
+    # a course with an open batch is the more useful one to show first
+    hits.sort(key=lambda c: (not _open_batches(c.id), c.name))
+    return hits[:limit]
+
+
+def _field_of(text: str) -> Optional[str]:
+    """Free text -> the KB discipline the mapping is keyed on."""
+    if not text:
+        return None
+    return (resolve_field(text)
+            or SPEC_TO_FIELD.get(resolve_specialization(text) or "")
+            or None)
+
+
+def _spec_chips() -> None:
+    for field in curriculum.fields():
+        label = curriculum.FIELD_LABELS.get(field, SPEC_LABELS.get(field, field))
+        _chips().append({"title": label, "value": f"أنا في تخصص {field}"})
+
+
+def _ask(need: str, chips_kind: str = "", **extra) -> str:
+    if chips_kind == "specialization":
+        _spec_chips()
+    elif chips_kind:
+        for chip in curriculum.chips_for(chips_kind):
+            _chips().append(chip)
+    return json.dumps({"need": need, **extra}, ensure_ascii=False)
+
+
+@tool
+async def list_client_states() -> str:
+    """The «اختر حالتك» options that open a qualification.
+
+    Step 1 of the Engosoft sales flow: graduate / years of experience / looking
+    for a job / changing field. The visitor gets them as tappable chips, so say
+    one short line and let them pick — never list the options again in the text.
+    """
+    states = curriculum.mapping().get("states", [])
+    for chip in curriculum.chips_for("states"):
+        _chips().append(chip)
+    return json.dumps({"states": [s["label"] for s in states]}, ensure_ascii=False)
+
+
+@tool
+async def recommend_by_goal(goal: str,
+                            specialization: Optional[str] = None,
+                            experience_years: Optional[float] = None,
+                            job_title: Optional[str] = None,
+                            work_field: Optional[str] = None) -> str:
+    """The Engosoft recommendation mapping — call it once the GOAL is known.
+
+    The goal is what branches, not the specialization:
+      • التأهيل لسوق العمل / التصميم الهندسي → the comprehensive track of the
+        specialization.
+      • نمذجة وتقنيات BIM → the BIM track of the specialization.
+      • شهادة احترافية أو إدارية → ask work field + years, then exactly one
+        programme (FMP · CFM · CMRP · PMP).
+
+    Pass the visitor's own words. When something needed is missing the result
+    is `{"need": ...}` and the options are already shown as chips — ask that one
+    question and call again. Cards render automatically; never invent a course
+    this did not return.
+    """
+    await _ensure_catalog()
+    goal_row = curriculum.resolve_goal(goal or "")
+    if not goal_row:
+        return _ask("goal", "goals",
+                    detail="اسأل عن الهدف من الدورة واعرض الخيارات الأربعة")
+
+    route = goal_row.get("route")
+    field = _field_of(specialization or "") or _field_of(goal or "")
+    rationale = {
+        "goal": goal_row["label"],
+        "specialization": curriculum.FIELD_LABELS.get(field or "", field or ""),
+        "experience_years": experience_years,
+        "job_title": job_title or "",
+    }
+
+    # ── 1 + 2. سوق العمل / التصميم → الباقة الشاملة حسب التخصص ──────────
+    if route == "comprehensive":
+        if not field:
+            return _ask("specialization", "specialization", goal=goal_row["label"])
+        groups = curriculum.comprehensive_groups(field)
+        tracks = []
+        snap = catalog.snapshot()
+        for group in groups:
+            picked = [snap.courses[i] for i in curriculum.group_members(group)
+                      if i in snap.courses]
+            if picked:
+                tracks.append({"track": group.get("rule"),
+                               "courses": await _emit_courses(picked)})
+        if not tracks:
+            # The discipline exists but its comprehensive track is not published
+            # right now — answer with the discipline instead of with nothing.
+            courses = catalog.courses_in_field(field)[:6]
+            if not courses:
+                return json.dumps({"status": "not_in_catalog", "route": route,
+                                   "specialization": field}, ensure_ascii=False)
+            return json.dumps({"route": route, "note": "no_published_track",
+                               "rationale": rationale,
+                               "courses": await _emit_courses(courses)},
+                              ensure_ascii=False)
+        return json.dumps({"route": route, "rationale": rationale,
+                           "tracks": tracks,
+                           # Civil is sold as three tracks, so the visitor picks
+                           "choose_one": len(tracks) > 1}, ensure_ascii=False)
+
+    # ── 3. BIM → مسار BIM حسب التخصص ────────────────────────────────────
+    if route == "bim":
+        if not field:
+            return _ask("specialization", "specialization", goal=goal_row["label"])
+        row = curriculum.bim_track(field)
+        if not row:
+            return json.dumps({"status": "no_bim_track", "specialization": field},
+                              ensure_ascii=False)
+        courses = _find_named(row.get("match", []))
+        if not courses:
+            return json.dumps({"status": "not_in_catalog", "route": route,
+                               "code": row.get("code")}, ensure_ascii=False)
+        rationale["recommended"] = row.get("code")
+        return json.dumps({"route": route, "code": row.get("code"),
+                           "rationale": rationale,
+                           "courses": await _emit_courses(courses)},
+                          ensure_ascii=False)
+
+    # ── 4. الشهادات → مجال العمل + سنوات الخبرة → برنامج واحد ───────────
+    wf = (curriculum.resolve_work_field(work_field or "")
+          or curriculum.resolve_work_field(specialization or "")
+          or curriculum.resolve_work_field(goal or ""))
+    if not wf:
+        return _ask("work_field", "work_fields", goal=goal_row["label"])
+    cert = curriculum.certification_for(wf["key"], experience_years)
+    if not cert:
+        return _ask("experience_years", work_field=wf["label"],
+                    detail="اسأل عن سنوات الخبرة لتحديد البرنامج المناسب")
+    courses = _find_named(cert["match"])
+    rationale["work_field"] = wf["label"]
+    rationale["recommended"] = cert["code"]
+    if not courses:
+        # The mapping says FMP, the shop does not sell it. Saying so is the
+        # only honest move — the prompt forbids substituting another programme.
+        return json.dumps({"status": "not_in_catalog", "route": "certification",
+                           "code": cert["code"], "rationale": rationale},
+                          ensure_ascii=False)
+    return json.dumps({"route": "certification", "code": cert["code"],
+                       "certificate": cert.get("label"), "rationale": rationale,
+                       "courses": await _emit_courses(courses)},
+                      ensure_ascii=False)
+
+
 @tool
 async def build_checkout_link(course_id: int) -> str:
     """Attach a direct-purchase action to a course card.
@@ -1275,6 +1442,7 @@ async def defer_to_bot(reason: str) -> str:
 
 
 TOOLS = [search_courses, get_course_details, get_upcoming_batches, get_price,
-         get_instructor, search_packages, list_specializations, recommend_track,
+         get_instructor, search_packages, list_specializations,
+         list_client_states, recommend_by_goal, recommend_track,
          get_payment_options, build_checkout_link, create_lead,
          defer_to_bot, request_handoff]
