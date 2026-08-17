@@ -101,6 +101,56 @@ def fields() -> dict[str, list[int]]:
     return out
 
 
+def field_of_group(group: dict) -> Optional[str]:
+    """The discipline a package belongs to, from its own courses.
+
+    Every grouping rule in the KB is single-discipline, so this is a read of
+    the data rather than a judgement. A rule that ever spans two returns None
+    instead of picking one.
+    """
+    found = {entry(i).get("field") for i in group.get("course_ids", [])
+             if entry(i)}
+    found.discard(None)
+    return found.pop() if len(found) == 1 else None
+
+
+def groups_for_field(field: str) -> list[dict]:
+    """The packages Engosoft actually sells inside one discipline.
+
+    This exists because a trainee says «مدني», not «باقة التصميم الخرساني», and
+    `match_group` only answers to a package's own name. Without it a bare
+    discipline found nothing at all — not even «ميكانيكا», which has exactly
+    one package waiting for it.
+
+    It deliberately does NOT synthesise a "comprehensive civil" package.
+    Civil is sold as three separate tracks (خرساني · بنية تحتية · منشآت معدنية);
+    inventing a fourth that unions them would have the bot offer something
+    nobody can buy. Where a discipline has several, the caller asks which.
+    """
+    if not field:
+        return []
+    live = {i for ids in fields().values() for i in ids}
+    out = []
+    for g in _data().get("groups", []):
+        if field_of_group(g) != field:
+            continue
+        if any(i in live for i in g.get("course_ids", [])):
+            out.append(g)
+    return out
+
+
+def group_label(group: dict) -> str:
+    """What to call a package to a customer: its first Arabic trigger.
+
+    The `rule` key is an internal English name ("STEEL DESIGN GROUPING RULE")
+    and must never reach a reply.
+    """
+    for t in group.get("triggers", []):
+        if any("\u0600" <= ch <= "\u06ff" for ch in t):
+            return t.strip()
+    return (group.get("triggers") or [group.get("rule", "")])[0]
+
+
 def _norm(text: str) -> str:
     text = (text or "").lower()
     text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي",

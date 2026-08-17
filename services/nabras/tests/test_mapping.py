@@ -7,6 +7,7 @@ A course missing either is one the model has to guess about, and a guess here
 recommends the wrong course to a paying trainee — so the whole catalogue is
 checked, not a sample.
 """
+import json
 import re
 
 import pytest
@@ -122,3 +123,80 @@ def test_level_short_squeezes_the_odoo_phrasing():
     assert catalog._level_short("") == ""
     # anything unrecognised is passed through rather than dropped
     assert catalog._level_short("Any level") == "Any level"
+
+
+# ---------------------------------------------------------------------------
+# Discipline -> the packages Engosoft actually sells inside it.
+#
+# `match_group` only answers to a package's own name («الميكانيكا الشاملة»), so
+# a trainee who says «مدني» — or even «ميكانيكا», which has exactly one package
+# waiting for it — used to match nothing at all.
+#
+# The civil case is the one that must not be "fixed" by inventing data: civil is
+# sold as three separate tracks and there is no combined product, so the honest
+# answer is to ask which, never to synthesise one.
+
+@pytest.fixture
+def published_kb(monkeypatch):
+    """Pretend the shop publishes everything the KB knows about."""
+    ids = [int(i) for i in _courses()]
+    monkeypatch.setattr(curriculum, "_pruned_to", set(ids))
+    curriculum._field_words.cache_clear()
+    yield ids
+    curriculum._field_words.cache_clear()
+
+
+def test_every_group_belongs_to_exactly_one_discipline(published_kb):
+    """The routing reads the data; it does not adjudicate mixed groups."""
+    for g in curriculum._data()["groups"]:
+        assert curriculum.field_of_group(g) is not None, g["rule"]
+
+
+def test_single_package_disciplines_resolve_to_it(published_kb):
+    for field, expected in (("Mechanical", 1), ("Architecture", 1),
+                            ("Interior Design", 1)):
+        assert len(curriculum.groups_for_field(field)) == expected, field
+
+
+def test_civil_offers_three_tracks_and_no_invented_fourth(published_kb):
+    civil = curriculum.groups_for_field("Civil")
+    assert len(civil) == 3
+    labels = {curriculum.group_label(g) for g in civil}
+    assert labels == {"تصميم إنشائي", "بنية تحتية", "منشآت معدنية"}
+    # nothing anywhere in the KB claims to be a combined civil package
+    for g in curriculum._data()["groups"]:
+        blob = " ".join(g.get("triggers", [])) + g.get("rule", "")
+        assert "شاملة" not in blob or curriculum.field_of_group(g) != "Civil"
+
+
+def test_customer_facing_label_is_never_the_internal_rule_name(published_kb):
+    for g in curriculum._data()["groups"]:
+        label = curriculum.group_label(g)
+        assert "GROUPING RULE" not in label and "RULE" not in label
+        assert label.strip()
+
+
+def test_a_package_with_nothing_published_is_not_offered(monkeypatch):
+    """An unpublished track must not be recommended into a dead end."""
+    monkeypatch.setattr(curriculum, "_pruned_to", set())
+    curriculum._field_words.cache_clear()
+    assert curriculum.groups_for_field("Civil") == []
+    curriculum._field_words.cache_clear()
+
+
+async def test_bare_civil_asks_which_track_instead_of_guessing(
+        loaded_catalog, published_kb):
+    """The behaviour the SLA needs, delivered without inventing a product."""
+    from app import tools as tools_mod
+    out = json.loads(await tools_mod.recommend_track.ainvoke(
+        {"track": "أنا في تخصص مدني"}))
+
+    assert out["note"] == "field_has_several_tracks"
+    assert len(out["tracks"]) == 3
+    assert {t["label"] for t in out["tracks"]} == {
+        "تصميم إنشائي", "بنية تحتية", "منشآت معدنية"}
+    # every track reports how much is in it, so the model can describe them
+    assert all(t["courses_count"] > 0 for t in out["tracks"])
+    # and the options are chips, so the reply must not re-list them in prose
+    assert "لا تكررها" in out["ask"]
+

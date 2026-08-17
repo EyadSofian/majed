@@ -1030,6 +1030,48 @@ async def recommend_track(track: str, level: Optional[str] = None,
                 "courses": await _emit_courses(picked[:limit]),
             }, ensure_ascii=False)
 
+    # 1-b. A bare discipline. `match_group` only answers to a package's own
+    #      name, so «مدني» — and even «ميكانيكا», which has exactly one package
+    #      waiting for it — used to fall straight through to a generic search.
+    if not group and field_name:
+        siblings = curriculum.groups_for_field(field_name)
+        if len(siblings) == 1:
+            group = siblings[0]
+            picked = []
+            for oid in curriculum.group_members(group):
+                course = snap.courses.get(oid)
+                if course is not None and course not in picked:
+                    picked.append(course)
+            if picked:
+                return json.dumps({
+                    "track": None, "specialization": field_name,
+                    "label": curriculum.FIELD_LABELS.get(field_name, field_name),
+                    "note": "engosoft_grouping_rule",
+                    "rule": group.get("rule"),
+                    "courses": await _emit_courses(picked[:limit]),
+                }, ensure_ascii=False)
+        elif len(siblings) > 1:
+            # Several real products, and no combined one to offer: civil is sold
+            # as three separate tracks. Synthesising a "comprehensive civil"
+            # would have the bot quote a package nobody can buy, so the customer
+            # picks instead. Chips render as buttons, so the model must not
+            # repeat the list in prose.
+            options = [{"label": curriculum.group_label(g),
+                        "rule": g.get("rule"),
+                        "courses_count": len(curriculum.group_members(g))}
+                       for g in siblings]
+            for opt in options:
+                _chips().append({"title": opt["label"],
+                                 "value": f"أريد مسار {opt['label']}"})
+            return json.dumps({
+                "specialization": field_name,
+                "label": curriculum.FIELD_LABELS.get(field_name, field_name),
+                "note": "field_has_several_tracks",
+                "ask": "اسأل العميل أي مسار يناسبه — الخيارات ظاهرة كأزرار، "
+                       "فلا تكررها في النص، ولا تجمعها في باقة واحدة.",
+                "tracks": options,
+            }, ensure_ascii=False)
+
     pkg = _match_package(packages, effective_track, spec)
 
     if not pkg:

@@ -529,6 +529,41 @@ Operation Group    →  training.package.group · .product.line
 website-editing rights. Prefer dedicated read-only ACLs. Verify with `GET
 /health` → `packages_available: true` and `packages_source: "odoo"`.
 
+### A discipline is not always one package
+
+The SLA's mapping says «مدني → الباقة الشاملة مدني». There is no such product.
+Civil is sold as **three separate tracks** — التصميم الخرساني · البنية التحتية ·
+المنشآت المعدنية — each with its own name, contents and price. Synthesising a
+fourth that unions them would have the bot offer a package nobody can buy, which
+is worse than the gap it closes.
+
+So the routing resolves a discipline to the packages that actually exist in it:
+
+| | |
+|---|---|
+| one package | recommend it — this is «ميكانيكا» and «معماري» |
+| several | hand back the list and let the customer pick — this is «مدني» |
+
+`groups_for_field()` is what makes a *bare* discipline resolve at all.
+`match_group` only answers to a package's own name («الميكانيكا الشاملة»), so
+until now «مدني» matched nothing — and neither did «ميكانيكا», which has exactly
+one package waiting for it. A package whose courses the shop no longer publishes
+is not offered, so a track cannot be recommended into a dead end.
+
+The several-tracks reply carries `note: "field_has_several_tracks"` and emits the
+options as chips; the prompt forbids merging two tracks into one offer or adding
+their prices together.
+
+### BIM is a shop category, not a package
+
+The mapping also says «BIM → BIM حسب التخصص». BIM courses are real — Revit
+Electrical, Navisworks MEP — but they live in Odoo under a BIM *category* and are
+not in `curriculum.json` at all, so there is no grouping rule to return and no
+honest way to invent one here. BIM is therefore answered from the live catalogue
+via `search_courses` with the visitor's discipline, and the prompt maps the
+Arabic vocabulary («نمذجة المعلومات» · «بيم» · «ريفيت») onto it. If a discipline
+has no BIM course, the bot says so rather than promising a track.
+
 ### A lead has to enter the follow-up cycle, not just exist
 
 The Digital Sales SLA runs off Odoo activities: the advisor works «Activity
