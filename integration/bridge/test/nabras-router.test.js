@@ -276,6 +276,37 @@ function delivered() {
 })();
 
 // ---------------------------------------------------------------------------
+// The country is a finer question than the currency: SAR covers five countries,
+// so «الحضوري في الرياض» has to be told to an Egyptian AND to a Kuwaiti. It is
+// resolved on its own rather than read back out of the currency.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  process.env.NABRAS_CURRENCY = 'EGP';
+  const { resolveCountry } = require('../nabras');
+  const a = require('assert');
+
+  // 1. Odoo's own answer wins
+  a.strictEqual(resolveCountry({ shop: { country: 'EG' } }), 'EG');
+  a.strictEqual(resolveCountry({ country: 'sa' }), 'SA');
+  // 2. the timezone names the country exactly — including the ones SAR hides
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Kuwait' }), 'KW');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Muscat' }), 'OM');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Baghdad' }), 'IQ');
+  a.strictEqual(resolveCountry({ timezone: 'Africa/Cairo' }), 'EG');
+  // 3. last resort: a currency that names exactly one country
+  a.strictEqual(resolveCountry({ shop: { currency: 'AED' } }), 'AE');
+  // a Kuwaiti visitor is NOT reported as Saudi just because he is quoted in SAR
+  a.notStrictEqual(resolveCountry({ timezone: 'Asia/Kuwait' }), 'SA');
+  // 4. nothing known → empty, so the prompt can tell "unknown" from "Saudi"
+  a.strictEqual(resolveCountry({ timezone: 'Europe/Berlin' }), 'EG'); // via EGP default
+  a.strictEqual(resolveCountry({}), 'EG');
+  // junk from the page never reaches the service as a country
+  a.strictEqual(resolveCountry({ shop: { country: 'SAUDI' } }), 'EG');
+
+  console.log('✅ country: 11 cases — Odoo, then timezone, then currency');
+})();
+
+// ---------------------------------------------------------------------------
 // Course names are translated in Odoo, so the reply must be titled in the same
 // language the page beside the chat is rendering.
 (() => {

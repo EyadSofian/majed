@@ -46,6 +46,46 @@ const COUNTRY_CURRENCY = {
   SA: 'SAR', QA: 'SAR', BH: 'SAR', KW: 'SAR', YE: 'SAR',
   AE: 'AED', OM: 'AED',
 };
+// The country itself — the prompt needs it to say "onsite classes run in
+// Riyadh" to a visitor who is not in Riyadh, before they reach payment. That
+// is a finer question than currency: SAR covers several countries, so it is
+// resolved on its own rather than read back out of the currency.
+const TZ_COUNTRY = [
+  [/^Africa\/Cairo/i, 'EG'],
+  [/^Asia\/Riyadh/i, 'SA'],
+  [/^Asia\/Dubai/i, 'AE'],
+  [/^Asia\/Kuwait/i, 'KW'],
+  [/^Asia\/Qatar/i, 'QA'],
+  [/^Asia\/Bahrain/i, 'BH'],
+  [/^Asia\/Muscat/i, 'OM'],
+  [/^Asia\/Aden/i, 'YE'],
+  [/^Asia\/Baghdad/i, 'IQ'],
+  [/^Asia\/Amman/i, 'JO'],
+  [/^Asia\/Beirut/i, 'LB'],
+  [/^Africa\/Tripoli/i, 'LY'],
+  [/^Africa\/Khartoum/i, 'SD'],
+];
+// Only where the currency names exactly one country. SAR and AED are each
+// issued by a single country, so they are safe as a last resort.
+const CURRENCY_COUNTRY = { EGP: 'EG', SAR: 'SA', AED: 'AE' };
+
+/**
+ * Which country is this visitor in?
+ *
+ * Deliberately NOT used to pick a contact number — Engosoft's sales and
+ * support lines are the same for every country.
+ */
+function resolveCountry(userData) {
+  // 1. Odoo said so outright — geoip, or the customer's own partner record
+  const direct = String(userData?.shop?.country || userData?.country || '')
+    .trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(direct)) return direct;
+  // 2. the browser's own region, which names the country exactly
+  const tz = String(userData?.timezone || userData?.tz || '');
+  for (const [re, cc] of TZ_COUNTRY) if (re.test(tz)) return cc;
+  // 3. last resort: the currency the shop quoted
+  return CURRENCY_COUNTRY[resolveCurrency(userData)] || '';
+}
 
 /**
  * What currency is this visitor actually being shown?
@@ -431,6 +471,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
       `${c.base}/api/v1/ai-chat/chat/`,
       { message: text, fahem_session_id: `cw_${cwConvId}`, language: 'auto',
         currency: resolveCurrency(userData), lang: resolveLang(userData),
+        country: resolveCountry(userData) || undefined,
         page_type: pageType || undefined, slug: slug || undefined,
         history: compactHistory(history) },
       { headers: { 'X-Guest-Token': token, 'Content-Type': 'application/json' },
@@ -520,5 +561,5 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
 }
 
 module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
-                   resolveLang, compactHistory, consumeSseStream, isTrackIntent,
-                   finalizeSalesReply, cfg };
+                   resolveCountry, resolveLang, compactHistory, consumeSseStream,
+                   isTrackIntent, finalizeSalesReply, cfg };

@@ -176,6 +176,8 @@ nb.post('/api/v1/user/guest-session/create/', (_q, r) =>
 
 nb.post('/api/v1/ai-chat/chat/', (q, r) => {
   const cur = String(q.body?.currency || 'EGP').toUpperCase();
+  // نطبع اللي وصل عشان نتأكد إن العملة والبلد بيوصلوا فعلًا من الويدجت
+  console.log(`NABRAS-MOCK got currency=${cur} country=${q.body?.country || '—'} lang=${q.body?.lang || '—'}`);
   const msg = String(q.body?.message || '');
   r.setHeader('Content-Type', 'text/event-stream');
   r.flushHeaders();

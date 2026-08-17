@@ -1167,15 +1167,18 @@ async def create_lead(name: str, phone: Optional[str] = None,
                       field: Optional[str] = None,
                       specialization: Optional[str] = None,
                       experience: Optional[str] = None,
+                      job_title: Optional[str] = None,
+                      goal: Optional[str] = None,
                       notes: Optional[str] = None) -> str:
     """Create a CRM lead in Odoo for the sales advisor.
 
     This is the funnel's capture step, not just an escape hatch: call it once the
     visitor has given a contact method, folding in what you already qualified —
-    their `field` (المجال), `specialization` (التخصص) and `experience` (سنوات
-    الخبرة) — so the advisor opens the lead already knowing who this is. A name
-    plus one contact method (phone or email) is enough; never ask for anything
-    more sensitive.
+    their `field` (المجال), `specialization` (التخصص), `experience` (سنوات
+    الخبرة), `job_title` (المسمى الوظيفي: مهندس · فني · مشرف · مدير) and `goal`
+    (الهدف: سوق العمل · تصميم · BIM · شهادة) — so the advisor opens the lead
+    already knowing who this is. A name plus one contact method (phone or email)
+    is enough; never ask for anything more sensitive.
     """
     if not (phone or email):
         return json.dumps({"error": "need_contact",
@@ -1187,8 +1190,12 @@ async def create_lead(name: str, phone: Optional[str] = None,
         qual.append(f"المجال: {field}")
     if specialization:
         qual.append(f"التخصص: {specialization}")
+    if job_title:
+        qual.append(f"المسمى الوظيفي: {job_title}")
     if experience:
         qual.append(f"سنوات الخبرة: {experience}")
+    if goal:
+        qual.append(f"الهدف: {goal}")
     description = "\n".join([p for p in (" · ".join(qual), notes) if p])
     if not s.allow_crm_writes:
         # Trial mode: exercise the whole funnel without polluting the live CRM

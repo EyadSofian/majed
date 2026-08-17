@@ -149,8 +149,15 @@ async def chat(req: ChatRequest, request: Request,
     graph = get_graph()
     thread = {"configurable": {"thread_id": req.session_id}}
     ctx = req.message
+    bits = []
     if req.page_type:
-        ctx += f"\n\n[context] page={req.page_type} slug={req.slug or ''}"
+        bits.append(f"page={req.page_type} slug={req.slug or ''}")
+    # Goes on the turn, never in the system prompt — that has to stay
+    # byte-identical between turns for prompt caching to hold.
+    if req.country:
+        bits.append(f"country={req.country.strip().upper()}")
+    if bits:
+        ctx += "\n\n[context] " + " ".join(bits)
 
     currency = (req.currency or s.default_currency).upper()
     if currency not in s.supported_currencies:

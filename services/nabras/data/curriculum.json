@@ -597,7 +597,8 @@
     1110,
     1244,
     1111,
-    1112
+    1112,
+    2077
    ]
   },
   "Interior Design": {
@@ -1087,6 +1088,25 @@
     "الكهرباء الشامله",
     "Comprehensive electricity package",
     "Comprehensive electricity"
+   ]
+  },
+  "2077": {
+   "field": "Management",
+   "audience": "Engineer, Administrator, Higher Education",
+   "level": "From 1 and Above",
+   "keywords": [
+    "FMP",
+    "FMP Certification",
+    "Facility Management Professional",
+    "FMP Preparation Course",
+    "محترف إدارة المرافق",
+    "شهادة FMP",
+    "دورة FMP",
+    "دورة محترف ادارة المرافق",
+    "تأهيل محترف مرافق",
+    "إدارة وتشغيل المرافق",
+    "كورس FMP",
+    "التحضير لاختبار FMP"
    ]
   },
   "1109": {
