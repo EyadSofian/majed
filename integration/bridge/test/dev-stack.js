@@ -181,6 +181,10 @@ const NB_FUNNEL = {
 };
 
 mock.post('/api/v1/ai-chat/chat/', (q, r) => {
+  // البريدج بينده الخدمة دي من السيرفر، فالمتصفح مايشوفش الطلب ده — اللوج هنا
+  // هو الطريقة الوحيدة نتأكد إن العملة والبلد واللغة بيوصلوا للمخ فعلاً.
+  console.log(`NABRAS ← currency=${q.body?.currency || '—'} country=${q.body?.country || '—'}`
+    + ` lang=${q.body?.lang || '—'} page=${q.body?.page_type || '—'}`);
   const cur = String(q.body?.currency || 'EGP').toUpperCase();
   const [now, was] = NB_MONEY[cur] || NB_MONEY.EGP;
   const fmt = (n) => `${n.toLocaleString('en-US')} ${cur}`;

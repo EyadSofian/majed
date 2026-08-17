@@ -49,14 +49,42 @@ const TZ_CURRENCY = [
  */
 // Where is this visitor? Odoo resolved it per visitor (geoip / their partner
 // record), and the prompt needs it because onsite classes run in Riyadh only —
-// a visitor elsewhere has to hear that before checkout, not after. Currency is
-// the fallback, since the shop keys both off the same signal. Not used to pick
-// a contact number: those lines are the same for every country.
+// a visitor elsewhere has to hear that before checkout, not after. Not used to
+// pick a contact number: those lines are the same for every country.
+//
+// The timezone is read before the currency because currency loses the answer
+// this is asked for. Kuwait, Qatar and Bahrain are all quoted in SAR, so
+// SAR->SA would place a Kuwaiti visitor inside Saudi Arabia and suppress the
+// one warning they actually need.
+const TZ_COUNTRY = [
+  [/^Africa\/Cairo/i, 'EG'],
+  [/^Asia\/Riyadh/i, 'SA'],
+  [/^Asia\/Dubai/i, 'AE'],
+  [/^Asia\/Kuwait/i, 'KW'],
+  [/^Asia\/Qatar/i, 'QA'],
+  [/^Asia\/Bahrain/i, 'BH'],
+  [/^Asia\/Muscat/i, 'OM'],
+  [/^Asia\/Aden/i, 'YE'],
+  [/^Asia\/Baghdad/i, 'IQ'],
+  [/^Asia\/Amman/i, 'JO'],
+  [/^Asia\/Beirut/i, 'LB'],
+  [/^Africa\/Tripoli/i, 'LY'],
+  [/^Africa\/Khartoum/i, 'SD'],
+  [/^Africa\/(Algiers|Casablanca|Tunis)/i, ''],  // known, but no branch rule
+];
+// Only where the currency names exactly one country. SAR and AED are issued by
+// one country each, so they are safe as a last resort.
 const CURRENCY_COUNTRY = { EGP: 'EG', SAR: 'SA', AED: 'AE' };
+
 function resolveCountry(userData) {
+  // 1. Odoo said so outright — geoip or the customer's own partner record
   const direct = String(userData?.shop?.country || userData?.country || '')
     .trim().toUpperCase();
   if (/^[A-Z]{2}$/.test(direct)) return direct;
+  // 2. the browser's own region, which names the country exactly
+  const tz = String(userData?.timezone || userData?.tz || '');
+  for (const [re, cc] of TZ_COUNTRY) if (re.test(tz)) return cc;
+  // 3. last resort: the currency the shop quoted
   return CURRENCY_COUNTRY[resolveCurrency(userData)] || '';
 }
 

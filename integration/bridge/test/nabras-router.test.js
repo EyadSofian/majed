@@ -299,11 +299,19 @@ function delivered() {
   // 1. Odoo said so outright
   a.strictEqual(resolveCountry({ shop: { country: 'EG', currency: 'EGP' } }), 'EG');
   a.strictEqual(resolveCountry({ shop: { country: 'sa' } }), 'SA');
-  // 2. no country on the shop -> infer it from the currency it did resolve
+  // 2. no country on the shop -> the browser region, which names it exactly
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Riyadh' }), 'SA');
+  a.strictEqual(resolveCountry({ timezone: 'Africa/Cairo' }), 'EG');
+  // the reason timezone is read before currency: the GCC is quoted in SAR, so
+  // going through the currency would place all of these inside Saudi Arabia
+  // and silence the "onsite is in Riyadh" warning they are the ones who need it
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Kuwait', shop: { currency: 'SAR' } }), 'KW');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Qatar', shop: { currency: 'SAR' } }), 'QA');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Bahrain' }), 'BH');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Baghdad' }), 'IQ');
+  // 3. no region either -> fall back to the currency the shop quoted
   a.strictEqual(resolveCountry({ shop: { currency: 'SAR' } }), 'SA');
   a.strictEqual(resolveCountry({ shop: { currency: 'AED' } }), 'AE');
-  // 3. nothing from Odoo at all -> the browser region still decides
-  a.strictEqual(resolveCountry({ timezone: 'Asia/Riyadh' }), 'SA');
   // 4. junk never reaches the prompt as a country
   a.strictEqual(resolveCountry({ shop: { country: 'xx1', currency: 'SAR' } }), 'SA');
   a.strictEqual(resolveCountry({ shop: { country: '<script>' } }), 'EG'); // falls to default currency
@@ -311,7 +319,7 @@ function delivered() {
   // 5. USD has no single country — better to say nothing than guess one
   a.strictEqual(resolveCountry({ shop: { currency: 'USD' } }), '');
 
-  console.log('✅ country: site first, then currency, and junk never leaks');
+  console.log('✅ country: site, then region, then currency — GCC never collapses to SA');
 })();
 
 // ---------------------------------------------------------------------------
