@@ -40,6 +40,24 @@ class Settings(BaseSettings):
     course_product_type: str = "course"
     sales_advisor_id: int = 2                      # Majid (Odoo CRM)
 
+    # ---- SLA: a lead has to enter the advisor's follow-up cycle ----
+    # The Digital Sales SLA runs off Odoo activities: the advisor works
+    # "Activity Today", then "Overdue Activities". A lead with no activity on it
+    # appears in neither, so it is assigned to a human and then silently waits.
+    # Majed's leads used to be exactly that.
+    lead_activity_enabled: bool = True
+    # 0 = due today, which is where the SLA wants a fresh website lead: the
+    # advisor's first call is the same day it arrives.
+    lead_activity_delay_days: int = 0
+    lead_activity_summary: str = "مكالمة أولى — عميل من ماجد"
+    # Standard Odoo activity type. Falls back to any available type if this
+    # database renamed or removed it, because a lead with *some* activity is
+    # still in the cycle, and one with none is not.
+    lead_activity_type_xmlid: str = "mail.mail_activity_data_call"
+    # utm.source, so Majed's leads are a countable bucket next to the SLA's
+    # own three (Unpaid · AbanteCart · Signup) instead of being unattributable.
+    lead_source_name: str = "ماجد — شات الموقع"
+
     # ---- Catalogue cache ----
     # The whole sellable catalogue is ~75 rows, so it lives in memory and is
     # refreshed by polling write_date. No vector DB needed at this size.

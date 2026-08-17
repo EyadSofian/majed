@@ -1210,6 +1210,16 @@ async def create_lead(name: str, phone: Optional[str] = None,
         "user_id": s.sales_advisor_id,
         "description": description, "phone": phone or "", "email_from": email or "",
     }
+    # Attribution, so Majed's leads are a countable bucket beside the SLA's own
+    # three website sources instead of arriving anonymous. Best-effort: a
+    # missing source must never cost us the lead itself.
+    try:
+        source_id = await odoo.utm_source_id(s.lead_source_name)
+        if source_id:
+            payload["source_id"] = source_id
+    except Exception as e:  # noqa: BLE001
+        log.warning("lead source unavailable (%s) — creating without it", e)
+
     try:
         lead_id = await odoo.create_lead(payload)
     except OdooAccessDenied as e:
@@ -1217,7 +1227,28 @@ async def create_lead(name: str, phone: Optional[str] = None,
     except Exception as e:  # noqa: BLE001
         log.exception("create_lead failed")
         return json.dumps({"error": "odoo_unavailable", "detail": str(e)[:200]})
-    return json.dumps({"lead_id": lead_id, "assigned_to": s.sales_advisor_id})
+
+    # The SLA runs off activities: the advisor works "Activity Today", then
+    # "Overdue Activities". A lead with none is in neither list — assigned to a
+    # human and then quietly waiting. This is what puts it in the queue.
+    #
+    # Deliberately after the lead exists and deliberately swallowing: a failure
+    # here costs the follow-up prompt, not the customer's details.
+    activity_id = None
+    if s.lead_activity_enabled:
+        try:
+            activity_id = await odoo.schedule_activity(
+                lead_id, user_id=s.sales_advisor_id,
+                summary=s.lead_activity_summary,
+                note=description or "",
+                delay_days=s.lead_activity_delay_days)
+        except Exception as e:  # noqa: BLE001
+            log.warning("lead %s created but no activity scheduled (%s) — "
+                        "it will not appear in Activity Today", lead_id, e)
+
+    return json.dumps({"lead_id": lead_id, "assigned_to": s.sales_advisor_id,
+                       "activity_id": activity_id,
+                       "in_followup_cycle": bool(activity_id)})
 
 
 @tool
