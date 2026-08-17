@@ -28,6 +28,12 @@ class ChatRequest(BaseModel):
     # The visitor's Odoo language code (`ar_001`, `en_US`, …) — course titles
     # are shown in it, so the chat names a course the way the page does.
     lang: Optional[str] = None
+    # ISO-2 country the shop resolved for this visitor. Onsite classes run in
+    # Riyadh only, and the prompt is meant to say so before a visitor elsewhere
+    # reaches payment; without this it could not tell who was elsewhere.
+    # Deliberately NOT used to pick a contact number — those lines are the same
+    # for every country.
+    country: Optional[str] = Field(default=None, max_length=2)
     # The bridge owns the durable customer transcript in Chatwoot.  Sending a
     # bounded copy lets a fresh model worker recover context instead of treating
     # the next customer message as a brand-new conversation.

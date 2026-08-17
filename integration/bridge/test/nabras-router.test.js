@@ -235,17 +235,75 @@ function delivered() {
   a.strictEqual(
     resolveCurrency({ shop: { currency: 'USD' }, timezone: 'Africa/Cairo' }), 'USD');
 
-  // 2. site silent -> use the visitor's region
+  // 2. site silent -> the country Odoo resolved (geoip) beats a clock guess.
+  //    A Saudi visitor on a laptop still set to Cairo must be quoted in riyals.
+  a.strictEqual(resolveCurrency({ shop: { country: 'SA' } }), 'SAR');
+  a.strictEqual(resolveCurrency({ shop: { country: 'EG' } }), 'EGP');
+  a.strictEqual(resolveCurrency({ shop: { country: 'AE' } }), 'AED');
+  a.strictEqual(resolveCurrency({ country: 'sa' }), 'SAR');
+  a.strictEqual(
+    resolveCurrency({ shop: { country: 'SA' }, timezone: 'Africa/Cairo' }), 'SAR');
+  // an unmapped country is not a signal — fall through, do not invent
+  a.strictEqual(resolveCurrency({ shop: { country: 'DE' } }), 'EGP');
+  a.strictEqual(
+    resolveCurrency({ shop: { country: 'DE' }, timezone: 'Asia/Riyadh' }), 'SAR');
+
+  // 3. no country -> use the visitor's region
   a.strictEqual(resolveCurrency({ timezone: 'Asia/Riyadh' }), 'SAR');
   a.strictEqual(resolveCurrency({ timezone: 'Asia/Dubai' }), 'AED');
   a.strictEqual(resolveCurrency({ timezone: 'Africa/Cairo' }), 'EGP');
 
-  // 3. nothing known -> configured default, and junk never leaks through
+  // 4. nothing known -> configured default, and junk never leaks through
   a.strictEqual(resolveCurrency({}), 'EGP');
   a.strictEqual(resolveCurrency({ shop: { currency: 'XYZ' } }), 'EGP');
   a.strictEqual(resolveCurrency(null), 'EGP');
 
-  console.log('✅ currency: 9 cases — site first, then region, then default');
+  // 5. the shapes the widget actually sends, end to end. These are the payloads
+  //    fetchUserContext() builds — the regression that started this: it used to
+  //    send neither shop nor timezone, so every visitor resolved to the default.
+  const saudiGuest = { lang: 'ar-001', timezone: 'Asia/Riyadh' };          // fetch failed
+  const saudiLoggedIn = { shop: { currency: 'SAR', country: 'SA', lang: 'ar_001' },
+                          currency: 'SAR', country: 'SA', timezone: 'Asia/Riyadh' };
+  const egyptGuest = { lang: 'ar-001', timezone: 'Africa/Cairo' };
+  const egyptLoggedIn = { shop: { currency: 'EGP', country: 'EG', lang: 'ar_001' },
+                          currency: 'EGP', country: 'EG', timezone: 'Africa/Cairo' };
+  a.strictEqual(resolveCurrency(saudiGuest), 'SAR');
+  a.strictEqual(resolveCurrency(saudiLoggedIn), 'SAR');
+  a.strictEqual(resolveCurrency(egyptGuest), 'EGP');
+  a.strictEqual(resolveCurrency(egyptLoggedIn), 'EGP');
+
+  console.log('✅ currency: 20 cases — site, then country, then region, then default');
+})();
+
+// ---------------------------------------------------------------------------
+// The country is a finer question than the currency: SAR covers five countries,
+// so «الحضوري في الرياض» has to be told to an Egyptian AND to a Kuwaiti. It is
+// resolved on its own rather than read back out of the currency.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  process.env.NABRAS_CURRENCY = 'EGP';
+  const { resolveCountry } = require('../nabras');
+  const a = require('assert');
+
+  // 1. Odoo's own answer wins
+  a.strictEqual(resolveCountry({ shop: { country: 'EG' } }), 'EG');
+  a.strictEqual(resolveCountry({ country: 'sa' }), 'SA');
+  // 2. the timezone names the country exactly — including the ones SAR hides
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Kuwait' }), 'KW');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Muscat' }), 'OM');
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Baghdad' }), 'IQ');
+  a.strictEqual(resolveCountry({ timezone: 'Africa/Cairo' }), 'EG');
+  // 3. last resort: a currency that names exactly one country
+  a.strictEqual(resolveCountry({ shop: { currency: 'AED' } }), 'AE');
+  // a Kuwaiti visitor is NOT reported as Saudi just because he is quoted in SAR
+  a.notStrictEqual(resolveCountry({ timezone: 'Asia/Kuwait' }), 'SA');
+  // 4. nothing known → empty, so the prompt can tell "unknown" from "Saudi"
+  a.strictEqual(resolveCountry({ timezone: 'Europe/Berlin' }), 'EG'); // via EGP default
+  a.strictEqual(resolveCountry({}), 'EG');
+  // junk from the page never reaches the service as a country
+  a.strictEqual(resolveCountry({ shop: { country: 'SAUDI' } }), 'EG');
+
+  console.log('✅ country: 11 cases — Odoo, then timezone, then currency');
 })();
 
 // ---------------------------------------------------------------------------

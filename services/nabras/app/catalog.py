@@ -503,8 +503,31 @@ def catalog_digest(limit: int = 200) -> str:
         n = len(snap.events_by_course.get(c.id, []))
         if n:
             bits.append(f"{n} دفعة قادمة")
+        # Who the course is for. These are the two fields the SLA's mapping
+        # turns on — audience is the job title (مهندس / مشرف / فني), level the
+        # experience floor — and they used to reach the model only if it
+        # happened to call search_courses. On the package path it never did, so
+        # it was matching a trainee to a course half-blind. `level` is squeezed
+        # to "0+"/"5+" because "From 5 and Above" says the same thing 4x longer.
+        aud = curriculum.audience_for(c.id)
+        if aud.get("audience"):
+            bits.append(aud["audience"])
+        lvl = _level_short(aud.get("level"))
+        if lvl:
+            bits.append(lvl)
         lines.append(" | ".join(bits))
     return "\n".join(lines)
+
+
+_LEVEL_RE = re.compile(r"from\s+(\d+)", re.I)
+
+
+def _level_short(level: Optional[str]) -> str:
+    """"From 3 and Above" -> "3+". Anything unrecognised is passed through."""
+    if not level:
+        return ""
+    m = _LEVEL_RE.search(level)
+    return f"{m.group(1)}+" if m else level.strip()
 
 
 _pkg_lock: Optional["asyncio.Lock"] = None

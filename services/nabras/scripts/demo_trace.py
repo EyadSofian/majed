@@ -83,7 +83,11 @@ def main() -> int:
             if pkgs:
                 print("  packages:")
                 for p in pkgs:
-                    print(f"    ★ {p['title']:<38} {str(p['price_display']):>12}"
+                    # a package has no single price — `price_from_display` is
+                    # the headline ("starts from"), and the per-mode/per-cohort
+                    # figures live in price_options.
+                    head = p.get("price_from_display") or p.get("price_display")
+                    print(f"    ★ {p['title']:<38} {str(head):>12}"
                           f"  خصم {p.get('discount')}%  {p.get('courses_count')} كورس")
             if cards:
                 print("  courses:")
