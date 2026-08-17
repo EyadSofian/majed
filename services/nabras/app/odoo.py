@@ -484,6 +484,88 @@ class Odoo:
     async def create_lead(self, payload: dict) -> int:
         return await self.execute("crm.lead", "create", [payload])
 
+    # ------------------------------------------------- SLA follow-up cycle
+    # The advisor's day is driven by Odoo activities — "Activity Today", then
+    # "Overdue Activities". A lead carrying no activity is in neither list, so
+    # it is assigned to a human and then waits for someone to notice it. These
+    # three lookups are what it takes to put one there.
+    #
+    # All of them are cached on the instance: they resolve database-wide ids
+    # that do not change, and a lead should not cost four extra round-trips.
+
+    async def _ir_model_id(self, model: str) -> Optional[int]:
+        """`mail.activity` is keyed by ir.model id, not by the model name."""
+        cache = self.__dict__.setdefault("_model_ids", {})
+        if model not in cache:
+            rows = await self.search_read("ir.model", [["model", "=", model]],
+                                          ["id"], limit=1)
+            cache[model] = rows[0]["id"] if rows else None
+        return cache[model]
+
+    async def _activity_type_id(self) -> Optional[int]:
+        """The configured type, or any type at all.
+
+        Falling back matters more than picking the right label: an activity of
+        the wrong type still puts the lead in the advisor's list, and no
+        activity leaves it invisible.
+        """
+        if "_act_type" in self.__dict__:
+            return self.__dict__["_act_type"]
+        s = get_settings()
+        found = None
+        xmlid = (s.lead_activity_type_xmlid or "").strip()
+        if "." in xmlid:
+            module, name = xmlid.split(".", 1)
+            rows = await self.search_read(
+                "ir.model.data",
+                [["module", "=", module], ["name", "=", name]], ["res_id"], limit=1)
+            if rows:
+                found = rows[0]["res_id"]
+        if found is None:
+            rows = await self.search_read("mail.activity.type", [], ["id"],
+                                          limit=1, order="sequence")
+            found = rows[0]["id"] if rows else None
+        self.__dict__["_act_type"] = found
+        return found
+
+    async def utm_source_id(self, name: str) -> Optional[int]:
+        """The lead's source, created once if this database has not got it.
+
+        Without it Majed's leads cannot be counted or filtered apart from the
+        SLA's own three website buckets.
+        """
+        if not name:
+            return None
+        cache = self.__dict__.setdefault("_utm_sources", {})
+        if name not in cache:
+            rows = await self.search_read("utm.source", [["name", "=", name]],
+                                          ["id"], limit=1)
+            cache[name] = (rows[0]["id"] if rows
+                           else await self.execute("utm.source", "create",
+                                                   [{"name": name}]))
+        return cache[name]
+
+    async def schedule_activity(self, lead_id: int, *, user_id: int,
+                                summary: str, note: str = "",
+                                delay_days: int = 0) -> Optional[int]:
+        """Put a dated follow-up on a lead so the SLA can see it."""
+        model_id = await self._ir_model_id("crm.lead")
+        type_id = await self._activity_type_id()
+        if not model_id or not type_id:
+            log.warning("no activity type or ir.model for crm.lead — "
+                        "lead %s stays outside the follow-up cycle", lead_id)
+            return None
+        due = (datetime.utcnow() + timedelta(days=max(0, delay_days))).date()
+        return await self.execute("mail.activity", "create", [{
+            "res_model_id": model_id,
+            "res_id": lead_id,
+            "activity_type_id": type_id,
+            "summary": summary,
+            "note": note or "",
+            "user_id": user_id,
+            "date_deadline": due.strftime("%Y-%m-%d"),
+        }])
+
     # ------------------------------------------------------------- freshness
     async def latest_write_date(self, model: str, domain: list) -> Optional[str]:
         rows = await self.search_read(model, domain, ["write_date"],

@@ -529,6 +529,44 @@ Operation Group    →  training.package.group · .product.line
 website-editing rights. Prefer dedicated read-only ACLs. Verify with `GET
 /health` → `packages_available: true` and `packages_source: "odoo"`.
 
+### A lead has to enter the follow-up cycle, not just exist
+
+The Digital Sales SLA runs off Odoo activities: the advisor works «Activity
+Today», then «Overdue Activities». A lead carrying no activity appears in
+neither — it is assigned to a human and then quietly waits for somebody to
+notice it. Majed's leads were exactly that: created, assigned, invisible.
+
+`create_lead` now schedules a `mail.activity` on the lead, owned by the same
+advisor, due today (`LEAD_ACTIVITY_DELAY_DAYS=0`) — which is where the SLA wants
+a fresh website lead, called the same day it arrives. The qualification travels
+onto the activity note, so the advisor opens it already knowing who this is. It
+also stamps a `utm.source`, so Majed's leads are a countable bucket beside the
+SLA's own three (Unpaid · AbanteCart · Signup) instead of arriving anonymous.
+
+Both are best-effort and in that order of value: **a failure to schedule the
+follow-up must never cost the customer's phone number.** The lead is created
+first, the activity after, and the reply says which happened:
+
+```json
+{"lead_id": 5001, "assigned_to": 2, "activity_id": 9001, "in_followup_cycle": true}
+```
+
+`in_followup_cycle: false` means the lead exists but nobody is being prompted to
+call it — worth alerting on.
+
+| Variable | Default | |
+|---|---|---|
+| `LEAD_ACTIVITY_ENABLED` | `true` | off = previous behaviour |
+| `LEAD_ACTIVITY_DELAY_DAYS` | `0` | 0 = due today |
+| `LEAD_ACTIVITY_SUMMARY` | مكالمة أولى — عميل من ماجد | |
+| `LEAD_ACTIVITY_TYPE_XMLID` | `mail.mail_activity_data_call` | falls back to any type |
+| `LEAD_SOURCE_NAME` | ماجد — شات الموقع | created once if absent |
+
+The activity type is resolved from the xml id, then from any type at all: an
+activity of the wrong label still puts the lead in the advisor's list, and no
+activity leaves it invisible. `ALLOW_CRM_WRITES=false` suppresses lead, activity
+and source alike.
+
 ### Is every course actually priced?
 
 Nothing is converted between currencies: EGP, USD, AED and SAR are four
