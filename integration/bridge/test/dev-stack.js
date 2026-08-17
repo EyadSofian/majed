@@ -150,6 +150,10 @@ mock.get('/bp/wh1/conversations/bpconv-1/listen', (_q, r) => {
   r.write('retry: 1000\n\n');
   sseRes = r;
 });
+// يفضّي النص المحفوظ عشان كل تشغيل اختبار يبدأ من صفحة نضيفة — من غير كده
+// التاريخ المستعاد بيتراكم وبيخلط عدّ الكروت/الأزرار بين التشغيلات.
+mock.post('/reset', (_q, r) => { cwMessages.length = 0; r.json({ ok: true }); });
+
 // ── fake نبراس ──
 // نفس تعاقد الخدمة الحقيقية (guest-session ثم SSE) عشان الكروت تتولّد من
 // نفس المسار اللي بيشتغل في البرودكشن — مش HTML مرسوم بالإيد. السعر بيتبني
@@ -158,6 +162,24 @@ mock.post('/api/v1/user/guest-session/create/', (_q, r) =>
   r.json({ data: { guest_token: 'dev-guest-token' } }));
 
 const NB_MONEY = { SAR: [1_450, 3_900], EGP: [12_001, 23_750], AED: [1_400, 3_800], USD: [390, 990] };
+
+// خطوات الفانل زي ما هي في SLA – Digital Sales، عشان نتأكد إن الويدجت يقدر
+// يحملها فعلاً: ٨ اختيارات في «تحديد الحالة» و٤ في «تأكيد الاهتمام».
+const NB_FUNNEL = {
+  'ابدأ': { text: 'أهلًا بك. اختر حالتك حتى أرشّح لك الأنسب:', chips: [
+    'حديث التخرج', 'خبرة أقل من سنة', 'خبرة من سنة إلى سنتين',
+    'خبرة من سنتين إلى ٥ سنوات', 'خبرة أكثر من ٥ سنوات',
+    'أبحث عن وظيفة', 'أرغب في تغيير المجال', 'أخرى'] },
+  'حديث التخرج': { text: 'ما تخصصك الدقيق؟', chips: ['ميكانيكا', 'كهرباء', 'مدني', 'معماري'] },
+  'ميكانيكا': { text: 'وما مسماك الوظيفي الحالي؟', chips: ['مهندس', 'فني', 'مشرف', 'مدير', 'أخرى'] },
+  'مهندس': { text: 'وما هدفك من الدورة؟', chips: [
+    'التأهيل لسوق العمل', 'التصميم الهندسي', 'نمذجة وتقنيات BIM', 'شهادة احترافية أو إدارية'] },
+  'شهادة احترافية أو إدارية': { text: 'وما مجال عملك؟', chips: [
+    'إدارة المرافق', 'الصيانة والاعتمادية', 'إدارة المشاريع'] },
+  'تأكيد': { text: 'هل ترغب في التعرف على:', chips: [
+    'محتوى الدورة', 'موعد أقرب دفعة', 'الرسوم والعروض الحالية', 'نظام السداد والتقسيط'] },
+};
+
 mock.post('/api/v1/ai-chat/chat/', (q, r) => {
   const cur = String(q.body?.currency || 'EGP').toUpperCase();
   const [now, was] = NB_MONEY[cur] || NB_MONEY.EGP;
@@ -165,6 +187,23 @@ mock.post('/api/v1/ai-chat/chat/', (q, r) => {
   r.setHeader('Content-Type', 'text/event-stream');
   r.flushHeaders();
   const send = (o) => r.write(`data: ${JSON.stringify(o)}\n\n`);
+
+  // خطوة فانل؟ ردّ بنص + شيبس بس، من غير كروت.
+  const msg = String(q.body?.message || '').trim();
+  const step = NB_FUNNEL[msg];
+  if (step) {
+    let w = 0;
+    const parts = step.text.split(' ').map((x) => x + ' ');
+    const t = setInterval(() => {
+      if (w < parts.length) return send({ type: 'token', content: parts[w++] });
+      clearInterval(t);
+      send({ type: 'chips', chips: step.chips.map((c) => ({ title: c, value: c })) });
+      send({ type: 'done' });
+      r.end();
+    }, 40);
+    return;
+  }
+
   const words = ['أنصحك ', 'بدورة ', 'الأوتوكاد ', 'المتقدمة ', '— ', 'أقوى ', 'بداية ', 'للمهندس.'];
   let i = 0;
   const tick = setInterval(() => {
