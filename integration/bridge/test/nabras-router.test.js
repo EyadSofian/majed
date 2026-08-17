@@ -249,6 +249,43 @@ function delivered() {
 })();
 
 // ---------------------------------------------------------------------------
+// The resolver above is only as good as what the widget hands it. It used to
+// build its payload without `shop` and without `timezone`, so every branch
+// except the default was unreachable and a Saudi visitor was quoted in EGP
+// beside a page showing riyals. Guard the passthrough at the source.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  process.env.NABRAS_CURRENCY = 'EGP';
+  const { resolveCurrency } = require('../nabras');
+  const a = require('assert');
+  const fs = require('fs');
+  const path = require('path');
+  const widget = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'majed-widget.js'), 'utf8');
+
+  // the two keys the resolver reads must be produced by fetchUserContext
+  a.ok(/shop:\s*ctx\.shop\s*\|\|/.test(widget),
+    'widget must forward Odoo shop context (currency/country/lang)');
+  a.ok(/timezone:\s*browserTz\(\)/.test(widget),
+    'widget must send the browser timezone as the regional fallback');
+  // ...and the failure paths must not drop it back to a bare {}
+  a.strictEqual((widget.match(/return regionOnly\(\);/g) || []).length, 2,
+    'both the empty-context and fetch-failure paths must still send a region');
+
+  // the shapes the widget actually emits resolve the way production needs
+  const loggedInSaudi = { shop: { currency: 'SAR', country: 'SA' }, timezone: 'Asia/Riyadh' };
+  const guestEgypt = { shop: { currency: 'EGP', country: 'EG' }, timezone: 'Africa/Cairo' };
+  const oldOdooSaudi = { shop: {}, timezone: 'Asia/Riyadh' };   // module not upgraded
+  const endpointDown = { timezone: 'Asia/Riyadh' };             // regionOnly()
+  a.strictEqual(resolveCurrency(loggedInSaudi), 'SAR');
+  a.strictEqual(resolveCurrency(guestEgypt), 'EGP');
+  a.strictEqual(resolveCurrency(oldOdooSaudi), 'SAR');
+  a.strictEqual(resolveCurrency(endpointDown), 'SAR');
+
+  console.log('✅ widget passthrough: shop + timezone reach the currency resolver');
+})();
+
+// ---------------------------------------------------------------------------
 // Course names are translated in Odoo, so the reply must be titled in the same
 // language the page beside the chat is rendering.
 (() => {

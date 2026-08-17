@@ -14,7 +14,7 @@ import logging
 from odoo import http
 from odoo.http import request
 
-from ..utils.data_builder import build_full_payload
+from ..utils.data_builder import build_full_payload, build_shop_context
 
 _logger = logging.getLogger(__name__)
 
@@ -24,13 +24,26 @@ class AIUserContextController(http.Controller):
     @http.route(
         '/ai_webhook/user_context',
         type='http',
-        auth='user',
+        auth='public',
         methods=['GET'],
         cors='*',
     )
     def get_user_context(self, **kw):
-        """Return the full trainee context for the current logged-in user."""
+        """Return the visitor's context.
+
+        `auth='public'` on purpose: most of the sales funnel is guests, and a
+        guest still needs `shop` so the bot quotes them in the currency the page
+        beside it is already showing — a Saudi visitor in riyals, not pounds.
+        Guests get *only* that; trainee data stays behind the login check below.
+        """
         try:
+            if request.env.user._is_public():
+                return request.make_json_response({
+                    'user': {},
+                    'shop': build_shop_context(request.env),
+                    'courses': [],
+                    'learning_progress': {},
+                })
             uid = request.env.uid
             payload = build_full_payload(request.env, uid)
             return request.make_json_response(payload)

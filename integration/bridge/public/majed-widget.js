@@ -406,8 +406,11 @@
 
   // ---------- styles ----------
   var CSS = [
-    '@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700;800&display=swap");',
-    '#mjd-root{position:fixed;bottom:22px;left:22px;z-index:2147483000;direction:rtl;font-family:"Noto Sans Arabic",system-ui,sans-serif;font-kerning:normal}',
+    // Tajawal. It ships 400/500/700/800 but has no 600 — a requested 600 would
+    // be resolved by the browser up to 700 anyway, so the few 600 rules below
+    // are written as 700 rather than left to font-matching.
+    '@import url("https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap");',
+    '#mjd-root{position:fixed;bottom:22px;left:22px;z-index:2147483000;direction:rtl;font-family:"Tajawal",system-ui,sans-serif;font-kerning:normal}',
     '#mjd-root,#mjd-root *,#mjd-root *::before,#mjd-root *::after{box-sizing:border-box}',
     '#mjd-root[data-side="right"]{left:auto;right:22px}',
     '/* launcher */',
@@ -493,7 +496,7 @@
     '.mjd-mini{width:27px;height:27px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line)}',
     '.mjd-bub{font-size:13.5px;line-height:1.65;padding:10px 12px;border-radius:15px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;word-break:normal;text-align:start;max-width:100%;min-width:0}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
-    '.mjd-bub a{color:var(--brand);text-decoration:underline;font-weight:600;word-break:break-all}',
+    '.mjd-bub a{color:var(--brand);text-decoration:underline;font-weight:700;word-break:break-all}',
     '.mjd-me .mjd-bub a{color:#fff}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border-bottom-left-radius:6px}',
     '/* rich (markdown) bot message */',
@@ -561,7 +564,7 @@
     /* margin-inline-start flips with the RTL panel and glued the currency to
        the number ("2,500EGP"); a symmetric margin reads right in both. */
     '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin:0 4px}',
-    '.mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}',
+    '.mjd-price s{display:block;font-size:11px;font-weight:700;color:var(--soft)}',
     '.mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}',
     '.mjd-cta{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--mjd-space-control);width:100%;margin:0}',
     '.mjd-cta>:only-child{grid-column:1/-1}',
@@ -584,7 +587,7 @@
     '.mjd-pkg-op div:last-child{border-bottom:0}',
     '.mjd-pkg-op span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-pkg-op b{margin-inline-start:auto;font-weight:800;color:var(--text);white-space:nowrap}',
-    '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:600}',
+    '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:700}',
     '.mjd-crs-by svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}',
     '.mjd-buy svg{width:14px;height:14px;flex:0 0 14px}',
     '/* instructor card — a trainer is a face and a track record */',
@@ -724,7 +727,7 @@
     '.mjd-snd{width:44px;height:44px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand-2));box-shadow:0 8px 22px var(--focus);transition:transform .14s;flex:0 0 44px}',
     '.mjd-snd:hover{transform:scale(1.06)}.mjd-snd svg{width:18px;height:18px;transform:scaleX(-1)}',
     '.mjd-snd[disabled]{opacity:.55;cursor:default;transform:none}',
-    '.mjd-credit{text-align:center;font-size:10.5px;color:var(--soft);padding:7px 0 10px;background:var(--bar);font-weight:600}',
+    '.mjd-credit{text-align:center;font-size:10.5px;color:var(--soft);padding:7px 0 10px;background:var(--bar);font-weight:700}',
     '/* history overlay */',
     '.mjd-hist{position:absolute;inset:0;z-index:9;background:var(--bg);display:none;flex-direction:column}',
     '.mjd-hist.mjd-on{display:flex;animation:mjdHistIn .25s ease both}',
@@ -774,7 +777,11 @@
     '#mjd-edge img{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block}',
     '/* وصولية: حلقة تركيز واضحة لعناصر التفاعل */',
     '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible,.mjd-sub input:focus-visible,.mjd-sub button:focus-visible,.mjd-buy:focus-visible,.mjd-det:focus-visible{outline:2px solid #0252d9;outline-offset:2px}',
-    '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
+    // Scoped to #mjd-root on purpose. This stylesheet is appended to the host
+    // page's <head>, so a bare `*` here disabled every animation and transition
+    // on engosoft.com itself for any visitor with "reduce motion" on — the
+    // widget must quiet its own motion, not the site's.
+    '@media (prefers-reduced-motion:reduce){#mjd-root,#mjd-root *{animation:none!important;transition:none!important}}'
   ].join('');
 
   function inject(tag, attrs, html) {
@@ -1562,13 +1569,22 @@
   }
 
   // ---------- network ----------
+  function browserTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+    catch (e) { return ''; }
+  }
+  // Whatever else fails, still hand the bridge the visitor's region so it can
+  // pick a currency. Returning a bare {} here is what silently priced everyone
+  // in EGP when the Odoo endpoint was unreachable.
+  function regionOnly() { return { timezone: browserTz() }; }
+
   function fetchUserContext() {
     return fetch(USER_CTX_URL, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (ctx) {
         if (!ctx) {
           console.info('[Majed] user context: فارغ — زائر غير مسجّل أو /ai_webhook/user_context غير متاح');
-          return {};
+          return regionOnly();
         }
         var u = ctx.user || {}, lp = ctx.learning_progress || {};
         var out = {
@@ -1578,6 +1594,14 @@
             try { return document.documentElement.getAttribute('lang') || ''; }
             catch (e) { return ''; }
           })(),
+          // Odoo already resolved the visitor's pricelist currency/country, and
+          // the page beside the chat is rendering prices in it. Dropping this
+          // made the bridge fall back to its default and quote every visitor —
+          // Saudi ones included — in EGP. Pass it through untouched.
+          shop: ctx.shop || {},
+          // Fallback for when Odoo stayed silent (module not upgraded, geoip
+          // off). The browser's region is the same signal Odoo keys on.
+          timezone: browserTz(),
           name: u.name || '', email: u.email || '',
           odoo_user_id: String(u.user_id || ''),
           enrolled_courses: String(lp.total_courses_enrolled || 0),
@@ -1591,7 +1615,7 @@
       })
       .catch(function () {
         console.info('[Majed] user context fetch فشل — هيتعامل كزائر');
-        return {};
+        return regionOnly();
       });
   }
   function ensureCtx() {

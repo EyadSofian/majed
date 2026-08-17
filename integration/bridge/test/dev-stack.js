@@ -150,6 +150,59 @@ mock.get('/bp/wh1/conversations/bpconv-1/listen', (_q, r) => {
   r.write('retry: 1000\n\n');
   sseRes = r;
 });
+// ── fake نبراس ──
+// نفس تعاقد الخدمة الحقيقية (guest-session ثم SSE) عشان الكروت تتولّد من
+// نفس المسار اللي بيشتغل في البرودكشن — مش HTML مرسوم بالإيد. السعر بيتبني
+// من العملة اللي البريدج بعتها، فالكارت نفسه بيثبت SAR للسعودي وEGP للمصري.
+mock.post('/api/v1/user/guest-session/create/', (_q, r) =>
+  r.json({ data: { guest_token: 'dev-guest-token' } }));
+
+const NB_MONEY = { SAR: [1_450, 3_900], EGP: [12_001, 23_750], AED: [1_400, 3_800], USD: [390, 990] };
+mock.post('/api/v1/ai-chat/chat/', (q, r) => {
+  const cur = String(q.body?.currency || 'EGP').toUpperCase();
+  const [now, was] = NB_MONEY[cur] || NB_MONEY.EGP;
+  const fmt = (n) => `${n.toLocaleString('en-US')} ${cur}`;
+  r.setHeader('Content-Type', 'text/event-stream');
+  r.flushHeaders();
+  const send = (o) => r.write(`data: ${JSON.stringify(o)}\n\n`);
+  const words = ['أنصحك ', 'بدورة ', 'الأوتوكاد ', 'المتقدمة ', '— ', 'أقوى ', 'بداية ', 'للمهندس.'];
+  let i = 0;
+  const tick = setInterval(() => {
+    if (i < words.length) return send({ type: 'token', content: words[i++] });
+    clearInterval(tick);
+    send({ type: 'cards', course_cards: [
+      { course_id: 2107, title: 'أوتوكاد متقدم — تصميم تنفيذي',
+        url: 'https://engosoft.com/shop/autocad-2107', image_url: `http://localhost:${MOCK_PORT}/img/wide.png`,
+        price_display: fmt(now), was_display: fmt(was), delivery: 'مسجّل + بث مباشر',
+        duration_text: '15 ساعة', rating: 4.8,
+        next_batch: { starts_at: '2026-09-02 18:00:00', seats_available: 3 },
+        checkout_url: 'https://engosoft.com/shop/cart/update?product_id=2059' },
+      { course_id: 2108, title: 'ريفيت معماري — من الصفر للاحتراف',
+        url: 'https://engosoft.com/shop/revit-2108', image_url: `http://localhost:${MOCK_PORT}/img/wide.png`,
+        price_display: fmt(Math.round(now * 1.2)), delivery: 'حضوري — الرياض',
+        duration_text: '24 ساعة', rating: 4.6,
+        next_batch: { starts_at: '2026-09-10 17:00:00', seats_available: 8 } },
+    ] });
+    send({ type: 'packages', package_cards: [
+      { package_id: 5, title: 'المسار الميكانيكي الشامل',
+        url: 'https://engosoft.com/training_package/mechanical-5',
+        price_from_display: fmt(Math.round(now * 2.4)), courses_count: 6,
+        training_hours: 161, attendance: 'أونلاين أو حضوري',
+        price_options: [
+          { mode: 'recorded', label: 'مسجّل', price_display: fmt(Math.round(now * 2.4)), was_display: fmt(Math.round(was * 2.4)) },
+          { mode: 'attendance_online', label: 'أونلاين — دفعة سبتمبر', price_display: fmt(Math.round(now * 3)) },
+        ] },
+    ] });
+    send({ type: 'chips', chips: [
+      { title: 'إيه أقرب دفعة؟', value: 'إيه أقرب دفعة؟' },
+      { title: 'فيه خصم؟', value: 'فيه خصم؟' },
+      { title: 'عايز أكلم المبيعات', value: 'عايز أكلم المبيعات' },
+    ] });
+    send({ type: 'done' });
+    r.end();
+  }, 60);
+});
+
 mock.listen(MOCK_PORT, () => console.log(`mock chatwoot+botpress on :${MOCK_PORT}`));
 
 // ── bridge (spawned with mock env) ──
@@ -165,6 +218,10 @@ const bridge = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')],
     BOTPRESS_CHAT_WEBHOOK_ID: 'wh1',
     WIDGET_ORIGIN: '*',
     WELCOME_ENABLED: 'true',
+    // نبراس المزيّف شغّال للكل، عشان الكروت تترسم في صفحة الاختبار
+    NABRAS_ENABLED: 'true',
+    NABRAS_URL: `http://localhost:${MOCK_PORT}`,
+    NABRAS_ALLOW: '*',
   },
   stdio: 'inherit',
 });
@@ -180,7 +237,12 @@ page.get('/test.html', (q, r) => {
       ? `avatarUrl: '/ai_user_context_webhook/static/src/img/majed-avatar.png',`
       : '';
   // ?guest=1 → زائر بدون لوجين (يفعّل تيزر العرض المجاني guestOnly)
-  const ctxUrl = q.query.guest ? '/fake-user-context?guest=1' : '/fake-user-context';
+  // ?country=/?noshop= بتتمرّر لسياق أودو المزيّف لاختبار العملة
+  const ctxQs = new URLSearchParams();
+  if (q.query.guest) ctxQs.set('guest', '1');
+  if (q.query.country) ctxQs.set('country', String(q.query.country));
+  if (q.query.noshop) ctxQs.set('noshop', '1');
+  const ctxUrl = '/fake-user-context' + (ctxQs.toString() ? `?${ctxQs}` : '');
   // ?rotate=60000 → إبطاء تبديل التيزر (مفيد لفحص أزرار العرض بدون سباق مع الدوران)
   const rotateMs = Number(q.query.rotate) || 9000;
   const blocks = Array.from({ length: 14 }, (_, i) =>
@@ -205,14 +267,25 @@ ${blocks}
 <script src="http://localhost:${BRIDGE_PORT}/majed-widget.js?v=dev"></script>
 </body></html>`);
 });
-// fake logged-in Odoo user context (same shape as /ai_webhook/user_context)
-// ?guest=1 → زائر: لا يوجد user (يحاكي زيارة قبل تسجيل الدخول)
+// fake Odoo user context (same shape as /ai_webhook/user_context)
+// ?guest=1    → زائر بدون لوجين — لسه بيرجّع shop زي الراوت الحقيقي (auth='public')
+// ?country=EG → يحاكي بلد/عملة الزائر اللي أودو حلّها من البرايس ليست
+// ?noshop=1   → يحاكي موديول أودو قديم (من غير shop) لاختبار السقوط على التايم زون
+const SHOP_BY_COUNTRY = {
+  SA: { currency: 'SAR', country: 'SA', lang: 'ar_001', pricelist: 'Saudi Riyal' },
+  EG: { currency: 'EGP', country: 'EG', lang: 'ar_001', pricelist: 'Egypt EGP' },
+  AE: { currency: 'AED', country: 'AE', lang: 'ar_001', pricelist: 'UAE Dirham' },
+};
 page.get('/fake-user-context', (q, r) => {
-  if (q.query.guest) return r.json({});
+  const shop = q.query.noshop ? undefined
+    : (SHOP_BY_COUNTRY[String(q.query.country || 'SA').toUpperCase()] || SHOP_BY_COUNTRY.SA);
+  const base = shop ? { shop } : {};
+  if (q.query.guest) return r.json({ user: {}, courses: [], learning_progress: {}, ...base });
   return r.json({
     user: { name: 'إياد سفيان', email: 'eyad@example.com', user_id: 7 },
     learning_progress: { total_courses_enrolled: 2, total_remaining_lessons: 7, average_progress: 64 },
     courses: [{ course_name: 'التصميم الداخلي', progress_percentage: 64, remaining_lessons: 7 }],
+    ...base,
   });
 });
 page.listen(PAGE_PORT, () => console.log(`test page on http://localhost:${PAGE_PORT}/test.html`));
