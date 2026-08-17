@@ -529,6 +529,32 @@ Operation Group    →  training.package.group · .product.line
 website-editing rights. Prefer dedicated read-only ACLs. Verify with `GET
 /health` → `packages_available: true` and `packages_source: "odoo"`.
 
+### Is every course actually priced?
+
+Nothing is converted between currencies: EGP, USD, AED and SAR are four
+hand-priced lists (28 · 27 · 29 · 9). So a course can be fully priced in pounds
+and have no row at all in riyals, and a Saudi visitor is told "the team will
+confirm the price" instead of a number. That is not an error — `get_price`
+returns `no_price_rule` and the prompt correctly refuses to guess — which is
+exactly why it stays invisible until a customer hits it.
+
+```bash
+python scripts/price_coverage.py            # all four currencies
+python scripts/price_coverage.py SAR        # one
+python scripts/price_coverage.py --csv gaps.csv
+```
+
+It calls `odoo.fetch_prices`, the same function the bot calls, so the report
+cannot disagree with what a visitor is told. It then re-reads the raw pricelist
+rows to separate the two causes, because they have different owners:
+
+| | meaning |
+|---|---|
+| **missing** | no row exists — someone has to price this course in this list |
+| **unusable** | a row exists but is skipped, with the reason: a `compute_price` other than `fixed`, an expired or future date, a `min_quantity` above 1 |
+
+Exits `1` when any gap is found, so it can run on a schedule and complain.
+
 ### Other known limits
 
 - Rate limits are in-process dicts — fine for one replica, needs Redis beyond that.
