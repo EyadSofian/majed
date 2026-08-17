@@ -48,9 +48,10 @@ const TZ_CURRENCY = [
  * silent. Hardcoding one currency quotes a Saudi visitor in Egyptian pounds.
  */
 // Where is this visitor? Odoo resolved it per visitor (geoip / their partner
-// record), and the prompt has rules that hinge on it: onsite classes run in
-// Riyadh only, and the branch contact number differs. Currency is the fallback
-// because the shop keys both off the same signal.
+// record), and the prompt needs it because onsite classes run in Riyadh only —
+// a visitor elsewhere has to hear that before checkout, not after. Currency is
+// the fallback, since the shop keys both off the same signal. Not used to pick
+// a contact number: those lines are the same for every country.
 const CURRENCY_COUNTRY = { EGP: 'EG', SAR: 'SA', AED: 'AE' };
 function resolveCountry(userData) {
   const direct = String(userData?.shop?.country || userData?.country || '')
