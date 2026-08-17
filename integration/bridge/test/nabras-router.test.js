@@ -286,6 +286,35 @@ function delivered() {
 })();
 
 // ---------------------------------------------------------------------------
+// The prompt has rules that hinge on where the visitor is — onsite classes run
+// in Riyadh only, and the branch contact number differs — but nothing was
+// sending a country, so the model answered an Egyptian visitor as if they were
+// in Saudi Arabia. Currency is the fallback: the shop keys both off one signal.
+(() => {
+  delete require.cache[require.resolve('../nabras')];
+  process.env.NABRAS_CURRENCY = 'EGP';
+  const { resolveCountry } = require('../nabras');
+  const a = require('assert');
+
+  // 1. Odoo said so outright
+  a.strictEqual(resolveCountry({ shop: { country: 'EG', currency: 'EGP' } }), 'EG');
+  a.strictEqual(resolveCountry({ shop: { country: 'sa' } }), 'SA');
+  // 2. no country on the shop -> infer it from the currency it did resolve
+  a.strictEqual(resolveCountry({ shop: { currency: 'SAR' } }), 'SA');
+  a.strictEqual(resolveCountry({ shop: { currency: 'AED' } }), 'AE');
+  // 3. nothing from Odoo at all -> the browser region still decides
+  a.strictEqual(resolveCountry({ timezone: 'Asia/Riyadh' }), 'SA');
+  // 4. junk never reaches the prompt as a country
+  a.strictEqual(resolveCountry({ shop: { country: 'xx1', currency: 'SAR' } }), 'SA');
+  a.strictEqual(resolveCountry({ shop: { country: '<script>' } }), 'EG'); // falls to default currency
+  a.strictEqual(resolveCountry(null), 'EG');
+  // 5. USD has no single country — better to say nothing than guess one
+  a.strictEqual(resolveCountry({ shop: { currency: 'USD' } }), '');
+
+  console.log('✅ country: site first, then currency, and junk never leaks');
+})();
+
+// ---------------------------------------------------------------------------
 // Course names are translated in Odoo, so the reply must be titled in the same
 // language the page beside the chat is rendering.
 (() => {

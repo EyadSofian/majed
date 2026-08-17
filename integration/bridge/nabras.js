@@ -47,6 +47,18 @@ const TZ_CURRENCY = [
  * rendering prices in it. So we ask the site, and only guess if it stayed
  * silent. Hardcoding one currency quotes a Saudi visitor in Egyptian pounds.
  */
+// Where is this visitor? Odoo resolved it per visitor (geoip / their partner
+// record), and the prompt has rules that hinge on it: onsite classes run in
+// Riyadh only, and the branch contact number differs. Currency is the fallback
+// because the shop keys both off the same signal.
+const CURRENCY_COUNTRY = { EGP: 'EG', SAR: 'SA', AED: 'AE' };
+function resolveCountry(userData) {
+  const direct = String(userData?.shop?.country || userData?.country || '')
+    .trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(direct)) return direct;
+  return CURRENCY_COUNTRY[resolveCurrency(userData)] || '';
+}
+
 function resolveCurrency(userData) {
   const up = (v) => String(v || '').trim().toUpperCase();
   // 1. authoritative: the website's active pricelist, via /ai_webhook/user_context
@@ -420,6 +432,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
       `${c.base}/api/v1/ai-chat/chat/`,
       { message: text, fahem_session_id: `cw_${cwConvId}`, language: 'auto',
         currency: resolveCurrency(userData), lang: resolveLang(userData),
+        country: resolveCountry(userData) || undefined,
         page_type: pageType || undefined, slug: slug || undefined,
         history: compactHistory(history) },
       { headers: { 'X-Guest-Token': token, 'Content-Type': 'application/json' },
@@ -508,6 +521,6 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   return true;
 }
 
-module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency,
+module.exports = { tryNabras, allowed, toWidgetCards, resolveCurrency, resolveCountry,
                    resolveLang, compactHistory, consumeSseStream, isTrackIntent,
                    finalizeSalesReply, cfg };
