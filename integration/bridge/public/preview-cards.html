@@ -7,6 +7,11 @@
 <style>
 /* ===========================================================================
    معاينة شكل الكروت جوّه شات ماجد — قبل وبعد.
+   ⚠️ الصفحة دي نسخة يدوية بتتأخّر عن الودجت. آخر مقارنة لقت ٢٣ قاعدة من ٤٥
+   مختلفة عن `majed-widget.js` (منها `.mjd-cta` flex بدل grid). للمعاينة الحقيقية
+   شغّل `node test/dev-stack.js` وافتح `localhost:4810/test.html` واسأل عن كورس —
+   ده بيرندر الكروت بالودجت نفسه. استعمل دي للاسكتشات السريعة بس.
+
    الأنماط دي نسخة طبق الأصل من CSS الودجت (majed-widget.js) عشان اللي تشوفه
    هنا هو بالظبط اللي العميل هيشوفه.
    =========================================================================== */
@@ -78,7 +83,9 @@ header p{margin:0;color:var(--dim);font-size:14.5px;max-width:62ch}
 .mjd-crs-ft{display:flex;align-items:center;gap:9px;padding:9px 11px;margin-top:9px;border-top:1px solid var(--line)}
 .mjd-price{font-size:15px;font-weight:800;line-height:1.15;color:#7c5cff;white-space:nowrap;
   font-variant-numeric:tabular-nums}
-.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin-inline-start:3px}
+/* margin-inline-start ينقلب مع اللوحة RTL فكان بيلزّق العملة في الرقم
+   («2,500EGP»). هامش متماثل يقرا صح في الاتجاهين — منقول من الودجت. */
+.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin:0 4px}
 .mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}
 .mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}
 .mjd-cta{display:flex;gap:7px;margin-inline-start:auto}

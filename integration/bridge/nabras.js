@@ -38,6 +38,14 @@ const TZ_CURRENCY = [
   [/^Asia\/(Riyadh|Qatar|Bahrain|Kuwait|Aden)/i, 'SAR'],
   [/^Asia\/(Dubai|Muscat)/i, 'AED'],
 ];
+// Odoo's geoip country code. A timezone is a guess about where somebody is; a
+// country code is the answer, and it survives a traveller or a VPN-set clock.
+// Same policy as TZ_CURRENCY above, keyed on the better signal.
+const COUNTRY_CURRENCY = {
+  EG: 'EGP',
+  SA: 'SAR', QA: 'SAR', BH: 'SAR', KW: 'SAR', YE: 'SAR',
+  AE: 'AED', OM: 'AED',
+};
 
 /**
  * What currency is this visitor actually being shown?
@@ -52,10 +60,13 @@ function resolveCurrency(userData) {
   // 1. authoritative: the website's active pricelist, via /ai_webhook/user_context
   const fromSite = up(userData?.shop?.currency || userData?.currency);
   if (SUPPORTED.includes(fromSite)) return fromSite;
-  // 2. the visitor's browser region
+  // 2. the country Odoo resolved for this visitor (geoip)
+  const country = up(userData?.shop?.country || userData?.country);
+  if (COUNTRY_CURRENCY[country]) return COUNTRY_CURRENCY[country];
+  // 3. the visitor's browser region
   const tz = String(userData?.timezone || userData?.tz || '');
   for (const [re, cur] of TZ_CURRENCY) if (re.test(tz)) return cur;
-  // 3. configured default
+  // 4. configured default
   const fallback = up(cfg().currency);
   return SUPPORTED.includes(fallback) ? fallback : 'EGP';
 }

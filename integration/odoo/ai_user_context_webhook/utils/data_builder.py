@@ -272,6 +272,33 @@ def build_shop_context(env):
     return ctx
 
 
+def build_guest_payload(env):
+    """Context for a visitor who is not logged in.
+
+    Only the shop context is knowable for a guest — currency, language and
+    country come from the website and geoip, not from a user record. Without
+    it every anonymous visitor is quoted in the fallback currency, so a Saudi
+    visitor reads riyals on the page and pounds in the chat.
+
+    Everything trainee-shaped stays empty: a guest payload must never be able
+    to carry another user's data.
+    """
+    return {
+        'user': {},
+        'shop': build_shop_context(env),
+        'courses': [],
+        'learning_progress': {
+            'total_courses_enrolled': 0,
+            'average_progress': 0,
+            'total_completed_lessons': 0,
+            'total_remaining_lessons': 0,
+        },
+        'events': [],
+        'is_guest': True,
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+    }
+
+
 def build_full_payload(env, uid):
     """Assemble the complete webhook payload for a user."""
     user_data = build_user_data(env, uid)

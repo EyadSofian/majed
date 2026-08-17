@@ -15,6 +15,7 @@ const { spawn } = require('child_process');
 
 const MOCK_PORT = 4811;
 const BRIDGE_PORT = 4812;
+const NABRAS_PORT = 4813;
 const PAGE_PORT = process.env.PORT || 4810;
 
 // ── tiny PNG generator (no deps) — wide/tall gradient images for crop testing ──
@@ -93,6 +94,10 @@ mock.post('/api/v1/accounts/2/conversations/:id/messages', (q, r) => {
   r.json({ id, content: q.body.content, message_type: q.body.message_type, content_type: q.body.content_type, content_attributes: q.body.content_attributes });
 });
 mock.get('/up/:f', (_q, r) => r.sendFile(path.join(__dirname, '..', 'public', 'majed-avatar.png')));
+// Wipe the fake transcript. The widget restores history for the same contact,
+// so back-to-back scenarios otherwise stack on top of each other and a
+// screenshot shows the previous run's cards.
+mock.post('/reset', (_q, r) => { cwMessages.length = 0; r.json({ ok: true, cleared: true }); });
 // صور اختبار العرض: عريضة/طويلة/بدون امتداد (نفس شكل روابط bpcontent) — و404 لاختبار الـ fallback
 mock.get('/img/wide.png', (_q, r) => r.type('png').send(PNG_WIDE));
 mock.get('/img/tall.png', (_q, r) => r.type('png').send(PNG_TALL));
@@ -152,6 +157,90 @@ mock.get('/bp/wh1/conversations/bpconv-1/listen', (_q, r) => {
 });
 mock.listen(MOCK_PORT, () => console.log(`mock chatwoot+botpress on :${MOCK_PORT}`));
 
+// ── fake نبراس ──────────────────────────────────────────────────────────────
+// The Botpress mock above cannot produce course/track/instructor cards, so the
+// rich cards were only ever reviewable on preview-cards.html — a hand-copied
+// page whose CSS has drifted from the widget. This streams the real SSE shape
+// through the real router, so what renders here is what a customer gets.
+//
+// Prices are formatted in whatever currency the router resolved for the
+// visitor, which is also the visible proof that /test.html?country=SA quotes
+// riyals rather than the configured default.
+const nb = express();
+nb.use(express.json());
+const money = (n, cur) => `${n.toLocaleString('en-US')} ${cur}`;
+const CARD_TRIGGER = /كورس|دورة|مسار|سعر|باقة|مدرب|محاضر/;
+
+nb.post('/api/v1/user/guest-session/create/', (_q, r) =>
+  r.json({ data: { guest_token: 'dev-guest-token' } }));
+
+nb.post('/api/v1/ai-chat/chat/', (q, r) => {
+  const cur = String(q.body?.currency || 'EGP').toUpperCase();
+  const msg = String(q.body?.message || '');
+  r.setHeader('Content-Type', 'text/event-stream');
+  r.flushHeaders();
+  const send = (o) => r.write(`data: ${JSON.stringify(o)}\n\n`);
+
+  // Anything without a catalogue answer goes back to Botpress, so the existing
+  // dev scenarios («اختيارات» · «صورة عريضة» …) keep working unchanged.
+  if (!CARD_TRIGGER.test(msg)) {
+    send({ type: 'defer', reason: 'no catalogue intent in dev stack' });
+    send({ type: 'done' });
+    return r.end();
+  }
+
+  for (const t of ['بناءً على ما ذكرت، ', 'أرشّح لك المسار التالي ', 'مع أقرب دفعة متاحة.'])
+    send({ type: 'token', content: t });
+
+  send({ type: 'packages', package_cards: [{
+    package_id: 5, title: 'Interior Design Professional Track',
+    url: 'https://engosoft.com/training_package/interior-design-5',
+    price_from_display: money(12001, cur), courses_count: 6, training_hours: 161,
+    attendance: 'أونلاين أو حضوري',
+    price_options: [
+      { mode: 'recorded', label: 'مسجّل — تبدأ فورًا', price_display: money(12001, cur), was_display: money(23750, cur) },
+      { mode: 'attendance_online', label: 'حضوري أونلاين — دفعة يوليو', price_display: money(15000, cur) },
+      { mode: 'attendance_onsite', label: 'حضوري بالمقر — دفعة أغسطس', price_display: money(33750, cur) },
+    ],
+  }] });
+
+  send({ type: 'cards', currency: cur, course_cards: [
+    { course_id: 2107, title: 'Navisworks MEP Coordination', currency: cur,
+      url: 'https://engosoft.com/shop/navisworks-mep-2107',
+      image_url: `http://localhost:${MOCK_PORT}/img/wide.png`,
+      price_display: money(4815, cur), rating: 4.9, delivery: 'مسجّل',
+      duration_text: '15 ساعة', instructors: ['Mohamed Mostafa'],
+      next_batch: { starts_at: '2026-08-20 16:00:00', timezone: 'Asia/Riyadh',
+        location: 'الرياض', seats_available: 3, registration_open: true },
+      batches_count: 2,
+      checkout_url: 'https://engosoft.com/shop/cart/update?product_id=2059&express=1' },
+    { course_id: 2210, title: 'PMP Preparation Course - 8th Edition', currency: cur,
+      url: 'https://engosoft.com/shop/pmp-2210',
+      price_display: money(6900, cur), rating: 5.0, delivery: 'حضوري + تسجيل',
+      duration_text: '36 ساعة معتمدة', instructors: ['Dr. Ayman Atef'],
+      next_batch: { starts_at: '2026-09-12 18:00:00', timezone: 'Asia/Riyadh',
+        location: 'أونلاين', seats_available: 14, registration_open: true },
+      batches_count: 3,
+      checkout_url: 'https://engosoft.com/shop/cart/update?product_id=2211&express=1' },
+  ] });
+
+  send({ type: 'instructors', instructor_cards: [{
+    id: 4129, name: 'Dr. Ayman Atef Ali Fawzy', title: 'PRIMAVERA & PMP Instructor',
+    image_url: '', courses_count: 3, teaches: ['PMP Preparation Course', 'Primavera P6', 'CAPM'],
+  }] });
+
+  // نفس شكل الخدمة الحقيقية: {title, value} — العنوان للعميل والقيمة للبوت.
+  send({ type: 'chips', chips: [
+    { title: 'ميكانيكا', value: 'أنا في تخصص mechanical' },
+    { title: 'كهرباء', value: 'أنا في تخصص electrical' },
+    { title: 'مدني وإنشائي', value: 'أنا في تخصص civil' },
+    { title: 'BIM — نمذجة المعلومات', value: 'أنا في تخصص bim' },
+  ] });
+  send({ type: 'done' });
+  r.end();
+});
+nb.listen(NABRAS_PORT, () => console.log(`fake nabras on :${NABRAS_PORT}`));
+
 // ── bridge (spawned with mock env) ──
 const bridge = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')], {
   env: {
@@ -165,6 +254,12 @@ const bridge = spawn(process.execPath, [path.join(__dirname, '..', 'index.js')],
     BOTPRESS_CHAT_WEBHOOK_ID: 'wh1',
     WIDGET_ORIGIN: '*',
     WELCOME_ENABLED: 'true',
+    // نبراس on, for everyone, against the fake service above. It defers any
+    // message with no catalogue intent, so the Botpress scenarios still run.
+    NABRAS_ENABLED: 'true',
+    NABRAS_URL: `http://localhost:${NABRAS_PORT}`,
+    NABRAS_ALLOW: '*',
+    NABRAS_CURRENCY: 'EGP',
   },
   stdio: 'inherit',
 });
@@ -180,7 +275,11 @@ page.get('/test.html', (q, r) => {
       ? `avatarUrl: '/ai_user_context_webhook/static/src/img/majed-avatar.png',`
       : '';
   // ?guest=1 → زائر بدون لوجين (يفعّل تيزر العرض المجاني guestOnly)
-  const ctxUrl = q.query.guest ? '/fake-user-context?guest=1' : '/fake-user-context';
+  // ?country=SA → زائر سعودي، عشان نتأكد إن التسعير بيطلع بالريال مش بالجنيه
+  const ctxQs = [q.query.guest ? 'guest=1' : '',
+    q.query.country ? 'country=' + encodeURIComponent(q.query.country) : '']
+    .filter(Boolean).join('&');
+  const ctxUrl = '/fake-user-context' + (ctxQs ? '?' + ctxQs : '');
   // ?rotate=60000 → إبطاء تبديل التيزر (مفيد لفحص أزرار العرض بدون سباق مع الدوران)
   const rotateMs = Number(q.query.rotate) || 9000;
   const blocks = Array.from({ length: 14 }, (_, i) =>
@@ -205,13 +304,33 @@ ${blocks}
 <script src="http://localhost:${BRIDGE_PORT}/majed-widget.js?v=dev"></script>
 </body></html>`);
 });
-// fake logged-in Odoo user context (same shape as /ai_webhook/user_context)
-// ?guest=1 → زائر: لا يوجد user (يحاكي زيارة قبل تسجيل الدخول)
+// fake Odoo user context (same shape as /ai_webhook/user_context)
+//   ?guest=1     → زائر مش مسجّل: الموديول بيرجّع shop بس، من غير user
+//   ?country=SA  → زائر سعودي (ريال) — الافتراضي مصري (جنيه)
+// الـ shop هو اللي بيحدّد عملة التسعير، فلازم يبقى في الموك زي الحقيقي بالظبط.
+const SHOP_BY_COUNTRY = {
+  SA: { currency: 'SAR', country: 'SA', lang: 'ar_001', pricelist: 'Saudi Riyal', pricelist_id: 9 },
+  EG: { currency: 'EGP', country: 'EG', lang: 'ar_001', pricelist: 'Egypt EGP', pricelist_id: 28 },
+  AE: { currency: 'AED', country: 'AE', lang: 'ar_001', pricelist: 'UAE AED', pricelist_id: 29 },
+};
+const TZ_BY_COUNTRY = { SA: 'Asia/Riyadh', EG: 'Africa/Cairo', AE: 'Asia/Dubai' };
 page.get('/fake-user-context', (q, r) => {
-  if (q.query.guest) return r.json({});
+  const cc = String(q.query.country || 'EG').toUpperCase();
+  const shop = SHOP_BY_COUNTRY[cc] || SHOP_BY_COUNTRY.EG;
+  const base = {
+    shop,
+    learning_progress: { total_courses_enrolled: 0, average_progress: 0,
+      total_completed_lessons: 0, total_remaining_lessons: 0 },
+    courses: [], events: [],
+  };
+  // زائر: نفس اللي الموديول بيرجّعه دلوقتي — shop موجود، user فاضي.
+  if (q.query.guest) return r.json({ ...base, user: {}, is_guest: true });
   return r.json({
-    user: { name: 'إياد سفيان', email: 'eyad@example.com', user_id: 7 },
-    learning_progress: { total_courses_enrolled: 2, total_remaining_lessons: 7, average_progress: 64 },
+    ...base,
+    user: { name: 'إياد سفيان', email: 'eyad@example.com', user_id: 7,
+            timezone: TZ_BY_COUNTRY[cc] || 'Africa/Cairo', language: 'ar_001' },
+    learning_progress: { total_courses_enrolled: 2, total_remaining_lessons: 7,
+      average_progress: 64, total_completed_lessons: 12 },
     courses: [{ course_name: 'التصميم الداخلي', progress_percentage: 64, remaining_lessons: 7 }],
   });
 });

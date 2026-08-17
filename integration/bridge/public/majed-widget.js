@@ -406,8 +406,10 @@
 
   // ---------- styles ----------
   var CSS = [
-    '@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700;800&display=swap");',
-    '#mjd-root{position:fixed;bottom:22px;left:22px;z-index:2147483000;direction:rtl;font-family:"Noto Sans Arabic",system-ui,sans-serif;font-kerning:normal}',
+    /* Tajawal مفيهوش وزن 600 (أوزانه 200/300/400/500/700/800/900)، فالقواعد
+       اللي كانت 600 اتكتبت 700 صراحةً بدل ما نسيب المتصفح يقرّبها لوحده. */
+    '@import url("https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap");',
+    '#mjd-root{position:fixed;bottom:22px;left:22px;z-index:2147483000;direction:rtl;font-family:"Tajawal",system-ui,sans-serif;font-kerning:normal}',
     '#mjd-root,#mjd-root *,#mjd-root *::before,#mjd-root *::after{box-sizing:border-box}',
     '#mjd-root[data-side="right"]{left:auto;right:22px}',
     '/* launcher */',
@@ -493,7 +495,7 @@
     '.mjd-mini{width:27px;height:27px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line)}',
     '.mjd-bub{font-size:13.5px;line-height:1.65;padding:10px 12px;border-radius:15px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;word-break:normal;text-align:start;max-width:100%;min-width:0}',
     '.mjd-bot .mjd-bub{background:var(--surf);border:1px solid var(--botbd);border-bottom-right-radius:6px}',
-    '.mjd-bub a{color:var(--brand);text-decoration:underline;font-weight:600;word-break:break-all}',
+    '.mjd-bub a{color:var(--brand);text-decoration:underline;font-weight:700;word-break:break-all}',
     '.mjd-me .mjd-bub a{color:#fff}',
     '.mjd-me .mjd-bub{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border-bottom-left-radius:6px}',
     '/* rich (markdown) bot message */',
@@ -561,7 +563,7 @@
     /* margin-inline-start flips with the RTL panel and glued the currency to
        the number ("2,500EGP"); a symmetric margin reads right in both. */
     '.mjd-price i{font-style:normal;font-size:11.5px;font-weight:800;color:var(--muted);margin:0 4px}',
-    '.mjd-price s{display:block;font-size:11px;font-weight:600;color:var(--soft)}',
+    '.mjd-price s{display:block;font-size:11px;font-weight:700;color:var(--soft)}',
     '.mjd-price em{font-style:normal;font-size:11.5px;color:var(--muted);font-weight:700;display:block}',
     '.mjd-cta{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--mjd-space-control);width:100%;margin:0}',
     '.mjd-cta>:only-child{grid-column:1/-1}',
@@ -584,7 +586,7 @@
     '.mjd-pkg-op div:last-child{border-bottom:0}',
     '.mjd-pkg-op span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.mjd-pkg-op b{margin-inline-start:auto;font-weight:800;color:var(--text);white-space:nowrap}',
-    '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:600}',
+    '.mjd-pkg-op s{color:var(--soft);font-size:11px;font-weight:700}',
     '.mjd-crs-by svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}',
     '.mjd-buy svg{width:14px;height:14px;flex:0 0 14px}',
     '/* instructor card — a trainer is a face and a track record */',
@@ -724,7 +726,7 @@
     '.mjd-snd{width:44px;height:44px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand-2));box-shadow:0 8px 22px var(--focus);transition:transform .14s;flex:0 0 44px}',
     '.mjd-snd:hover{transform:scale(1.06)}.mjd-snd svg{width:18px;height:18px;transform:scaleX(-1)}',
     '.mjd-snd[disabled]{opacity:.55;cursor:default;transform:none}',
-    '.mjd-credit{text-align:center;font-size:10.5px;color:var(--soft);padding:7px 0 10px;background:var(--bar);font-weight:600}',
+    '.mjd-credit{text-align:center;font-size:10.5px;color:var(--soft);padding:7px 0 10px;background:var(--bar);font-weight:700}',
     '/* history overlay */',
     '.mjd-hist{position:absolute;inset:0;z-index:9;background:var(--bg);display:none;flex-direction:column}',
     '.mjd-hist.mjd-on{display:flex;animation:mjdHistIn .25s ease both}',
@@ -774,7 +776,9 @@
     '#mjd-edge img{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block}',
     '/* وصولية: حلقة تركيز واضحة لعناصر التفاعل */',
     '#mjd-fab:focus-visible,#mjd-edge:focus-visible,.mjd-ic:focus-visible,.mjd-opt:focus-visible,.mjd-snd:focus-visible,.mjd-att-btn:focus-visible,.mjd-full:focus-visible,.mjd-hrow:focus-visible,.mjd-sub input:focus-visible,.mjd-sub button:focus-visible,.mjd-buy:focus-visible,.mjd-det:focus-visible{outline:2px solid #0252d9;outline-offset:2px}',
-    '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
+    /* الويدجت بيحقن الستايل ده في صفحة العميل، فـ `*` المجرّدة كانت بتوقف
+       أنيميشن الموقع المستضيف كله كمان — مش بتاعنا بس. مقصورة على شجرتنا. */
+    '@media (prefers-reduced-motion:reduce){#mjd-root,#mjd-root *{animation:none!important;transition:none!important}}'
   ].join('');
 
   function inject(tag, attrs, html) {
@@ -869,7 +873,44 @@
   var histLs = document.getElementById('mjd-hist-ls');
 
   // ---------- rendering ----------
-  function scrollDown() { bd.scrollTop = bd.scrollHeight; }
+  // بنفضل ملزّقين في آخر المحادثة لحد ما الرد الجديد يستقر.
+  // سكرول واحد متزامن بيقف ناقص: صورة الكارت بتخلص تحميل بعد ما العنصر
+  // يتحط، فالمحتوى بيكبر بعدها ويفضل آخر صف — غالبًا أزرار الاختيارات —
+  // مقصوص تحت شريط الكتابة. العميل كان لازم يسحب بإيده عشان يشوفه.
+  var stickBottom = true;
+  function pinBottom() { if (stickBottom) bd.scrollTop = bd.scrollHeight; }
+  function scrollDown() {
+    stickBottom = true;
+    bd.scrollTop = bd.scrollHeight;
+    requestAnimationFrame(pinBottom);
+  }
+  // لو العميل سحب لفوق بنفسه، هو اللي يكسب — مابنجرّهوش تحت تاني.
+  // بنسمع لنيّة العميل (عجلة الماوس/اللمس/المفاتيح) مش لحدث scroll، لأن
+  // السكرول البرمجي بتاعنا بيولّد نفس الحدث فكان بيفك التلزيق بنفسه.
+  // والقياس بيتأجّل فريم عشان الموضع يكون اتحدّث فعلًا.
+  function releaseIfScrolledUp() {
+    requestAnimationFrame(function () {
+      stickBottom = bd.scrollHeight - bd.clientHeight - bd.scrollTop < 24;
+    });
+  }
+  bd.addEventListener('wheel', releaseIfScrolledUp, { passive: true });
+  bd.addEventListener('touchmove', releaseIfScrolledUp, { passive: true });
+  bd.addEventListener('keydown', releaseIfScrolledUp);
+  // load مابيعملش bubble، عشان كده capture — ده اللي بيمسك صور الكروت.
+  bd.addEventListener('load', pinBottom, true);
+  // الرندر بيمرّ بأكتر من مسار (بث تدريجي، كروت، اختيارات، ثم الرسالة
+  // النهائية اللي بتستبدل البث)، ومش كلهم بينده scrollDown — فكان آخر صف
+  // يفضل تحت الفولد. المراقب ده بيغطي كل المسارات، الحالية والجاية.
+  // pinBottom بيغيّر scrollTop بس، مابيعدّلش DOM، فمفيش لوب.
+  if (window.MutationObserver) {
+    new MutationObserver(pinBottom)
+      .observe(bd, { childList: true, subtree: true, characterData: true });
+  }
+  // آخر سبب للنقص: الارتفاع بيتغيّر من غير أي تعديل DOM ولا تحميل صورة —
+  // ‏`.mjd-bd` عندها transition على padding-top (٦٤px وقت وضع البث)، وكروت
+  // فيها animation. الاتنين بيكبّروا المحتوى بعد آخر تثبيت، فبيفضل ناقص.
+  bd.addEventListener('transitionend', pinBottom);
+  bd.addEventListener('animationend', pinBottom, true);
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   // escape first (XSS-safe), then turn bare http(s) URLs into clickable links
   function linkify(s) {
@@ -1408,7 +1449,10 @@
     var items = (attrs && attrs.items) || [];
     if (content && !target) addBot(mdToHtml(content), true);
     var wrap = inject('div', { class: 'mjd-options' }, '');
-    items.forEach(function (it) {
+    items.forEach(function (raw) {
+      // بعض المصادر بتبعت الاختيار كنص مجرّد بدل {title,value}. من غير السطر ده
+      // الزرار كان بيطلع مكتوب عليه «اختيار» — زرار من غير معنى.
+      var it = typeof raw === 'string' ? { title: raw, value: raw } : (raw || {});
       var b = inject('button', { class: 'mjd-opt', type: 'button', 'data-val': it.value || it.title || '' }, esc(it.title || it.value || 'اختيار'));
       // the customer sees the label they clicked; the bot receives the option value
       b.addEventListener('click', function () { sendMessage(b.getAttribute('data-val'), b.textContent); });
@@ -1562,22 +1606,45 @@
   }
 
   // ---------- network ----------
+  // اللغة اللي الصفحة نفسها متعروضة بيها ('ar-001' هنا، 'ar_001' في Odoo).
+  function pageLang() {
+    try { return document.documentElement.getAttribute('lang') || ''; }
+    catch (e) { return ''; }
+  }
+  // منطقة المتصفح — آخر إشارة بنعرف منها بلد الزائر لو Odoo ما ردّش.
+  function browserTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+    catch (e) { return ''; }
+  }
+  // اللي بنعرفه عن الزائر من غير ما نسأل السيرفر. لازم يتبعت حتى لو الـ
+  // user_context فشل، لأنه اللي بيحدّد العملة لزائر مش مسجّل.
+  function visitorBasics() {
+    return { lang: pageLang(), timezone: browserTz() };
+  }
+
   function fetchUserContext() {
     return fetch(USER_CTX_URL, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (ctx) {
         if (!ctx) {
           console.info('[Majed] user context: فارغ — زائر غير مسجّل أو /ai_webhook/user_context غير متاح');
-          return {};
+          return visitorBasics();
         }
-        var u = ctx.user || {}, lp = ctx.learning_progress || {};
+        var u = ctx.user || {}, lp = ctx.learning_progress || {}, shop = ctx.shop || {};
         var out = {
-          // the shop's own language code, so the bot names courses the way
-          // the page does ('ar-001' here, 'ar_001' in Odoo)
-          lang: (function () {
-            try { return document.documentElement.getAttribute('lang') || ''; }
-            catch (e) { return ''; }
-          })(),
+          // عملة الزائر ولغته زي ما Odoo حسبهم بالظبط لصفحة المتجر اللي
+          // قدّامه. من غير التمرير ده البوت بيسعّر بعملة الافتراضي، فالزائر
+          // السعودي يقرا ريال على الصفحة وجنيه في الشات.
+          shop: {
+            currency: shop.currency || '',
+            lang: shop.lang || '',
+            country: shop.country || ''
+          },
+          currency: shop.currency || '',
+          country: shop.country || '',
+          // منطقة Odoo للمستخدم المسجّل، وإلا منطقة المتصفح.
+          timezone: u.timezone || browserTz(),
+          lang: shop.lang || pageLang(),
           name: u.name || '', email: u.email || '',
           odoo_user_id: String(u.user_id || ''),
           enrolled_courses: String(lp.total_courses_enrolled || 0),
@@ -1587,11 +1654,13 @@
         };
         if (!out.name && !out.email) console.info('[Majed] user context: بدون اسم/إيميل — هيتعامل كزائر');
         else console.info('[Majed] user context: ' + out.name + ' · كورسات=' + out.enrolled_courses);
+        console.info('[Majed] عملة الزائر: ' + (out.currency || '—') +
+          ' · بلد: ' + (out.country || '—') + ' · منطقة: ' + (out.timezone || '—'));
         return out;
       })
       .catch(function () {
         console.info('[Majed] user context fetch فشل — هيتعامل كزائر');
-        return {};
+        return visitorBasics();
       });
   }
   function ensureCtx() {
