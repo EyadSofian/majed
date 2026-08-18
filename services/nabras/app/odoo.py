@@ -403,9 +403,25 @@ class Odoo:
                 line_fields)
             # The attendance courses of a track live in their own model. Without
             # them the path shows only what is sold as recorded.
-            attendee_lines = await self.search_read(
-                "training.package.attendee.product.line",
-                [["website_published", "=", True]], line_fields)
+            #
+            # No `website_published` filter here, unlike the recorded lines: this
+            # model has no such field, and asking for it made Odoo reject the
+            # whole query — which took packages, levels and groups down with it
+            # and left the service silently living off the n8n snapshot. It is
+            # not needed either, because only published packages are fetched
+            # above and a line is only ever read through its package.
+            #
+            # Isolated on purpose: half a track is worth more than no track, so
+            # a future schema change here must not cost the packages again.
+            try:
+                attendee_lines = await self.search_read(
+                    "training.package.attendee.product.line", [], line_fields)
+            except OdooAccessDenied:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.warning("attendance lines unavailable (%s) — tracks will "
+                            "show their recorded courses only", e)
+                attendee_lines = []
             levels = await self.search_read(
                 "training.package.level", [],
                 ["id", "name", "package_id", "sequence",
