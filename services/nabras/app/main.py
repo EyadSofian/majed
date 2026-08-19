@@ -19,8 +19,8 @@ from .config import get_settings
 from .logging_setup import configure_logging
 from .schemas import ChatRequest
 from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
-                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, PACKAGE_SINK,
-                    active_field_from_messages)
+                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, LEAD_SINK,
+                    PACKAGE_SINK, active_field_from_messages)
 
 s = get_settings()
 # Before the first log call in this process: without it the root logger has no
@@ -185,6 +185,7 @@ async def chat(req: ChatRequest, request: Request,
         cards_tok = CARD_SINK.set([])
         pkgs_tok = PACKAGE_SINK.set([])
         hand_tok = HANDOFF_SINK.set({})
+        lead_tok = LEAD_SINK.set({})
         chip_tok = CHIP_SINK.set([])
         cur_tok = CURRENCY.set(currency)
         lang_tok = LANG.set(lang)
@@ -275,15 +276,22 @@ async def chat(req: ChatRequest, request: Request,
             chips = CHIP_SINK.get() or []
             if chips:
                 yield _ev("chips", {"chips": chips})
+            # The advisor's copy of the capture. Emitted before the handoff so
+            # a conversation that captures and then escalates carries both.
+            lead = LEAD_SINK.get() or {}
+            if lead.get("lead_id"):
+                yield _ev("lead", lead)
             handoff = HANDOFF_SINK.get()
             if handoff and handoff.get("requested"):
                 # The bridge owns Chatwoot; we only signal.
                 yield _ev("handoff", handoff)
             log.info("turn session=%s lang=%s cur=%s tools=[%s] cards=%d "
-                     "packages=%d chips=%d in=%dms",
+                     "packages=%d chips=%d%s in=%dms",
                      req.session_id, lang or "-", currency,
                      ",".join(tools_used) or "-", len(cards), len(packages),
-                     len(chips), int((time.perf_counter() - started) * 1000))
+                     len(chips),
+                     f" lead={lead['lead_id']}" if lead.get("lead_id") else "",
+                     int((time.perf_counter() - started) * 1000))
             yield _ev("done", {})
         except Exception as e:  # noqa: BLE001
             log.exception("chat stream failed for session=%s tools=[%s]",
@@ -296,6 +304,7 @@ async def chat(req: ChatRequest, request: Request,
             CARD_SINK.reset(cards_tok)
             PACKAGE_SINK.reset(pkgs_tok)
             HANDOFF_SINK.reset(hand_tok)
+            LEAD_SINK.reset(lead_tok)
             CHIP_SINK.reset(chip_tok)
             CURRENCY.reset(cur_tok)
             LANG.reset(lang_tok)

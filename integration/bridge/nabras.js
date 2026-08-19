@@ -422,6 +422,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   let chips = [];
   let instructorCards = [];
   let handoff = null;
+  let lead = null;
   let deferred = null;
   let sequence = 0;
   let liveStarted = false;
@@ -488,6 +489,10 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
       else if (ev.type === 'instructors') instructorCards = ev.instructor_cards || [];
       else if (ev.type === 'defer') deferred = ev;
       else if (ev.type === 'handoff') handoff = ev;
+      // The funnel's capture. نبراس writes the lead to Odoo itself, but it
+      // never touches Chatwoot, so the number only reaches the conversation
+      // it came from if the bridge carries it there.
+      else if (ev.type === 'lead') lead = ev;
       else if (ev.type === 'error') {
         // the exception class travels in the log line, so "why did it fail?"
         // is answerable without opening the service's own logs
@@ -549,6 +554,12 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
     content_type: contentType,
     content_attributes: contentAttributes,
   });
+  if (lead?.lead_id && deps.lead) {
+    // Best-effort: the lead already exists in Odoo. Failing to announce it must
+    // never look like failing to capture it.
+    try { await deps.lead(cwConvId, lead); }
+    catch (e) { console.error('NABRAS lead note failed:', e.message); }
+  }
   if (handoff?.requested && deps.handoff) {
     // نبراس never touches Chatwoot itself — the bridge owns that state.
     try { await deps.handoff(cwConvId, handoff); }
@@ -556,7 +567,8 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
   }
 
   console.log(`NABRAS answered conv ${cwConvId} (${reply.length} chars, ` +
-              `${items.length} cards)${handoff?.requested ? ' + handoff' : ''}`);
+              `${items.length} cards)${lead?.lead_id ? ` + lead #${lead.lead_id}` : ''}` +
+              `${handoff?.requested ? ' + handoff' : ''}`);
   return true;
 }
 

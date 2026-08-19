@@ -1182,6 +1182,39 @@ async function bpSendText(mapping, text) {
 // Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]]
 const HANDOFF_RE = /\[\[\s*HANDOFF(?::(\d+))?\s*\]\]/i;
 
+// نبراس writes the lead to Odoo; the bridge is what makes it findable
+// afterwards. Before this, `tools=[create_lead]` in the service log was the
+// only evidence a lead had ever been captured — no number, no name, and
+// nothing at all in the Chatwoot conversation the customer came from, so the
+// advisor could not get from the chat to the CRM record it produced.
+async function recordLead(cwConvId, lead = {}) {
+  const row = (label, value) => (value ? `\n${label}: ${value}` : '');
+  const note =
+    `📇 ماجد سجّل ليد في أودو — رقم ${lead.lead_id}` +
+    row('الاسم', lead.name) +
+    row('الهاتف', lead.phone) +
+    row('الإيميل', lead.email) +
+    row('التخصص', lead.specialization || lead.field) +
+    row('سنوات الخبرة', lead.experience) +
+    row('مهتم بـ', lead.course_interest) +
+    (lead.in_followup_cycle
+      ? '\nالمتابعة: مجدولة في «أنشطة اليوم»'
+      : '\n⚠️ من غير نشاط متابعة — الليد مش هيظهر في «أنشطة اليوم»');
+  try {
+    await cwSendMessage(cwConvId, { content: note, messageType: 'outgoing', isPrivate: true });
+  } catch (e) {
+    console.warn('lead note failed:', e.response?.data || e.message);
+  }
+  console.log(`LEAD #${lead.lead_id} conv ${cwConvId} (${lead.name || '-'}` +
+              `${lead.phone || lead.email ? ` · ${lead.phone || lead.email}` : ''})` +
+              `${lead.in_followup_cycle ? '' : ' — NO follow-up activity'}`);
+  // The 'lead' notification and its notifyOnLead toggle already existed here;
+  // nothing had ever emitted the event that fires them.
+  notify(config, 'lead', {
+    ...lead, convId: cwConvId, convUrl: convUrl(cwConvId),
+  }).catch((e) => console.warn('lead notify failed:', e.message));
+}
+
 async function performHandoff(cwConvId, teamId, meta = {}) {
   blockBotpressReplies(cwConvId, 'human');
   await cwSetStatus(cwConvId, 'open');
@@ -1808,6 +1841,7 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
       deliver: deliverNabras,
       stream: emitToWidget,
       handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
+      lead: (id, l) => recordLead(id, l),
     });
     if (handled) {
       blockBotpressReplies(cwConvId, 'nabras');
