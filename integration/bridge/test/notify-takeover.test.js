@@ -78,6 +78,20 @@ const notify = require('../notify');
   }
   // the widget-facing copy is never mutated
   assert.strictEqual(rich.items[0].course_id, 2107);
+  // A card with nothing to buy — an instructor. Chatwoot REQUIRES `actions`,
+  // and this card has none, which 422'd the whole message in production the
+  // moment a customer asked «مين المحاضر».
+  const instructor = {
+    items: [{ kind: 'instructor', instructor_id: 41, title: 'Amr Kamal',
+              job_title: 'HVAC Consultant', media_url: 'https://img',
+              description: 'استشاري تكييف' }],
+  };
+  const safeInstructor = chatwootSafeAttrs(instructor);
+  assert.ok(Array.isArray(safeInstructor.items[0].actions),
+    'a card without actions must still carry the key Chatwoot requires');
+  assert.strictEqual(safeInstructor.items[0].actions.length, 0);
+  assert.strictEqual(instructor.items[0].actions, undefined, 'widget copy untouched');
+
   // input_select choices pass through untouched (already Chatwoot-safe)
   const choices = { items: [{ title: 'ميكانيكا', value: 'أنا في تخصص Mechanical' }] };
   assert.deepStrictEqual(chatwootSafeAttrs(choices), choices);

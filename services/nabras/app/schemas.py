@@ -102,6 +102,11 @@ class PriceOption(BaseModel):
     group_id: Optional[int] = None
     group_name: Optional[str] = None
     starts_at: Optional[str] = None
+    # The package page shows a cohort as a RANGE (١٥/٨/٢٠٢٦ - ٤/١١/٢٠٢٦). Odoo
+    # has both ends and the service already read them; only the start was ever
+    # passed on, so the bot could not answer "بيخلص إمتى؟" from a card the
+    # customer was looking at.
+    ends_at: Optional[str] = None
 
 
 class PackageCard(BaseModel):

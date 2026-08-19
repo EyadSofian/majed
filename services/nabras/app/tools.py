@@ -13,6 +13,7 @@ import asyncio
 import contextvars
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from langchain_core.tools import tool
@@ -536,6 +537,47 @@ MODE_LABELS = {
 }
 
 
+def _group_dates(g: dict, mode: str) -> tuple[Optional[str], Optional[str]]:
+    """When this cohort runs, for one attendance mode."""
+    begin = g.get(f"{mode}_min_date_begin") or g.get("first_event_date")
+    return (str(begin) if begin else None,
+            str(g.get(f"{mode}_max_date_end") or "") or None)
+
+
+def _has_ended(g: dict, today: Optional[str] = None) -> bool:
+    ends = [str(g.get(k) or "") for k in
+            ("online_max_date_end", "onsite_max_date_end")]
+    ends = [e for e in ends if e]
+    if not ends:
+        return False
+    return max(ends)[:10] < (today or datetime.utcnow().strftime("%Y-%m-%d"))
+
+
+def sellable_groups(groups: list[dict]) -> list[dict]:
+    """The cohorts a visitor can still be sold, without trusting one flag.
+
+    `is_available_for_sale` is the package twin of
+    `event.event.event_registrations_open` — which this codebase already
+    documents as computed and not honestly reported over JSON-RPC. Filtering
+    on it alone means one unreported field silently deletes every date and
+    every attendance price the package has, and the bot answers a customer who
+    just picked "حضور اون لاين" with "الفريق المختص هيأكدلك السعر" while the
+    page beside the chat lists two cohorts with their dates.
+
+    So: believe the flag when it says yes, and fall back to the calendar when
+    it says no for everything. A cohort that has already finished is never
+    offered either way.
+    """
+    live = [g for g in groups if not _has_ended(g)]
+    flagged = [g for g in live if g.get("is_available_for_sale")]
+    if flagged:
+        return flagged
+    if live:
+        log.info("no cohort reported is_available_for_sale — falling back to "
+                 "the %d that have not ended yet", len(live))
+    return live
+
+
 def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
     """Every way this package can actually be bought.
 
@@ -548,7 +590,7 @@ def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
     """
     opts: list[dict] = []
 
-    def add(mode, label, gross, discount, group=None):
+    def add(mode, label, gross, discount, group=None, dates=(None, None)):
         if not gross or gross <= 1:
             return
         net = gross * (1 - (discount or 0) / 100.0)
@@ -560,8 +602,9 @@ def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
             was_display=_fmt_price(gross, cur) if (discount or 0) > 0 else None,
             discount=round(discount, 1) if discount else None,
             group_id=group.get("id") if group else None,
-            group_name=group.get("full_display_name") if group else None,
-            starts_at=str(group.get("first_event_date")) if group else None,
+            group_name=(group.get("full_display_name") or group.get("name"))
+                       if group else None,
+            starts_at=dates[0], ends_at=dates[1],
         ).model_dump())
 
     # 1) the self-paced recorded track
@@ -571,14 +614,15 @@ def _price_options(pkg: dict, groups: list[dict], cur: str) -> list[dict]:
 
     # 2+3) one option per sellable cohort, per attendance mode
     for g in groups:
-        starts = str(g.get("first_event_date") or "")[:10]
         name = g.get("full_display_name") or g.get("name") or ""
         add("attendance_online",
             f"{MODE_LABELS['attendance_online']} — {name}".strip(" —"),
-            g.get("online_total_price"), pkg.get("attendee_online_discount"), g)
+            g.get("online_total_price"), pkg.get("attendee_online_discount"), g,
+            _group_dates(g, "online"))
         add("attendance_onsite",
             f"{MODE_LABELS['attendance_onsite']} — {name}".strip(" —"),
-            g.get("onsite_total_price"), pkg.get("attendee_onsite_discount"), g)
+            g.get("onsite_total_price"), pkg.get("attendee_onsite_discount"), g,
+            _group_dates(g, "onsite"))
     return opts
 
 
@@ -641,7 +685,7 @@ def _package_lines(pkg_id: int, idx: dict) -> list[dict]:
 def _build_package(p: dict, idx: dict) -> tuple[PackageCard, dict]:
     """One package -> (card pushed to the widget, brief the model reads)."""
     lines = _package_lines(p["id"], idx)
-    groups = [g for g in idx["groups"].get(p["id"], []) if g.get("is_available_for_sale")]
+    groups = sellable_groups(idx["groups"].get(p["id"], []))
     groups.sort(key=lambda g: str(g.get("first_event_date") or "9999"))
     cur = p["currency_id"][1] if isinstance(p.get("currency_id"), list) else CURRENCY.get()
     options = _price_options(p, groups, cur)
@@ -670,9 +714,12 @@ def _build_package(p: dict, idx: dict) -> tuple[PackageCard, dict]:
     brief = {
         "package_id": p["id"], "title": card.title,
         "price_from": card.price_from_display, "currency": cur,
+        # group_id/group_name so the model can ask "أي مجموعة؟" and then price
+        # the answer, and both dates so it can show the range the page shows.
         "price_options": [
             {k: o[k] for k in ("mode", "label", "price_display",
-                               "was_display", "discount", "starts_at")}
+                               "was_display", "discount", "starts_at",
+                               "ends_at", "group_id", "group_name")}
             for o in options],
         "courses": card.courses_count, "hours": card.training_hours,
         "attendance": card.attendance, "levels": card.levels,
