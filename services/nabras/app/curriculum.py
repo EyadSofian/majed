@@ -209,17 +209,92 @@ def _field_words() -> dict[str, set[str]]:
     return out
 
 
+def _generic_words() -> set[str]:
+    """Words that name no discipline, computed rather than hand-listed.
+
+    Every field's keyword list contains the scaffolding of a course title —
+    «مسار», «باقه», «دوره», «مهندس», "professional", "training", "track". A word
+    carried by more than half the disciplines cannot tell them apart, but it
+    still cast a vote, and a sentence has more scaffolding in it than subject:
+
+        "المسار الشامل للمهندس الميكانيكي"
+          مسار      -> Civil, Mechanical, Electrical, Interior, Architecture
+          للمهندس   -> Civil
+          شامل      -> Interior Design
+          ميكانيكي  -> Mechanical          <- the only word that meant anything
+
+    Civil tied Mechanical on noise alone and won on dict order, so a mechanical
+    engineer was answered with an interior-design track. Deriving the list from
+    the KB keeps it correct as courses are added, which a hand-written stoplist
+    would not.
+    """
+    fields = _field_words()
+    if not fields:
+        return set()
+    seen: dict[str, int] = {}
+    for words in fields.values():
+        for w in words:
+            seen[w] = seen.get(w, 0) + 1
+    half = len(fields) // 2
+    return {w for w, n in seen.items() if n > half} | _PACKAGING_WORDS
+
+
+# How a course is PACKAGED, never what it teaches. The computed rule above
+# only catches a word once most disciplines happen to list it, and these are
+# too central to leave to that: «شامل» sits in exactly one field's keywords,
+# so on its own it made "مسار شامل" an interior-design question.
+_PACKAGING_WORDS = {
+    "شامل", "شامله", "الشامل", "الشامله", "كامل", "متكامل", "comprehensive",
+    "مسار", "المسار", "مسارات", "باقه", "الباقه", "باقات", "track", "package",
+    "مهندس", "المهندس", "للمهندس", "مهندسين", "engineer", "engineering",
+    "دوره", "دورات", "كورس", "كورسات", "course", "training", "professional",
+}
+
+
+def _field_name_words() -> dict[str, set[str]]:
+    """Only the words that NAME a discipline — its key and its label.
+
+    Deliberately not cached: six rows is nothing to rebuild, and a second
+    cache would be one more thing to invalidate whenever the map is pruned to
+    what Odoo publishes.
+    """
+    out: dict[str, set[str]] = {}
+    live = set(fields())
+    for f, row in _data().get("fields", {}).items():
+        if f not in live:
+            continue
+        words = set(_norm(f).split()) | set(_norm(row.get("label", "")).split())
+        out[f] = {w for w in words if len(w) > 2}
+    return out
+
+
 def field_of_query(query: str) -> Optional[str]:
-    """Which discipline is this question about? Highest word overlap wins."""
-    q = set(_norm(query).split())
+    """Which discipline is this question about?
+
+    A word that NAMES a discipline outweighs one that merely turns up in a
+    course's keywords: «ميكانيكا» is Mechanical's own label, and also a keyword
+    under one electrical course, so counting both the same made it a coin toss
+    decided by dict order.
+
+    Returns None when nothing distinguishes the disciplines, which lets the
+    caller fall back to the one the visitor actually picked instead of being
+    handed a guess dressed up as an answer.
+    """
+    q = set(_norm(query).split()) - _generic_words()
     if not q:
         return None
-    best, score = None, 0
+    named = _field_name_words()
+    ranked: list[tuple[int, str]] = []
     for f, words in _field_words().items():
-        hits = len(q & words)
-        if hits > score:
-            best, score = f, hits
-    return best
+        score = len(q & words) + 2 * len(q & named.get(f, set()))
+        if score:
+            ranked.append((score, f))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda r: -r[0])
+    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+        return None
+    return ranked[0][1]
 
 
 def ready() -> bool:

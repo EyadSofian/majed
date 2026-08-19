@@ -225,7 +225,7 @@ async def search_courses(query: str, top_k: int = 4,
 
     found = catalog.search(query, top_k=max(1, min(top_k, 8)),
                            category=category, delivery=delivery,
-                           field_name=curriculum.field_of_query(query)
+                           field_name=resolve_field(query)
                            if not category else None)
     if not found:                       # discipline too narrow -> plain search
         found = catalog.search(query, top_k=max(1, min(top_k, 8)),
@@ -702,7 +702,7 @@ async def search_packages(query: Optional[str] = None) -> str:
 
     idx = _package_index(data)
     q = catalog.tokens(query or "")
-    field = curriculum.field_of_query(query or "")
+    field = resolve_field(query or "")
     out = []
     for p in data.get("packages", []):
         plines = idx["lines"].get(p["id"], [])
@@ -889,12 +889,26 @@ def resolve_specialization(query: str) -> Optional[str]:
 
 
 def resolve_field(query: str) -> Optional[str]:
-    """The DISCIPLINE the question is about, from Engosoft's own course map.
+    """The DISCIPLINE the question is about.
 
-    This is the one that decides what gets recommended. It knows «تكييف» is
-    Mechanical because the KB lists that word under an HVAC course — no
-    hand-written synonym table can keep up with that.
+    Two sources, in this order:
+
+    1. The curated alias table, when the visitor NAMES a discipline. «ميكانيكي»
+       means mechanical no matter what else is in the sentence, and the KB —
+       a bag of words gathered from course titles — cannot be trusted over an
+       explicit statement. It was: "المسار الشامل للمهندس الميكانيكي" scored
+       Civil, because «للمهندس» sits in a civil course's keywords.
+    2. The KB, for the vocabulary no table can keep up with: it knows «تكييف»
+       is Mechanical because it lists that word under an HVAC course.
     """
+    spec = resolve_specialization(query)
+    named = SPEC_TO_FIELD.get(spec or "")
+    # ...but only if the map actually holds courses for it here. The map is
+    # pruned to what this Odoo publishes, and it must never speak for a
+    # discipline whose courses this shop does not sell — the shop's own
+    # category answers instead.
+    if named and named in curriculum.fields():
+        return named
     return curriculum.field_of_query(query)
 
 
@@ -917,11 +931,19 @@ def active_field_from_messages(messages: list[str]) -> str:
 
 
 def _is_contextual_comprehensive_track(query: str) -> bool:
-    """Whether *query* refers to a comprehensive track without naming a field."""
+    """Whether *query* means a comprehensive track WITHOUT naming its field.
+
+    Only then may the conversation's active field fill the gap. The check for
+    a named field was missing, so "المسار الشامل للمهندس الميكانيكي" counted as
+    contextual and took its discipline from whatever the visitor had been
+    looking at — in production, an interior-design page.
+    """
     words = catalog.tokens(query)
     comprehensive = {"شامل", "شامله", "كامل", "متكامل", "comprehensive"}
     track_words = {"مسار", "المسار", "باقه", "الباقه", "track", "package"}
-    return bool(words & comprehensive) and bool(words & track_words)
+    if not (words & comprehensive and words & track_words):
+        return False
+    return not (resolve_specialization(query) or curriculum.field_of_query(query))
 
 
 def _match_package(data: dict, query: str, spec: Optional[str] = None) -> Optional[dict]:
@@ -975,6 +997,40 @@ def _level_matches(line: dict, wanted: str) -> bool:
     return bool(want) and want in name
 
 
+def _offer_track_package(packages: dict, query: str, spec: Optional[str],
+                        field_name: Optional[str]) -> Optional[dict]:
+    """The buyable package behind Engosoft's own grouping rule.
+
+    The grouping rule is the teaching order somebody wrote on purpose; the
+    package is the thing the visitor can actually put in a basket. Answering a
+    track question with the member courses and withholding the track itself is
+    what produced `packages=0` on every production turn — the customer was
+    shown five courses to buy one at a time instead of the bundle whose page
+    they had just been reading.
+
+    Returns the brief for the model, having pushed the card to the widget, or
+    None when no package can be matched with confidence. A track from the
+    wrong discipline is never offered: that is the "BIM MEP under Mechanical"
+    trap, and a wrong offer is worse than none.
+    """
+    if not packages.get("available"):
+        return None
+    pkg = _match_package(packages, query, spec)
+    if pkg is None:
+        candidates = _spec_packages(packages, spec or "")
+        pkg = candidates[0] if len(candidates) == 1 else None
+    if pkg is None:
+        return None
+    idx = _package_index(packages)
+    if field_name:
+        pkg_field = _package_field(idx["lines"].get(pkg["id"], []))
+        if pkg_field and pkg_field != field_name:
+            return None
+    card, brief = _build_package(pkg, idx)
+    _packages().append(card.model_dump())
+    return brief
+
+
 @tool
 async def recommend_track(track: str, level: Optional[str] = None,
                           top_k: int = 6) -> str:
@@ -1023,7 +1079,9 @@ async def recommend_track(track: str, level: Optional[str] = None,
                 picked.append(course)
         if picked:
             return json.dumps({
-                "track": None, "specialization": field_name or spec,
+                "track": _offer_track_package(packages, effective_track, spec,
+                                              field_name),
+                "specialization": field_name or spec,
                 "label": curriculum.FIELD_LABELS.get(field_name or "", field_name),
                 "note": "engosoft_grouping_rule",
                 "rule": group.get("rule"),
@@ -1044,7 +1102,9 @@ async def recommend_track(track: str, level: Optional[str] = None,
                     picked.append(course)
             if picked:
                 return json.dumps({
-                    "track": None, "specialization": field_name,
+                    "track": _offer_track_package(packages, effective_track,
+                                                  spec, field_name),
+                    "specialization": field_name,
                     "label": curriculum.FIELD_LABELS.get(field_name, field_name),
                     "note": "engosoft_grouping_rule",
                     "rule": group.get("rule"),

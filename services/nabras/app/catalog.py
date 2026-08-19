@@ -585,12 +585,27 @@ def install_packages(payload: dict) -> dict:
 
     Returns a small summary so the pusher can verify what landed.
     """
+    s = get_settings()
     snap = snapshot()
     keys = ("packages", "lines", "levels", "groups", "outcomes",
             "attendee_lines")
     data = {k: list(payload.get(k) or []) for k in keys}
     if not data["packages"]:
         raise ValueError("payload contains no packages")
+    # Odoo is canonical; this endpoint is the fallback for an Odoo outage or a
+    # permission regression. Letting a scheduled push overwrite a healthy
+    # direct read is not neutral — a workflow still carrying an old field list
+    # pushes `attendee_lines: 0`, which is exactly the state that cost every
+    # track its attendance courses. Refusing keeps the better data until Odoo
+    # itself goes quiet, and says so instead of failing the caller.
+    fresh_from_odoo = (snap.packages_source == "odoo"
+                       and bool((snap.packages or {}).get("available"))
+                       and time.time() - snap.packages_at < s.packages_max_age_seconds)
+    if fresh_from_odoo:
+        log.info("ingest ignored — direct Odoo packages are current (%s)",
+                 {k: len(v) for k, v in data.items() if isinstance(v, list)})
+        return {"ignored": "odoo_snapshot_is_current",
+                **{k: len(v) for k, v in data.items() if isinstance(v, list)}}
     data["available"] = True
     snap.packages = data
     snap.packages_source = "ingest"
