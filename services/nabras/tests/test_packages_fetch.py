@@ -257,3 +257,50 @@ def test_odoo_names_the_field_in_both_of_its_error_shapes():
     ) == "website_published"
     assert _rejected_field("Odoo error: AccessError") is None
     assert _rejected_field("") is None
+
+
+# --------------------------------------------------------------------------
+# The scheduled n8n push is the FALLBACK, not the source. Production, 14:00:55:
+#
+#   packages ingested: {'packages': 9, 'lines': 38, ..., 'attendee_lines': 0}
+#
+# A workflow still carrying the old field list pushed zero attendance lines
+# over a healthy direct read, re-creating the very bug that was just fixed —
+# every 20 minutes, until the next Odoo refresh undid it again.
+
+
+def _install(payload, *, source, age):
+    import time as _t
+    from app import catalog
+    snap = catalog.snapshot()
+    snap.packages = {"available": True, "packages": [{"id": 1}],
+                     "attendee_lines": [{"id": 9}]}
+    snap.packages_source = source
+    snap.packages_at = _t.time() - age
+    return catalog.install_packages(payload)
+
+
+def test_a_push_does_not_overwrite_a_healthy_odoo_snapshot():
+    out = _install({"packages": [{"id": 1}], "attendee_lines": []},
+                   source="odoo", age=0)
+    from app import catalog
+    assert out.get("ignored") == "odoo_snapshot_is_current"
+    assert catalog.snapshot().packages["attendee_lines"], "the good data was lost"
+    assert catalog.snapshot().packages_source == "odoo"
+
+
+def test_a_push_is_accepted_once_the_odoo_snapshot_has_gone_stale():
+    """The fallback has to actually work when Odoo stops answering."""
+    from app import catalog
+    out = _install({"packages": [{"id": 2}], "attendee_lines": [{"id": 7}]},
+                   source="odoo", age=99_999)
+    assert "ignored" not in out
+    assert catalog.snapshot().packages_source == "ingest"
+
+
+def test_a_push_is_accepted_when_odoo_was_never_the_source():
+    from app import catalog
+    out = _install({"packages": [{"id": 3}], "attendee_lines": []},
+                   source="ingest", age=0)
+    assert "ignored" not in out
+    assert catalog.snapshot().packages_source == "ingest"
