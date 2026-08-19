@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     guest_rate_per_min: int = 20
     guest_mint_per_hour: int = 30
 
+    # ---- Logging ----
+    # Everything goes to stdout at this level. Below INFO the log cannot answer
+    # "did the catalogue actually load?", which is the first question asked of
+    # it every time the bot answers oddly.
+    log_level: str = "INFO"
+
     # ---- CORS ----
     cors_origins: str = ""
 

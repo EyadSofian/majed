@@ -16,13 +16,18 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
+from .logging_setup import configure_logging
 from .schemas import ChatRequest
 from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
                     HANDOFF_SINK, INSTRUCTOR_SINK, LANG, PACKAGE_SINK,
                     active_field_from_messages)
 
-log = logging.getLogger("nabras")
 s = get_settings()
+# Before the first log call in this process: without it the root logger has no
+# handler, so Python's lastResort writes to stderr (Railway files every line as
+# an "error") and drops everything below WARNING.
+configure_logging(s.log_level)
+log = logging.getLogger("nabras")
 SSE_HEARTBEAT_SECONDS = 5.0
 
 if len(s.jwt_secret.encode()) < 32 or s.jwt_secret == "change-me":

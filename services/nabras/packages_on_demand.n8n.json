@@ -188,9 +188,7 @@
             "package_id",
             "level_id",
             "product_id",
-            "sequence",
-            "sale_ok",
-            "website_published"
+            "sequence"
           ]
         }
       },

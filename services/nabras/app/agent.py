@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage
 
 from . import catalog
 from .config import get_settings
+from .odoo import odoo
 from .prompts import build_system_prompt
 from .tools import TOOLS
 
@@ -202,6 +203,7 @@ async def lifespan_agent(app=None):
                 yield
             finally:
                 task.cancel()
+                await odoo.aclose()
                 _graph = None
     else:
         from langgraph.checkpoint.memory import InMemorySaver
@@ -212,6 +214,7 @@ async def lifespan_agent(app=None):
             yield
         finally:
             task.cancel()
+            await odoo.aclose()
             _graph = None
 
 
