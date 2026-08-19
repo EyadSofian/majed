@@ -37,6 +37,19 @@ const TRACK_SSE = [
   'data: {"type":"done"}',
 ].join('\n\n') + '\n\n';
 
+// The funnel's capture. نبراس writes the lead to Odoo; the bridge is what
+// carries the number into the Chatwoot conversation it came from. Before this
+// existed, `tools=[create_lead]` in the service log was the only evidence a
+// lead had been captured at all.
+const LEAD_SSE = [
+  'data: {"type":"token","content":"تمام، سجّلت بياناتك."}',
+  'data: {"type":"lead","lead_id":4821,"name":"إياد سفيان","phone":"01000000000",' +
+    '"email":"","field":"Mechanical","specialization":"ميكانيكا","experience":"3",' +
+    '"course_interest":"المسار الشامل للميكانيكا","assigned_to":2,' +
+    '"activity_id":99,"in_followup_cycle":true}',
+  'data: {"type":"done"}',
+].join('\n\n') + '\n\n';
+
 // "not mine": the brain refuses to answer a payment question it cannot prove
 const DEFER_SSE = [
   'data: {"type":"token","content":"كلام لا يجب أن يصل للعميل"}',
@@ -54,7 +67,8 @@ const server = http.createServer((req, res) => {
   if (mode === 'chat_fail') { res.writeHead(502); return res.end('bad gateway'); }
   if (mode === 'empty') { res.writeHead(200); return res.end('data: {"type":"done"}\n\n'); }
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  res.end(mode === 'track' ? TRACK_SSE : mode === 'defer' ? DEFER_SSE : OK_SSE);
+  res.end(mode === 'lead' ? LEAD_SSE
+    : mode === 'track' ? TRACK_SSE : mode === 'defer' ? DEFER_SSE : OK_SSE);
 });
 
 function delivered() {
@@ -66,6 +80,8 @@ function delivered() {
     deliver: async (id, m) => { out.push(m); },
     stream: (id, m) => { streamed.push(m); },
     handoff: async () => {},
+    leads: [],
+    lead: async function (id, l) { this.leads.push({ id, lead: l }); },
   };
 }
 
@@ -216,8 +232,35 @@ function delivered() {
     { type: 'done' },
   ]);
 
+  // A captured lead has to leave the service and reach the conversation it
+  // came from: the number is what gets an advisor from this chat to the CRM
+  // record. نبراس emits it; the bridge is the only thing that can deliver it.
+  mode = 'lead';
+  await withEnv(ON, async (tryNabras) => {
+      const d = delivered();
+      const handled = await tryNabras('91', 'اسمي إياد ورقمي 01000000000',
+        { name: 'إياد', userData: me }, d);
+      assert.strictEqual(handled, true);
+      assert.strictEqual(d.leads.length, 1, 'the lead never left the stream');
+      assert.strictEqual(d.leads[0].lead.lead_id, 4821);
+      assert.strictEqual(d.leads[0].lead.name, 'إياد سفيان');
+      assert.strictEqual(d.leads[0].lead.in_followup_cycle, true);
+      // and the customer still gets their reply
+      assert.ok(d.out.some((m) => String(m.content || '').includes('سجّلت بياناتك')));
+    })();
+
+  // A turn with no lead must not announce one.
+  mode = 'ok';
+  await withEnv(ON, async (tryNabras) => {
+      const d = delivered();
+      await tryNabras('92', 'عايز كورس', { name: 'x', userData: me }, d);
+      assert.strictEqual(d.leads.length, 0);
+    })();
+
   server.close();
+
   console.log('✅ nabras router: streaming, one-message replies, and safe fallback passed');
+  console.log('✅ nabras router: a captured lead reaches the bridge with its number');
 })().catch((e) => { server.close(); console.error('❌', e); process.exit(1); });
 
 // ---------------------------------------------------------------------------

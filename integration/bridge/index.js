@@ -794,8 +794,20 @@ function parseObject(value) {
   return {};
 }
 
-const BOT_FOLLOWUP_RE =
-  /هل\s+(?:ما\s+)?(?:زلت|تزال|لا\s+تزال).{0,50}(?:تحتاج|محتاج).{0,30}(?:مساعدة|مساعده)|(?:do|would)\s+you\s+still\s+need\s+help/i;
+// A scheduled Botpress nudge, recognised by TEXT — the last resort, and the
+// weakest of the three checks in automatedIncomingReason. It only fires on
+// wording no customer would send: a question asking whether THEY are still
+// present or still need help. A customer's own "محتاج مساعدة" has no
+// still-marker and must never be swallowed, so the still-marker is required,
+// never the help word alone.
+//
+// It is still only a heuristic. "لسه محتاج مساعدة؟" is a plausible customer
+// reply too, so structure — bp_id, or a non-contact sender — is what should
+// really catch these; BOT_FOLLOWUP_SHAPE logs what actually arrives so the
+// structural key can be chosen from evidence instead of guessed.
+const STILL = '(?:لا\\s*تزال|ما\\s*زلت|مازلت|ما\\s*زال|مازال|لسه|لسة|still)';
+const PRESENCE = '(?:مساعد|تحتاج|محتاج|بحاجة|مع(?:ن|ان)ا|موجود|هناك|there|help|need)';
+const BOT_FOLLOWUP_RE = new RegExp(`${STILL}[\\s\\S]{0,60}${PRESENCE}`, 'i');
 
 function automatedIncomingReason(payload) {
   const p = payload || {};
@@ -1181,6 +1193,39 @@ async function bpSendText(mapping, text) {
 
 // Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]]
 const HANDOFF_RE = /\[\[\s*HANDOFF(?::(\d+))?\s*\]\]/i;
+
+// نبراس writes the lead to Odoo; the bridge is what makes it findable
+// afterwards. Before this, `tools=[create_lead]` in the service log was the
+// only evidence a lead had ever been captured — no number, no name, and
+// nothing at all in the Chatwoot conversation the customer came from, so the
+// advisor could not get from the chat to the CRM record it produced.
+async function recordLead(cwConvId, lead = {}) {
+  const row = (label, value) => (value ? `\n${label}: ${value}` : '');
+  const note =
+    `📇 ماجد سجّل ليد في أودو — رقم ${lead.lead_id}` +
+    row('الاسم', lead.name) +
+    row('الهاتف', lead.phone) +
+    row('الإيميل', lead.email) +
+    row('التخصص', lead.specialization || lead.field) +
+    row('سنوات الخبرة', lead.experience) +
+    row('مهتم بـ', lead.course_interest) +
+    (lead.in_followup_cycle
+      ? '\nالمتابعة: مجدولة في «أنشطة اليوم»'
+      : '\n⚠️ من غير نشاط متابعة — الليد مش هيظهر في «أنشطة اليوم»');
+  try {
+    await cwSendMessage(cwConvId, { content: note, messageType: 'outgoing', isPrivate: true });
+  } catch (e) {
+    console.warn('lead note failed:', e.response?.data || e.message);
+  }
+  console.log(`LEAD #${lead.lead_id} conv ${cwConvId} (${lead.name || '-'}` +
+              `${lead.phone || lead.email ? ` · ${lead.phone || lead.email}` : ''})` +
+              `${lead.in_followup_cycle ? '' : ' — NO follow-up activity'}`);
+  // The 'lead' notification and its notifyOnLead toggle already existed here;
+  // nothing had ever emitted the event that fires them.
+  notify(config, 'lead', {
+    ...lead, convId: cwConvId, convUrl: convUrl(cwConvId),
+  }).catch((e) => console.warn('lead notify failed:', e.message));
+}
 
 async function performHandoff(cwConvId, teamId, meta = {}) {
   blockBotpressReplies(cwConvId, 'human');
@@ -1808,6 +1853,7 @@ async function forwardToBot(cwConvId, text, { name, userData }) {
       deliver: deliverNabras,
       stream: emitToWidget,
       handoff: (id, h) => performHandoff(id, h.team_id, { reason: h.reason, summary: h.summary }),
+      lead: (id, l) => recordLead(id, l),
     });
     if (handled) {
       blockBotpressReplies(cwConvId, 'nabras');
@@ -2529,7 +2575,13 @@ app.post('/chatwoot/webhook', async (req, res) => {
       if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
       // Genuinely external incoming message (created by some other client) → forward to bot.
       if (p.content) {
-        console.log(`IN Chatwoot(external) conv ${convId}: ${String(p.content).slice(0, 60)}`);
+        // What identified this message, so a bot nudge that slipped past the
+        // filters can be keyed on structure next time instead of on wording.
+        const attrs = parseObject(p.content_attributes);
+        console.log(`IN Chatwoot(external) conv ${convId}: ${String(p.content).slice(0, 60)}` +
+          ` [sender=${p.sender?.type || p.sender_type || '?'}` +
+          ` id=${p.sender?.id ?? '?'}` +
+          ` attrs=${Object.keys(attrs).join(',') || 'none'}]`);
         try {
           await forwardToBot(convId, String(p.content), {
             name: p.sender?.name,

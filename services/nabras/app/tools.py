@@ -36,6 +36,12 @@ PACKAGE_SINK: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
 # `ContextVar.set()` there is invisible to the SSE generator that reads it back.
 # Appending to a shared list / updating a shared dict is visible; rebinding is
 # not. Handing off silently stopped working the one time this was a plain set().
+# The lead the funnel captured this turn, for the stream. It is the single most
+# valuable event Majed produces, and it used to leave no trace anywhere outside
+# the model's own context: nothing in the log, nothing on the stream, nothing
+# in Chatwoot — so "which lead did it just create, for whom?" had no answer.
+LEAD_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "lead_sink", default=None)
 HANDOFF_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "nabras_handoff", default=None)
 # Specializations the visitor can tap instead of typing. Same mutate-in-place
@@ -1395,6 +1401,27 @@ async def create_lead(name: str, phone: Optional[str] = None,
             log.warning("lead %s created but no activity scheduled (%s) — "
                         "it will not appear in Activity Today", lead_id, e)
 
+    # Say what was captured, and for whom. Without this the advisor's own
+    # question — "أي ليد اتعمل دلوقتي وباسم مين؟" — is unanswerable from the
+    # log, and the number never reaches the Chatwoot conversation it came from.
+    log.info("lead %s created: %s · %s · %s — advisor=%s activity=%s%s",
+             lead_id, name, phone or email or "-",
+             " · ".join(qual) or "no qualification",
+             s.sales_advisor_id, activity_id or "none",
+             "" if activity_id else "  (NOT in Activity Today)")
+    lead = {
+        "lead_id": lead_id, "name": name, "phone": phone or "",
+        "email": email or "", "field": field or "",
+        "specialization": specialization or "", "experience": experience or "",
+        "job_title": job_title or "", "goal": goal or "",
+        "course_interest": course_interest or "",
+        "assigned_to": s.sales_advisor_id, "activity_id": activity_id,
+        "in_followup_cycle": bool(activity_id),
+    }
+    sink = LEAD_SINK.get()
+    if sink is not None:
+        sink.clear()
+        sink.update(lead)
     return json.dumps({"lead_id": lead_id, "assigned_to": s.sales_advisor_id,
                        "activity_id": activity_id,
                        "in_followup_cycle": bool(activity_id)})

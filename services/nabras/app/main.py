@@ -17,10 +17,11 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .logging_setup import configure_logging
+from .ratelimit import get_bucket
 from .schemas import ChatRequest
 from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
-                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, PACKAGE_SINK,
-                    active_field_from_messages)
+                    HANDOFF_SINK, INSTRUCTOR_SINK, LANG, LEAD_SINK,
+                    PACKAGE_SINK, active_field_from_messages)
 
 s = get_settings()
 # Before the first log call in this process: without it the root logger has no
@@ -185,6 +186,7 @@ async def chat(req: ChatRequest, request: Request,
         cards_tok = CARD_SINK.set([])
         pkgs_tok = PACKAGE_SINK.set([])
         hand_tok = HANDOFF_SINK.set({})
+        lead_tok = LEAD_SINK.set({})
         chip_tok = CHIP_SINK.set([])
         cur_tok = CURRENCY.set(currency)
         lang_tok = LANG.set(lang)
@@ -197,6 +199,14 @@ async def chat(req: ChatRequest, request: Request,
             # Start the HTTP body immediately. This prevents proxies and the
             # bridge from treating a legitimate n8n/tool wait as a dead socket.
             yield _ev("status", {"stage": "thinking"})
+            # Wait for budget before spending any of it. The heartbeat is
+            # already flowing, so a paced turn looks like thinking rather than
+            # a dead socket — which is exactly what a blind SDK backoff looked
+            # like from the customer's side.
+            waited = await get_bucket().acquire(s.openai_tokens_per_turn)
+            if waited > 1.0:
+                yield _ev("status", {"stage": "queued",
+                                     "waited_ms": int(waited * 1000)})
             # LangGraph/Postgres is the primary conversation memory.  Chatwoot
             # is the durable source of truth for the customer transcript, so a
             # fresh worker can seed an empty thread after a restart or replica
@@ -275,15 +285,23 @@ async def chat(req: ChatRequest, request: Request,
             chips = CHIP_SINK.get() or []
             if chips:
                 yield _ev("chips", {"chips": chips})
+            # The advisor's copy of the capture. Emitted before the handoff so
+            # a conversation that captures and then escalates carries both.
+            lead = LEAD_SINK.get() or {}
+            if lead.get("lead_id"):
+                yield _ev("lead", lead)
             handoff = HANDOFF_SINK.get()
             if handoff and handoff.get("requested"):
                 # The bridge owns Chatwoot; we only signal.
                 yield _ev("handoff", handoff)
             log.info("turn session=%s lang=%s cur=%s tools=[%s] cards=%d "
-                     "packages=%d chips=%d in=%dms",
+                     "packages=%d chips=%d%s in=%dms",
                      req.session_id, lang or "-", currency,
                      ",".join(tools_used) or "-", len(cards), len(packages),
-                     len(chips), int((time.perf_counter() - started) * 1000))
+                     len(chips),
+                     (f" lead={lead['lead_id']}" if lead.get("lead_id") else "")
+                     + (f" paced={waited:.1f}s" if waited > 1.0 else ""),
+                     int((time.perf_counter() - started) * 1000))
             yield _ev("done", {})
         except Exception as e:  # noqa: BLE001
             log.exception("chat stream failed for session=%s tools=[%s]",
@@ -296,6 +314,7 @@ async def chat(req: ChatRequest, request: Request,
             CARD_SINK.reset(cards_tok)
             PACKAGE_SINK.reset(pkgs_tok)
             HANDOFF_SINK.reset(hand_tok)
+            LEAD_SINK.reset(lead_tok)
             CHIP_SINK.reset(chip_tok)
             CURRENCY.reset(cur_tok)
             LANG.reset(lang_tok)
