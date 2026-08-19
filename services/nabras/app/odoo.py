@@ -22,6 +22,7 @@ Every quirk below was found by probing the live database, not assumed:
 """
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
@@ -35,6 +36,19 @@ log = logging.getLogger("nabras.odoo")
 # A single Odoo read above this is worth a line on its own: it is the usual
 # reason a reply feels slow, and it is invisible in the per-turn total.
 SLOW_CALL_MS = 1500.0
+
+# Odoo reports an unknown column in two shapes, depending on where it was used:
+#   fields list -> Invalid field 'sale_ok' on model 'training.package...line'
+#   domain leaf -> Invalid field training.package...line.website_published in
+#                  leaf ('website_published', '=', True)
+_INVALID_FIELD = re.compile(
+    r"Invalid field ['\"]?(?:[\w.]+\.)?(\w+)['\"]?(?:\s+(?:on|in)\b|$)")
+
+
+def _rejected_field(message: str) -> Optional[str]:
+    """The column name Odoo refused, or None if that is not what went wrong."""
+    m = _INVALID_FIELD.search(message or "")
+    return m.group(1) if m else None
 
 COURSE_FIELDS = [
     "id", "name", "default_code", "website_url", "is_published", "sale_ok",
@@ -147,6 +161,49 @@ class Odoo:
                 raise OdooAccessDenied(msg.strip().splitlines()[0])
             raise RuntimeError(f"Odoo error: {msg}")
         return data
+
+    async def search_read_tolerant(
+            self, model: str, domain: list, fields: list,
+            required: Iterable[str] = (), order: str = "") -> list[dict]:
+        """`search_read`, minus any column this database turns out not to have.
+
+        Twice now a single unknown column has silently cost the customer a
+        whole feature, each time on the same model and each time found only by
+        reading production logs weeks later:
+
+          * `website_published` in the domain  -> the entire package refresh
+            died, so packages, levels and groups all went with it.
+          * `sale_ok` in the fields list       -> every track lost its
+            attendance courses, which erased the discipline the track is
+            matched on, which is why a mechanical engineer was never offered
+            the mechanical track.
+
+        Both were fixed by deleting the offending name, which fixes exactly
+        that name and leaves the next one to be discovered the same slow way.
+        Odoo names the field it rejected, so instead of guessing the schema we
+        drop what it names and ask again.
+
+        `required` is the set that must never be dropped: without them the rows
+        are not worth having, so a rejection there is a real error and is
+        raised. Every retry is logged — a silently narrowed read is how this
+        became invisible in the first place.
+        """
+        wanted = list(fields)
+        keep = set(required)
+        for _ in range(len(wanted)):
+            try:
+                return await self.search_read(model, domain, wanted, order=order)
+            except OdooAccessDenied:
+                raise
+            except Exception as e:  # noqa: BLE001
+                bad = _rejected_field(str(e))
+                if not bad or bad not in wanted or bad in keep:
+                    raise
+                wanted.remove(bad)
+                log.warning("%s has no field %r — re-reading without it; "
+                            "drop it from the field list to silence this",
+                            model, bad)
+        return await self.search_read(model, domain, wanted, order=order)
 
     async def search_read(self, model: str, domain: list, fields: list,
                           limit: int = 0, order: str = "") -> list[dict]:
@@ -443,9 +500,13 @@ class Odoo:
             # every column shared between them has to exist on both.
             LINE_FIELDS = ["id", "name", "package_id", "level_id", "product_id",
                            "sequence"]
-            lines = await self.search_read(
+            # Without these two a line cannot be placed in a track at all, so
+            # they are never dropped: a rejection there is a real error, not
+            # something to degrade around.
+            LINE_REQUIRED = ("package_id", "product_id")
+            lines = await self.search_read_tolerant(
                 "training.package.product.line", [["website_published", "=", True]],
-                LINE_FIELDS + ["sale_ok"])
+                LINE_FIELDS + ["sale_ok"], required=LINE_REQUIRED)
             # The attendance courses of a track live in their own model. Without
             # them the path shows only what is sold as recorded.
             #
@@ -461,8 +522,9 @@ class Odoo:
             # Isolated on purpose: half a track is worth more than no track, so
             # a future schema change here must not cost the packages again.
             try:
-                attendee_lines = await self.search_read(
-                    "training.package.attendee.product.line", [], LINE_FIELDS)
+                attendee_lines = await self.search_read_tolerant(
+                    "training.package.attendee.product.line", [], LINE_FIELDS,
+                    required=LINE_REQUIRED)
             except OdooAccessDenied:
                 raise
             except Exception as e:  # noqa: BLE001

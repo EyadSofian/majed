@@ -183,3 +183,77 @@ async def test_an_injected_client_is_still_honoured():
     await od.aclose()
     assert not mine.is_closed, "we must not close a client we did not open"
     await mine.aclose()
+
+
+# --------------------------------------------------------------------------
+# Not the next unknown column too. Twice a single missing field has cost the
+# customer a whole feature, each found weeks later in a log: first
+# `website_published` in the domain, then `sale_ok` in the fields list. Odoo
+# names the field it rejected, so the read drops that name and asks again
+# instead of waiting for someone to notice.
+
+
+async def test_a_field_this_database_lacks_is_dropped_and_the_read_retried():
+    """The next `sale_ok`, whatever it turns out to be called."""
+    od, wire = _client(unknown_fields={ATTENDEE: ("level_id",)})
+    out = await od.fetch_packages()
+
+    assert out["attendee_lines"], "a future missing column cost us the track again"
+    assert "level_id" not in wire.fields[ATTENDEE]
+    assert "product_id" in wire.fields[ATTENDEE], "dropped more than it had to"
+
+
+async def test_several_missing_columns_are_dropped_one_after_another():
+    od, wire = _client(unknown_fields={ATTENDEE: ("sale_ok", "name", "sequence")})
+    out = await od.fetch_packages()
+    assert out["attendee_lines"]
+    assert not {"sale_ok", "name", "sequence"} & set(wire.fields[ATTENDEE])
+
+
+async def test_the_columns_a_track_cannot_be_built_without_are_never_dropped():
+    """Degrading past this point would return rows that cannot be placed."""
+    od, _wire = _client(unknown_fields={ATTENDEE: ("product_id",)})
+    out = await od.fetch_packages()
+    # Not silently "recovered" into useless rows: the read fails, and the
+    # existing guard keeps the rest of the refresh alive.
+    assert out["available"] is True
+    assert out["packages"]
+    assert out["attendee_lines"] == []
+
+
+async def test_a_healthy_model_is_read_once_with_every_field():
+    """The retry must cost nothing when nothing is wrong."""
+    od, wire = _client()
+    await od.fetch_packages()
+    assert "sale_ok" in wire.fields["training.package.product.line"]
+
+
+async def test_an_error_that_is_not_a_missing_column_is_not_retried_away():
+    """A timeout or a broken database must surface, not look like a schema."""
+    calls = []
+
+    class Flaky(FakeWire):
+        async def execute(self, model, method, args, kwargs=None):
+            if model == ATTENDEE:
+                calls.append(model)
+                raise RuntimeError("Odoo error: connection reset")
+            return await super().execute(model, method, args, kwargs)
+
+    od = Odoo()
+    od.execute = Flaky().execute       # type: ignore[method-assign]
+    out = await od.fetch_packages()
+    assert out["attendee_lines"] == []
+    assert len(calls) == 1, "a non-schema failure was retried as if it were one"
+
+
+def test_odoo_names_the_field_in_both_of_its_error_shapes():
+    from app.odoo import _rejected_field
+    assert _rejected_field(
+        "Odoo error: Invalid field 'sale_ok' on model "
+        "'training.package.attendee.product.line'") == "sale_ok"
+    assert _rejected_field(
+        "Odoo error: Invalid field training.package.attendee.product.line."
+        "website_published in leaf ('website_published', '=', True)"
+    ) == "website_published"
+    assert _rejected_field("Odoo error: AccessError") is None
+    assert _rejected_field("") is None
