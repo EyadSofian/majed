@@ -22,6 +22,8 @@ Every quirk below was found by probing the live database, not assumed:
 """
 import asyncio
 import logging
+import re
+import time
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
 
@@ -30,6 +32,23 @@ import httpx
 from .config import get_settings
 
 log = logging.getLogger("nabras.odoo")
+
+# A single Odoo read above this is worth a line on its own: it is the usual
+# reason a reply feels slow, and it is invisible in the per-turn total.
+SLOW_CALL_MS = 1500.0
+
+# Odoo reports an unknown column in two shapes, depending on where it was used:
+#   fields list -> Invalid field 'sale_ok' on model 'training.package...line'
+#   domain leaf -> Invalid field training.package...line.website_published in
+#                  leaf ('website_published', '=', True)
+_INVALID_FIELD = re.compile(
+    r"Invalid field ['\"]?(?:[\w.]+\.)?(\w+)['\"]?(?:\s+(?:on|in)\b|$)")
+
+
+def _rejected_field(message: str) -> Optional[str]:
+    """The column name Odoo refused, or None if that is not what went wrong."""
+    m = _INVALID_FIELD.search(message or "")
+    return m.group(1) if m else None
 
 COURSE_FIELDS = [
     "id", "name", "default_code", "website_url", "is_published", "sale_ok",
@@ -73,6 +92,38 @@ class Odoo:
 
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._client = client
+        self._owned: httpx.AsyncClient | None = None
+        self._owned_loop: Any = None
+
+    def _session(self) -> httpx.AsyncClient:
+        """One pooled, keep-alive connection to Odoo for the whole process.
+
+        This used to open a NEW AsyncClient per call and throw it away, so
+        every read paid a fresh TCP connect + TLS handshake to engosoft.com —
+        six of them for one `fetch_packages`, two more on the reply path for
+        every set of course cards. Odoo is one host we talk to constantly; the
+        handshake is pure latency the customer waits through.
+
+        Keyed on the running loop because a client's pool belongs to the loop
+        that created it, and the tests run each case on a fresh one.
+        """
+        loop = asyncio.get_running_loop()
+        if self._owned is None or self._owned_loop is not loop or \
+                self._owned.is_closed:
+            s = get_settings()
+            self._owned = httpx.AsyncClient(
+                timeout=s.odoo_timeout,
+                limits=httpx.Limits(max_keepalive_connections=10,
+                                    max_connections=20,
+                                    keepalive_expiry=120.0))
+            self._owned_loop = loop
+        return self._owned
+
+    async def aclose(self) -> None:
+        """Release the pooled connection at shutdown."""
+        client, self._owned, self._owned_loop = self._owned, None, None
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
     # ------------------------------------------------------------------ core
     async def execute(self, model: str, method: str, args: list,
@@ -87,11 +138,16 @@ class Odoo:
             },
         }
         url = f"{s.odoo_url}/jsonrpc"
-        if self._client is not None:
-            data = self._unwrap(await self._client.post(url, json=payload))
+        client = self._client if self._client is not None else self._session()
+        t0 = time.perf_counter()
+        data = self._unwrap(await client.post(url, json=payload))
+        ms = (time.perf_counter() - t0) * 1000
+        if ms >= SLOW_CALL_MS:
+            # Named so a slow turn can be blamed on Odoo or cleared of it
+            # without adding instrumentation after the fact.
+            log.warning("slow Odoo call %s.%s took %.0f ms", model, method, ms)
         else:
-            async with httpx.AsyncClient(timeout=s.odoo_timeout) as c:
-                data = self._unwrap(await c.post(url, json=payload))
+            log.debug("odoo %s.%s %.0f ms", model, method, ms)
         return data["result"]
 
     @staticmethod
@@ -105,6 +161,49 @@ class Odoo:
                 raise OdooAccessDenied(msg.strip().splitlines()[0])
             raise RuntimeError(f"Odoo error: {msg}")
         return data
+
+    async def search_read_tolerant(
+            self, model: str, domain: list, fields: list,
+            required: Iterable[str] = (), order: str = "") -> list[dict]:
+        """`search_read`, minus any column this database turns out not to have.
+
+        Twice now a single unknown column has silently cost the customer a
+        whole feature, each time on the same model and each time found only by
+        reading production logs weeks later:
+
+          * `website_published` in the domain  -> the entire package refresh
+            died, so packages, levels and groups all went with it.
+          * `sale_ok` in the fields list       -> every track lost its
+            attendance courses, which erased the discipline the track is
+            matched on, which is why a mechanical engineer was never offered
+            the mechanical track.
+
+        Both were fixed by deleting the offending name, which fixes exactly
+        that name and leaves the next one to be discovered the same slow way.
+        Odoo names the field it rejected, so instead of guessing the schema we
+        drop what it names and ask again.
+
+        `required` is the set that must never be dropped: without them the rows
+        are not worth having, so a rejection there is a real error and is
+        raised. Every retry is logged — a silently narrowed read is how this
+        became invisible in the first place.
+        """
+        wanted = list(fields)
+        keep = set(required)
+        for _ in range(len(wanted)):
+            try:
+                return await self.search_read(model, domain, wanted, order=order)
+            except OdooAccessDenied:
+                raise
+            except Exception as e:  # noqa: BLE001
+                bad = _rejected_field(str(e))
+                if not bad or bad not in wanted or bad in keep:
+                    raise
+                wanted.remove(bad)
+                log.warning("%s has no field %r — re-reading without it; "
+                            "drop it from the field list to silence this",
+                            model, bad)
+        return await self.search_read(model, domain, wanted, order=order)
 
     async def search_read(self, model: str, domain: list, fields: list,
                           limit: int = 0, order: str = "") -> list[dict]:
@@ -396,26 +495,36 @@ class Odoo:
                  "badge_text", "levels_ids", "product_ids", "groups_ids",
                  "similar_packages_ids", "write_date"],
                 order="sequence asc")
-            line_fields = ["id", "name", "package_id", "level_id", "product_id",
-                           "sequence", "sale_ok"]
-            lines = await self.search_read(
+            # What a track is assembled from. Kept separate per model on
+            # purpose: these two look alike but are NOT the same table, and
+            # every column shared between them has to exist on both.
+            LINE_FIELDS = ["id", "name", "package_id", "level_id", "product_id",
+                           "sequence"]
+            # Without these two a line cannot be placed in a track at all, so
+            # they are never dropped: a rejection there is a real error, not
+            # something to degrade around.
+            LINE_REQUIRED = ("package_id", "product_id")
+            lines = await self.search_read_tolerant(
                 "training.package.product.line", [["website_published", "=", True]],
-                line_fields)
+                LINE_FIELDS + ["sale_ok"], required=LINE_REQUIRED)
             # The attendance courses of a track live in their own model. Without
             # them the path shows only what is sold as recorded.
             #
-            # No `website_published` filter here, unlike the recorded lines: this
-            # model has no such field, and asking for it made Odoo reject the
-            # whole query — which took packages, levels and groups down with it
-            # and left the service silently living off the n8n snapshot. It is
-            # not needed either, because only published packages are fetched
-            # above and a line is only ever read through its package.
+            # Neither `website_published` NOR `sale_ok` here, unlike the
+            # recorded lines: this model has neither column. Asking for the
+            # first (in the domain) made Odoo reject the whole query; asking
+            # for the second (in the fields list) cost every track its
+            # attendance courses on every refresh — ~288 rejected reads a day,
+            # silent except for one warning. Neither is needed: only published
+            # packages are fetched above, and a line is only ever read through
+            # its package.
             #
             # Isolated on purpose: half a track is worth more than no track, so
             # a future schema change here must not cost the packages again.
             try:
-                attendee_lines = await self.search_read(
-                    "training.package.attendee.product.line", [], line_fields)
+                attendee_lines = await self.search_read_tolerant(
+                    "training.package.attendee.product.line", [], LINE_FIELDS,
+                    required=LINE_REQUIRED)
             except OdooAccessDenied:
                 raise
             except Exception as e:  # noqa: BLE001
