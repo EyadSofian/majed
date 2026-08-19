@@ -17,6 +17,7 @@ from . import catalog
 from .agent import get_graph, lifespan_agent
 from .config import get_settings
 from .logging_setup import configure_logging
+from .ratelimit import get_bucket
 from .schemas import ChatRequest
 from .tools import (ACTIVE_FIELD, CARD_SINK, CHIP_SINK, CURRENCY, DEFER_SINK,
                     HANDOFF_SINK, INSTRUCTOR_SINK, LANG, LEAD_SINK,
@@ -198,6 +199,14 @@ async def chat(req: ChatRequest, request: Request,
             # Start the HTTP body immediately. This prevents proxies and the
             # bridge from treating a legitimate n8n/tool wait as a dead socket.
             yield _ev("status", {"stage": "thinking"})
+            # Wait for budget before spending any of it. The heartbeat is
+            # already flowing, so a paced turn looks like thinking rather than
+            # a dead socket — which is exactly what a blind SDK backoff looked
+            # like from the customer's side.
+            waited = await get_bucket().acquire(s.openai_tokens_per_turn)
+            if waited > 1.0:
+                yield _ev("status", {"stage": "queued",
+                                     "waited_ms": int(waited * 1000)})
             # LangGraph/Postgres is the primary conversation memory.  Chatwoot
             # is the durable source of truth for the customer transcript, so a
             # fresh worker can seed an empty thread after a restart or replica
@@ -290,7 +299,8 @@ async def chat(req: ChatRequest, request: Request,
                      req.session_id, lang or "-", currency,
                      ",".join(tools_used) or "-", len(cards), len(packages),
                      len(chips),
-                     f" lead={lead['lead_id']}" if lead.get("lead_id") else "",
+                     (f" lead={lead['lead_id']}" if lead.get("lead_id") else "")
+                     + (f" paced={waited:.1f}s" if waited > 1.0 else ""),
                      int((time.perf_counter() - started) * 1000))
             yield _ev("done", {})
         except Exception as e:  # noqa: BLE001

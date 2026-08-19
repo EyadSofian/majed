@@ -794,8 +794,20 @@ function parseObject(value) {
   return {};
 }
 
-const BOT_FOLLOWUP_RE =
-  /هل\s+(?:ما\s+)?(?:زلت|تزال|لا\s+تزال).{0,50}(?:تحتاج|محتاج).{0,30}(?:مساعدة|مساعده)|(?:do|would)\s+you\s+still\s+need\s+help/i;
+// A scheduled Botpress nudge, recognised by TEXT — the last resort, and the
+// weakest of the three checks in automatedIncomingReason. It only fires on
+// wording no customer would send: a question asking whether THEY are still
+// present or still need help. A customer's own "محتاج مساعدة" has no
+// still-marker and must never be swallowed, so the still-marker is required,
+// never the help word alone.
+//
+// It is still only a heuristic. "لسه محتاج مساعدة؟" is a plausible customer
+// reply too, so structure — bp_id, or a non-contact sender — is what should
+// really catch these; BOT_FOLLOWUP_SHAPE logs what actually arrives so the
+// structural key can be chosen from evidence instead of guessed.
+const STILL = '(?:لا\\s*تزال|ما\\s*زلت|مازلت|ما\\s*زال|مازال|لسه|لسة|still)';
+const PRESENCE = '(?:مساعد|تحتاج|محتاج|بحاجة|مع(?:ن|ان)ا|موجود|هناك|there|help|need)';
+const BOT_FOLLOWUP_RE = new RegExp(`${STILL}[\\s\\S]{0,60}${PRESENCE}`, 'i');
 
 function automatedIncomingReason(payload) {
   const p = payload || {};
@@ -2563,7 +2575,13 @@ app.post('/chatwoot/webhook', async (req, res) => {
       if (p.conversation?.status) convStatus.set(convId, p.conversation.status);
       // Genuinely external incoming message (created by some other client) → forward to bot.
       if (p.content) {
-        console.log(`IN Chatwoot(external) conv ${convId}: ${String(p.content).slice(0, 60)}`);
+        // What identified this message, so a bot nudge that slipped past the
+        // filters can be keyed on structure next time instead of on wording.
+        const attrs = parseObject(p.content_attributes);
+        console.log(`IN Chatwoot(external) conv ${convId}: ${String(p.content).slice(0, 60)}` +
+          ` [sender=${p.sender?.type || p.sender_type || '?'}` +
+          ` id=${p.sender?.id ?? '?'}` +
+          ` attrs=${Object.keys(attrs).join(',') || 'none'}]`);
         try {
           await forwardToBot(convId, String(p.content), {
             name: p.sender?.name,

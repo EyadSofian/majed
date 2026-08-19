@@ -100,6 +100,42 @@ const notify = require('../notify');
   console.log('✅ cw-cards.chatwootSafeAttrs: strips rich keys for Chatwoot, keeps choices/plain attrs');
 })();
 
+// ---------------------------------------------------------------------------
+// The scheduled Botpress nudge, recognised by text. It used to match exactly
+// one phrasing, so six of seven real ones were forwarded to نبراس as if the
+// customer had typed them — and نبراس answered the nudge with something
+// unrelated. The guard that keeps this safe is that a still-marker is
+// REQUIRED: a customer's own "محتاج مساعدة" has none and must get through.
+(function botFollowupText() {
+  const a = require('assert');
+  const STILL = '(?:لا\\s*تزال|ما\\s*زلت|مازلت|ما\\s*زال|مازال|لسه|لسة|still)';
+  const PRESENCE = '(?:مساعد|تحتاج|محتاج|بحاجة|مع(?:ن|ان)ا|موجود|هناك|there|help|need)';
+  const RE = new RegExp(`${STILL}[\\s\\S]{0,60}${PRESENCE}`, 'i');
+
+  for (const nudge of [
+    'هل لا تزال محتاج إلى مساعدة؟',
+    'هل ما زلت بحاجة إلى مساعدة؟',
+    'هل ما زلت بحاجة لمساعدتي؟',
+    'لسه محتاج مساعدة؟',
+    'هل مازلت معنا؟',
+    'Are you still there?',
+    'Do you still need help?',
+  ]) a.ok(RE.test(nudge), `nudge slipped through: ${nudge}`);
+
+  // The half that matters more: a paying customer asking for help.
+  for (const real of [
+    'محتاج مساعدة',
+    'مساعدة',
+    'ممكن مساعدة من فضلك',
+    'عايز مساعدة في اختيار كورس',
+    'انا محتاج مساعدة ضروري',
+    'محتاج حد يساعدني اختار',
+    'عايز اعرف سعر كورس الريفيت',
+  ]) a.ok(!RE.test(real), `a real customer was swallowed: ${real}`);
+
+  console.log('✅ bot follow-up text: nudges caught, real requests for help pass');
+})();
+
 // ─────────────────────────── notify: compose ─────────────────────────
 (function composeWording() {
   const live = notify.compose('live_chat', { name: 'منى', message: 'عايزة كورس', convId: 9001 });

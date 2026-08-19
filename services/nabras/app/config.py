@@ -119,6 +119,18 @@ class Settings(BaseSettings):
     guest_rate_per_min: int = 20
     guest_mint_per_hour: int = 30
 
+    # ---- OpenAI pacing ----
+    # A turn costs roughly (system prompt + catalogue) x the model calls it
+    # makes — about 29k tokens measured against the live catalogue. On a usage
+    # tier whose budget is smaller than a few of those, requests are refused
+    # and retried blindly, and one turn took 54 seconds. Setting this to the
+    # account's tokens-per-minute limit makes turns wait for room they can
+    # compute instead. 0 = off, for an account with headroom.
+    openai_tpm_budget: int = 0
+    # What to charge one turn against the budget. Measure with the real
+    # catalogue before changing it: too low and the pacing does nothing.
+    openai_tokens_per_turn: int = 29000
+
     # ---- Logging ----
     # Everything goes to stdout at this level. Below INFO the log cannot answer
     # "did the catalogue actually load?", which is the first question asked of
