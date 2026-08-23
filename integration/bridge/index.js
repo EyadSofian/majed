@@ -104,8 +104,10 @@ const config = {
   botpressReplyWindowMs:
     Math.max(1, Number(process.env.BOTPRESS_REPLY_WINDOW_SECONDS || 120)) * 1000,
 
-  // CORS — the Odoo site origin that hosts the widget.
-  widgetOrigin: process.env.WIDGET_ORIGIN || '*',
+  // CORS — comma-separated Odoo origins that host the widget. Production and
+  // demo are separate origins, so a single literal value breaks one of them.
+  widgetOrigins: (process.env.WIDGET_ORIGIN || '*')
+    .split(',').map((value) => value.trim().replace(/\/$/, '')).filter(Boolean),
 
   // «نور» welcome
   welcomeEnabled: (process.env.WELCOME_ENABLED || 'true').toLowerCase() !== 'false',
@@ -213,7 +215,12 @@ function lruSet(max) {
 
 // ── CORS ───────────────────────────────────────────────────────────
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', config.widgetOrigin);
+  const requestOrigin = String(req.headers.origin || '').replace(/\/$/, '');
+  const allowAny = config.widgetOrigins.includes('*');
+  if (allowAny) res.setHeader('Access-Control-Allow-Origin', '*');
+  else if (requestOrigin && config.widgetOrigins.includes(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+  }
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -1979,7 +1986,7 @@ app.get('/debug/config', (_req, res) => {
       activeMappings: bpMap.size,
       replyWindowSeconds: config.botpressReplyWindowMs / 1000,
     },
-    widgetOrigin: config.widgetOrigin,
+    widgetOrigins: config.widgetOrigins,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
     subscribe: {
       enabled: config.subscribeEnabled,

@@ -59,7 +59,7 @@
     <data>
         <record id="param_widget_version" model="ir.config_parameter">
             <field name="key">ai_webhook.widget_version</field>
-            <field name="value">17.0.4.0.0</field>
+            <field name="value">17.0.4.3.0</field>
         </record>
     </data>
 

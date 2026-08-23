@@ -223,7 +223,7 @@ function check(name, cond, extra) {
       NABRAS_ENABLED: 'true',
       NABRAS_URL: MOCK,
       NABRAS_ALLOW: 'nabras@example.com',
-      WIDGET_ORIGIN: 'https://demo.engosoft.com',
+      WIDGET_ORIGIN: 'https://engosoft.com,https://demo.engosoft.com',
       WELCOME_ENABLED: 'false',
       SUBSCRIBE_ADMIN_TOKEN: 'admin-token',
       SUBSCRIBE_STORE_FILE: subscribeStore,
@@ -238,6 +238,16 @@ function check(name, cond, extra) {
     console.log('TEST 1 — health');
     const h = (await axios.get(`${BRIDGE}/`)).data;
     check('mode = chatwoot-botpress-chat-api', h.mode === 'chatwoot-botpress-chat-api', JSON.stringify(h));
+    const allowedCors = await axios.options(`${BRIDGE}/widget/session`, {
+      headers: { Origin: 'https://demo.engosoft.com' }, validateStatus: () => true,
+    });
+    check('CORS reflects an allowed demo origin',
+      allowedCors.headers['access-control-allow-origin'] === 'https://demo.engosoft.com');
+    const deniedCors = await axios.options(`${BRIDGE}/widget/session`, {
+      headers: { Origin: 'https://evil.example' }, validateStatus: () => true,
+    });
+    check('CORS does not authorize an unknown origin',
+      !deniedCors.headers['access-control-allow-origin']);
     const dbg = (await axios.get(`${BRIDGE}/debug/config`)).data;
     check('debug shows no secrets, chatWebhookId=true', dbg.botpress.chatWebhookId === true && !JSON.stringify(dbg).includes('test-token'));
 

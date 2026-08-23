@@ -10,10 +10,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     agent_model: str = "gpt-5.6-terra"    # main sales agent (tool-use / price balance)
     router_model: str = "gpt-5.6-luna"    # cheap intent/format/summaries
+    # OpenAI recommends Responses for tool-calling and multi-turn workflows.
+    # Keep configurable for a one-line rollback if a provider proxy only
+    # supports Chat Completions.
+    agent_use_responses_api: bool = True
     # Some reasoning-tier models reject `temperature`; set to -1 to omit it.
     agent_temperature: float = 0.3
     # gpt-5.x refuses function tools on /v1/chat/completions unless reasoning is
-    # switched off, and every turn here carries 9 tools. Empty string = never
+    # switched off, and every turn here carries 13 tools. Empty string = never
     # send the field. See agent.reasoning_effort_for.
     agent_reasoning_effort: str = "none"
     # Odoo profile fields are not consistently translated. When the visitor is
@@ -111,6 +115,13 @@ class Settings(BaseSettings):
     #                      visitor gets nothing when Botpress is not set up.
     details_to_botpress: bool = False
 
+    # Course and instructor digests used to add thousands of tokens to every
+    # model call even though the same data is available on demand through tools.
+    # Keep the switches for a controlled rollback, but retrieval is the lean
+    # and current source of truth.
+    include_catalog_digest_in_prompt: bool = False
+    include_instructor_digest_in_prompt: bool = False
+
     # ---- State / memory ----
     # Empty -> in-memory checkpointer (dev only, memory dies with the process).
     database_url: str = ""
@@ -118,18 +129,24 @@ class Settings(BaseSettings):
     jwt_ttl_hours: int = 12
     guest_rate_per_min: int = 20
     guest_mint_per_hour: int = 30
+    # LangGraph keeps the durable conversation, but verbose historical tool
+    # results do not need to be resent forever. Clear old results once the
+    # model context crosses this approximate token count, preserving the two
+    # most recent tool exchanges for conversational continuity.
+    context_edit_trigger_tokens: int = 8000
+    context_edit_clear_at_least_tokens: int = 4000
+    context_edit_keep_tool_uses: int = 2
 
     # ---- OpenAI pacing ----
-    # A turn costs roughly (system prompt + catalogue) x the model calls it
-    # makes — about 29k tokens measured against the live catalogue. On a usage
-    # tier whose budget is smaller than a few of those, requests are refused
-    # and retried blindly, and one turn took 54 seconds. Setting this to the
+    # This is a pacing estimate, not a generation limit. On a usage tier whose
+    # budget is smaller than several tool calls, requests are refused and
+    # retried blindly. Setting this to the
     # account's tokens-per-minute limit makes turns wait for room they can
     # compute instead. 0 = off, for an account with headroom.
     openai_tpm_budget: int = 0
     # What to charge one turn against the budget. Measure with the real
     # catalogue before changing it: too low and the pacing does nothing.
-    openai_tokens_per_turn: int = 29000
+    openai_tokens_per_turn: int = 16000
 
     # ---- Logging ----
     # Everything goes to stdout at this level. Below INFO the log cannot answer

@@ -157,14 +157,10 @@ async function guestToken(cwConvId) {
  * and the widget cannot lay out what it cannot tell apart. `description` and
  * `actions` are still filled so a cached older widget keeps working.
  *
- * Tracks come before courses — the track is the headline the courses sit under.
+ * Tracks come first — the track is the commercial headline, its courses are
+ * the proof, and an instructor profile is supporting detail rather than the
+ * first thing a visitor sees.
  */
-// Odoo's duration/certificate fields are free text and sometimes hold a whole
-// sentence. A chip is a glance, not a paragraph.
-const chip = (v, max = 26) => {
-  const t = String(v || '').trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-};
 
 // Odoo returns course_duration_text in the bot user's language (English), so a
 // card of otherwise-Arabic chips showed "24 Training Hours" among them. Render
@@ -179,7 +175,9 @@ const fmtDuration = (v) => {
 
 function toWidgetCards(courseCards = [], packageCards = [], instructorCards = [],
                        lang = '') {
-  const items = [];
+  const packageItems = [];
+  const courseItems = [];
+  const instructorItems = [];
   const arabicUi = /^ar(?:[_-]|$)/i.test(String(lang || ''));
   const hasArabic = (value) => /[\u0600-\u06ff]/u.test(String(value || ''));
   const courseCountLabel = (value) => {
@@ -219,7 +217,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
     const jobTitle = arabicUi && i.title && !hasArabic(i.title)
       ? arabicInstructorTitle(i.title)
       : (i.title || '');
-    items.push({
+    instructorItems.push({
       kind: 'instructor',
       instructor_id: i.id,
       title: i.name,
@@ -246,7 +244,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
     if (p.courses_count) bits.push(`${p.courses_count} دورة`);
     if (p.training_hours) bits.push(`${p.training_hours} ساعة`);
     if (p.attendance) bits.push(p.attendance);
-    items.push({
+    packageItems.push({
       kind: 'package',
       package_id: p.package_id,
       title: p.title,
@@ -259,7 +257,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       badge: p.badge || '',
       levels: p.levels || [],
       starts_at: p.starts_at || '',
-      options: (p.price_options || []).slice(0, 4).map((o) => ({
+      options: (p.price_options || []).map((o) => ({
         label: o.label, price_display: o.price_display,
         was_display: o.was_display || '',
       })),
@@ -281,7 +279,7 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
     // checkout form; older/cached widgets get the safe course page instead.
     const actions = [];
     if (c.url) actions.push({ type: 'link', text: 'عرض صفحة الدورة', uri: c.url });
-    items.push({
+    courseItems.push({
       kind: 'course',
       course_id: c.course_id,
       title: c.title,
@@ -291,8 +289,8 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       rating: c.rating || 0,
       instructor: (c.instructors || [])[0]?.name || '',
       instructors_count: (c.instructors || []).length,
-      delivery: chip(c.delivery, 18),
-      duration_text: chip(fmtDuration(c.duration_text), 20),
+      delivery: String(c.delivery || '').trim(),
+      duration_text: fmtDuration(c.duration_text),
       starts_at: nb?.starts_at || '',
       location: nb?.location || '',
       url: c.url || '',
@@ -301,18 +299,18 @@ function toWidgetCards(courseCards = [], packageCards = [], instructorCards = []
       description: bits.join(' · '), actions,
     });
   }
-  return items;
+  return [...packageItems, ...courseItems, ...instructorItems];
 }
 
 function compactHistory(history = []) {
   return (Array.isArray(history) ? history : [])
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
-    .map((m) => ({ role: m.role, content: String(m.content || '').trim().slice(0, 4000) }))
+    .map((m) => ({ role: m.role, content: String(m.content || '').trim().slice(0, 1500) }))
     .filter((m) => m.content)
-    .slice(-24);
+    .slice(-12);
 }
 
-function finalizeSalesReply(value, courseCards = []) {
+function finalizeSalesReply(value, courseCards = [], packageCards = []) {
   let text = String(value || '').trim();
   const checkoutMarkdown =
     /\[[^\]]*\]\(https?:\/\/[^\s<>()]+\/shop\/cart\/update\?[^\s<>()]+\)/giu;
@@ -334,7 +332,8 @@ function finalizeSalesReply(value, courseCards = []) {
       .trim();
   }
 
-  const hasDirectPurchase = courseCards.some((card) => card?.checkout_url);
+  const hasDirectPurchase = !packageCards.length &&
+    courseCards.some((card) => card?.checkout_url);
   const alreadyHasCardCta =
     /زر[^.\n؟]{0,45}(?:اشتر|الشراء)[^.\n؟]{0,80}البطاقة/u.test(text);
   if (hasDirectPurchase && !alreadyHasCardCta) {
@@ -537,7 +536,7 @@ async function tryNabras(cwConvId, text, { name, userData, pageType, slug, histo
     return false;
   }
 
-  reply = finalizeSalesReply(reply, courseCards);
+  reply = finalizeSalesReply(reply, courseCards, packageCards);
   const items = toWidgetCards(
     courseCards, packageCards, instructorCards, resolveLang(userData));
   const contentType = items.length ? 'cards' : chips.length ? 'input_select' : 'text';

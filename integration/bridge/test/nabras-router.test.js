@@ -186,15 +186,15 @@ function delivered() {
     const d = delivered();
     assert.strictEqual(await t(7, 'أنا في تخصص ميكانيكا', { userData: me }, d), true);
     const items = d.out.find((m) => m.content_type === 'cards').content_attributes.items;
-    // the instructor leads: it is the answer to "who teaches this?", and the
-    // track and its courses are the context for it
+    // The package is the offer, courses substantiate it, and the instructor is
+    // supporting detail. Never make the visitor scroll past a trainer first.
     assert.deepStrictEqual(items.map((i) => i.kind),
-                           ['instructor', 'package', 'course']);
-    assert.strictEqual(items[0].media_url,
+                           ['package', 'course', 'instructor']);
+    assert.strictEqual(items[2].media_url,
                        'https://engosoft.com/web/image/hr.employee/4129/image_512');
-    assert.deepStrictEqual(items[0].teaches, ['PMP', 'Primavera']);
-    assert.strictEqual(items[1].price_from_display, '12,001 EGP');
-    assert.strictEqual(items[1].options.length, 2);
+    assert.deepStrictEqual(items[2].teaches, ['PMP', 'Primavera']);
+    assert.strictEqual(items[0].price_from_display, '12,001 EGP');
+    assert.strictEqual(items[0].options.length, 2);
     const unified = d.out.find((m) => m.content_type === 'cards');
     assert.strictEqual(d.out.length, 1);
     assert.deepStrictEqual(unified.content_attributes.quick_replies.map((c) => c.title),
@@ -378,6 +378,11 @@ function delivered() {
     { role: 'user', content: 'سؤالي الأول' },
     { role: 'assistant', content: 'الإجابة السابقة' },
   ]);
+  const bounded = compactHistory(Array.from({ length: 20 }, (_, i) => ({
+    role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(2000),
+  })));
+  a.strictEqual(bounded.length, 12);
+  a.ok(bounded.every((m) => m.content.length === 1500));
 
   console.log('✅ language + history: shop language and bounded recovery context');
 })();
@@ -440,5 +445,8 @@ function delivered() {
     [{ checkout_url: 'internal' }]);
   a.ok(!markdown.includes('/shop/cart/update'));
   a.ok(!markdown.includes('هذا الرابط'));
+  const packageOffer = finalizeSalesReply(
+    'هذا هو المسار الأنسب لك.', [{ checkout_url: 'internal' }], [{ package_id: 7 }]);
+  a.ok(!packageOffer.includes('اشترِ الدورة الآن'));
   console.log('✅ checkout copy: no broken GET link, direct card CTA appended');
 })();

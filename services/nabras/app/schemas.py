@@ -12,7 +12,7 @@ class ChatHistoryMessage(BaseModel):
     """
 
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1, max_length=1500)
 
 
 class ChatRequest(BaseModel):
@@ -37,7 +37,7 @@ class ChatRequest(BaseModel):
     # The bridge owns the durable customer transcript in Chatwoot.  Sending a
     # bounded copy lets a fresh model worker recover context instead of treating
     # the next customer message as a brand-new conversation.
-    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=24)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=12)
 
     model_config = {"populate_by_name": True}
 

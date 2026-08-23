@@ -13,7 +13,7 @@ import asyncio
 import contextvars
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from langchain_core.tools import tool
@@ -556,7 +556,7 @@ def _has_ended(g: dict, today: Optional[str] = None) -> bool:
     ends = [e for e in ends if e]
     if not ends:
         return False
-    return max(ends)[:10] < (today or datetime.utcnow().strftime("%Y-%m-%d"))
+    return max(ends)[:10] < (today or datetime.now(UTC).strftime("%Y-%m-%d"))
 
 
 def sellable_groups(groups: list[dict]) -> list[dict]:

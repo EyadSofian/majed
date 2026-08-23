@@ -24,7 +24,7 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable, Optional
 
 import httpx
@@ -286,7 +286,7 @@ class Odoo:
         if not ids:
             return {}
         pricelist = s.pricelist_for(currency)
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         variants = await self.search_read(
             "product.product", [["product_tmpl_id", "in", ids]],
@@ -680,7 +680,7 @@ class Odoo:
             log.warning("no activity type or ir.model for crm.lead — "
                         "lead %s stays outside the follow-up cycle", lead_id)
             return None
-        due = (datetime.utcnow() + timedelta(days=max(0, delay_days))).date()
+        due = (datetime.now(UTC) + timedelta(days=max(0, delay_days))).date()
         return await self.execute("mail.activity", "create", [{
             "res_model_id": model_id,
             "res_id": lead_id,

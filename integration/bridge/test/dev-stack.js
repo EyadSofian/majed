@@ -195,14 +195,16 @@ nb.post('/api/v1/ai-chat/chat/', (q, r) => {
     send({ type: 'token', content: t });
 
   send({ type: 'packages', package_cards: [{
-    package_id: 5, title: 'Interior Design Professional Track',
-    url: 'https://engosoft.com/training_package/interior-design-5',
+    package_id: 5, title: 'المسار المهني المتكامل للتصميم الميكانيكي وأنظمة MEP',
+    url: 'https://engosoft.com/training_package/mechanical-professional-5',
     price_from_display: money(12001, cur), courses_count: 6, training_hours: 161,
     attendance: 'أونلاين أو حضوري',
     price_options: [
       { mode: 'recorded', label: 'مسجّل — تبدأ فورًا', price_display: money(12001, cur), was_display: money(23750, cur) },
-      { mode: 'attendance_online', label: 'حضوري أونلاين — دفعة يوليو', price_display: money(15000, cur) },
-      { mode: 'attendance_onsite', label: 'حضوري بالمقر — دفعة أغسطس', price_display: money(33750, cur) },
+      { mode: 'attendance_online', label: 'تدريب مباشر أونلاين — دفعة يوليو المسائية', price_display: money(15000, cur) },
+      { mode: 'attendance_onsite', label: 'تدريب حضوري بالمقر في الرياض — دفعة أغسطس', price_display: money(33750, cur) },
+      { mode: 'attendance_online', label: 'تدريب مباشر أونلاين — دفعة سبتمبر الصباحية', price_display: money(15500, cur) },
+      { mode: 'attendance_onsite', label: 'تدريب حضوري بالمقر في الرياض — دفعة أكتوبر', price_display: money(34000, cur) },
     ],
   }] });
 
@@ -216,10 +218,10 @@ nb.post('/api/v1/ai-chat/chat/', (q, r) => {
         location: 'الرياض', seats_available: 3, registration_open: true },
       batches_count: 2,
       checkout_url: 'https://engosoft.com/shop/cart/update?product_id=2059&express=1' },
-    { course_id: 2210, title: 'PMP Preparation Course - 8th Edition', currency: cur,
-      url: 'https://engosoft.com/shop/pmp-2210',
+    { course_id: 2210, title: 'التصميم المتكامل لأنظمة التكييف والتهوية للمباني التجارية والصناعية (HVAC Design)', currency: cur,
+      url: 'https://engosoft.com/shop/hvac-design-2210',
       price_display: money(6900, cur), rating: 5.0, delivery: 'حضوري + تسجيل',
-      duration_text: '36 ساعة معتمدة', instructors: ['Dr. Ayman Atef'],
+      duration_text: '36 ساعة تدريبية مع شهادة إتمام من Engosoft', instructors: ['Eng. Mohamed Mostafa'],
       next_batch: { starts_at: '2026-09-12 18:00:00', timezone: 'Asia/Riyadh',
         location: 'أونلاين', seats_available: 14, registration_open: true },
       batches_count: 3,
@@ -227,8 +229,8 @@ nb.post('/api/v1/ai-chat/chat/', (q, r) => {
   ] });
 
   send({ type: 'instructors', instructor_cards: [{
-    id: 4129, name: 'Dr. Ayman Atef Ali Fawzy', title: 'PRIMAVERA & PMP Instructor',
-    image_url: '', courses_count: 3, teaches: ['PMP Preparation Course', 'Primavera P6', 'CAPM'],
+    id: 4129, name: 'Eng. Mohamed Mostafa', title: 'Mechanical Instructor',
+    image_url: '', courses_count: 3, teaches: ['HVAC Design', 'Firefighting Design', 'Plumbing Design'],
   }] });
 
   // نفس شكل الخدمة الحقيقية: {title, value} — العنوان للعميل والقيمة للبوت.

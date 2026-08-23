@@ -30,7 +30,7 @@
             <t t-set="majed_email"    t-value="(icp.get_param('ai_webhook.support_email', default='aibot@engosoft.com') or '').strip()"/>
             <t t-set="majed_theme"    t-value="(icp.get_param('ai_webhook.theme', default='light') or '').strip()"/>
             <!-- نسخة الويدجت: بتتحدّث مع كل upgrade للموديول → المتصفح يجيب أحدث majed-widget.js فورًا -->
-            <t t-set="majed_ver"      t-value="(icp.get_param('ai_webhook.widget_version', default='') or '').strip() or '17.0.4.1.0'"/>
+            <t t-set="majed_ver"      t-value="(icp.get_param('ai_webhook.widget_version', default='') or '').strip() or '17.0.4.3.0'"/>
             <!--
                 تيزرات مخصّصة (اختياري): حط JSON array في System Parameter باسم ai_webhook.teasers_json
                 مثال (تيزر يظهر على صفحات المتجر فقط + زرار يبعت للبوت + كود عرض):

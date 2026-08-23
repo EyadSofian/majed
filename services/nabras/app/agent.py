@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import ContextEditingMiddleware
+from langchain.agents.middleware.context_editing import ClearToolUsesEdit
 from langchain_core.messages import HumanMessage
 
 from . import catalog
@@ -28,11 +30,11 @@ _prompt_fingerprint: Optional[str] = None
 _model: Any = None
 
 # OpenAI rejects the whole request when a gpt-5 model is given function tools
-# together with reasoning on the chat-completions endpoint:
+# together with reasoning on the legacy chat-completions endpoint:
 #   "Function tools with reasoning_effort are not supported for gpt-5.6-terra in
 #    /v1/chat/completions. To use function tools, use /v1/responses or set
 #    reasoning_effort to 'none'."
-# Every turn here binds 9 tools, so the flag has to be pinned — and pinned ONLY
+# Every turn here binds 13 tools, so the flag has to be pinned — and pinned ONLY
 # for that family: gpt-4.1 does not know the field and the o-series has no
 # "none" level, so sending it there trades one 400 for another.
 _GPT5 = re.compile(r"^gpt-5", re.I)
@@ -52,7 +54,8 @@ def reasoning_effort_for(model: str, configured: str) -> Optional[str]:
 def model_kwargs() -> dict[str, Any]:
     s = get_settings()
     kw: dict[str, Any] = {"model": s.agent_model, "api_key": s.openai_api_key,
-                          "streaming": True}
+                          "streaming": True,
+                          "use_responses_api": s.agent_use_responses_api}
     if s.agent_temperature >= 0:
         kw["temperature"] = s.agent_temperature
     effort = reasoning_effort_for(s.agent_model, s.agent_reasoning_effort)
@@ -65,6 +68,28 @@ def model_kwargs() -> dict[str, Any]:
 def build_model(kw: Optional[dict[str, Any]] = None):
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(**(kw if kw is not None else model_kwargs()))
+
+
+def agent_middleware() -> list[Any]:
+    """Bound persisted context without paying for stale tool payloads forever."""
+    s = get_settings()
+    if s.context_edit_trigger_tokens <= 0:
+        return []
+    return [ContextEditingMiddleware(edits=[ClearToolUsesEdit(
+        trigger=s.context_edit_trigger_tokens,
+        clear_at_least=s.context_edit_clear_at_least_tokens,
+        keep=s.context_edit_keep_tool_uses,
+        clear_tool_inputs=True,
+    )])]
+
+
+def runtime_prompt() -> str:
+    """Build the production prompt; live catalogue rows are fetched by tools."""
+    s = get_settings()
+    return build_system_prompt(
+        catalog.catalog_digest() if s.include_catalog_digest_in_prompt else "",
+        catalog.instructor_digest() if s.include_instructor_digest_in_prompt else "",
+    )
 
 
 def _rejected_param(err: Exception) -> Optional[str]:
@@ -123,6 +148,7 @@ def build_graph(checkpointer: Any, model: Optional[Any] = None,
         tools=TOOLS,
         system_prompt=system_prompt or build_system_prompt(),
         checkpointer=checkpointer,
+        middleware=agent_middleware(),
     )
 
 
@@ -131,23 +157,22 @@ def _fingerprint(text: str) -> str:
 
 
 def refresh_prompt() -> bool:
-    """Recompile only when the catalogue actually changed.
+    """Recompile only if a configured prompt input actually changed.
 
-    The system prompt carries the catalogue digest, so it must follow catalogue
-    edits — but recompiling on every turn would throw away prompt caching for
-    no reason. Rebuilding on a content hash keeps the prompt byte-identical
-    across the ~99% of turns where nothing was edited in Odoo.
+    Retrieval-first production prompts stay byte-identical across catalogue
+    refreshes. If a digest rollback switch is enabled, its content hash makes
+    the graph follow Odoo edits without rebuilding on every turn.
     """
     global _graph, _prompt_fingerprint
     if _graph is None:
         return False
-    prompt = build_system_prompt(catalog.catalog_digest(),
-                                 catalog.instructor_digest())
+    prompt = runtime_prompt()
     fp = _fingerprint(prompt)
     if fp == _prompt_fingerprint:
         return False
     _graph = create_agent(model=_model, tools=TOOLS, system_prompt=prompt,
-                          checkpointer=_checkpointer)
+                          checkpointer=_checkpointer,
+                          middleware=agent_middleware())
     _prompt_fingerprint = fp
     log.info("agent prompt rebuilt (catalogue changed) fp=%s", fp)
     return True
@@ -173,12 +198,12 @@ async def lifespan_agent(app=None):
             await catalog.refresh(full=True)
         except Exception:  # noqa: BLE001
             log.exception("initial catalogue load failed — starting empty")
-        prompt = build_system_prompt(catalog.catalog_digest(),
-                                     catalog.instructor_digest())
+        prompt = runtime_prompt()
         _model = await negotiate_model()
         _checkpointer = saver
         _graph = create_agent(model=_model, tools=TOOLS, system_prompt=prompt,
-                              checkpointer=saver)
+                              checkpointer=saver,
+                              middleware=agent_middleware())
         _prompt_fingerprint = _fingerprint(prompt)
 
     async def _keep_fresh():

@@ -20,7 +20,12 @@ CHATWOOT_ACCOUNT_ID=your_account_id
 CHATWOOT_API_TOKEN=your_token
 BOTPRESS_WEBHOOK_URL=https://webhook.botpress.cloud/your-webhook-id
 BOTPRESS_PAT=optional_botpress_pat
+WIDGET_ORIGIN=https://engosoft.com,https://demo.engosoft.com
 ```
+
+`WIDGET_ORIGIN` accepts a comma-separated allowlist. Include every Odoo host
+that embeds the widget; omitting the demo origin makes the browser reject the
+bridge before a message can be sent.
 
 ## Endpoints
 

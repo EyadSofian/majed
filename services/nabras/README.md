@@ -497,15 +497,20 @@ so the map can never name something a customer cannot buy.
 
 ## 8. Models
 
-GPT-5.6 family (July 2026) — Sol `$5/$30`, **Terra `$2.50/$15`**, Luna `$1/$6`.
+GPT-5.6 Terra — **$2 input / $0.20 cached input / $12 output per 1M tokens**
+(verified against the official model page in August 2026).
 
 - **Agent** → `gpt-5.6-terra`: best tool-use/price balance for a sales agent.
 - **Router / summaries** → `gpt-5.6-luna`.
-- The system prompt (rules + catalogue digest) is byte-identical between turns,
-  so **prompt caching** applies: cached input reads are 90% cheaper. Cache
-  *writes* bill at 1.25× on GPT-5.6+, so it pays from the second turn of a
-  session onward — nearly all of them. `agent.refresh_prompt()` only recompiles
-  when the catalogue content hash changes, precisely to protect this.
+- The system prompt is byte-identical between turns, so automatic **prompt
+  caching** applies. Catalogue and instructor rows are retrieved by tools rather
+  than injected into every model call. The two `INCLUDE_*_DIGEST_IN_PROMPT`
+  switches provide an incident rollback only.
+- Production uses the Responses API, which OpenAI recommends for tool-calling
+  and multi-turn workflows. `AGENT_USE_RESPONSES_API=false` is the rollback.
+- Old tool results are cleared from model context after the configured threshold
+  while LangGraph/Postgres retains the conversation state. Per-turn logs include
+  input, cached input, and output token counts.
 - `AGENT_TEMPERATURE=-1` omits the parameter for tiers that reject it.
 
 ---

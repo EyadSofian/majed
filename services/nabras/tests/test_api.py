@@ -651,7 +651,7 @@ async def test_chat_requires_a_token(client_factory):
 async def test_forged_token_is_rejected(client_factory):
     import jwt
     client, _ = client_factory(RECOMMEND)
-    bad = jwt.encode({"sub": "guest_hacker"}, "wrong-secret-wrong-secret-32ch",
+    bad = jwt.encode({"sub": "guest_hacker"}, "wrong-secret-wrong-secret-at-least-32-chars",
                      algorithm="HS256")
     async with client:
         r = await _chat(client, bad, "hi")
@@ -814,6 +814,35 @@ async def test_the_assistant_is_named_majed_to_the_visitor(client_factory):
         assert (await client.get("/health")).json()["assistant"] == "ماجد"
 
 
+def test_sales_prompt_is_compact_value_first_and_knows_real_bim_packages():
+    """Keep the production fix from regressing into the old 7k-token form."""
+    from app import prompts
+    prompt = prompts.build_system_prompt()
+    assert len(prompt) < 6000
+    assert "قيمة أولًا" in prompt
+    assert "BIM Architecture" in prompt and "BIM Structure" in prompt
+    assert "BIM MEP" in prompt
+    assert "BIM ليس باقة" not in prompt
+    assert "إذا كتب العميل اسمه ورقمه أو بريده" in prompt
+
+
+def test_runtime_prompt_retrieves_catalogue_instead_of_injecting_it(monkeypatch):
+    from app import agent as agent_mod
+    from app.config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(agent_mod.catalog, "catalog_digest", lambda: "COURSE_SENTINEL")
+    monkeypatch.setattr(agent_mod.catalog, "instructor_digest", lambda: "STAFF_SENTINEL")
+    monkeypatch.setattr(s, "include_catalog_digest_in_prompt", False)
+    monkeypatch.setattr(s, "include_instructor_digest_in_prompt", False)
+    lean = agent_mod.runtime_prompt()
+    assert "COURSE_SENTINEL" not in lean and "STAFF_SENTINEL" not in lean
+
+    monkeypatch.setattr(s, "include_catalog_digest_in_prompt", True)
+    monkeypatch.setattr(s, "include_instructor_digest_in_prompt", True)
+    rollback = agent_mod.runtime_prompt()
+    assert "COURSE_SENTINEL" in rollback and "STAFF_SENTINEL" in rollback
+
+
 async def test_trial_mode_does_not_write_leads_to_the_live_crm(
         client_factory, fake_odoo, monkeypatch):
     from app import main as main_mod
@@ -865,6 +894,7 @@ def test_model_kwargs_pins_the_flag_for_the_configured_model(monkeypatch):
     assert kw["reasoning_effort"] == "none"
     assert kw["model"] == "gpt-5.6-terra"
     assert kw["streaming"] is True
+    assert kw["use_responses_api"] is True
 
 
 class _Rejects:

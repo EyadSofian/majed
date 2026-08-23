@@ -179,8 +179,15 @@ async def chat(req: ChatRequest, request: Request,
 
     started = time.perf_counter()
     tools_used: list[str] = []
+    usage_input = 0
+    usage_output = 0
+    usage_cached = 0
+    usage_cache_write = 0
+    usage_reasoning = 0
 
     async def sse():
+        nonlocal usage_input, usage_output, usage_cached
+        nonlocal usage_cache_write, usage_reasoning
         # Each sink is a mutable container the tools mutate in place; tools run
         # in child tasks whose context is a copy, so a rebind there is lost.
         cards_tok = CARD_SINK.set([])
@@ -249,6 +256,18 @@ async def chat(req: ChatRequest, request: Request,
                     # prebuilt calls the node "agent", LangChain's create_agent
                     # calls it "model". Type-based filtering survives both.
                     if isinstance(chunk, AIMessageChunk):
+                        usage = getattr(chunk, "usage_metadata", None) or {}
+                        usage_input += int(usage.get("input_tokens") or 0)
+                        usage_output += int(usage.get("output_tokens") or 0)
+                        details = usage.get("input_token_details") or {}
+                        usage_cached += int(details.get("cache_read") or
+                                            details.get("cached_tokens") or 0)
+                        usage_cache_write += int(details.get("cache_creation") or
+                                                details.get("cache_write") or
+                                                details.get("cache_write_tokens") or 0)
+                        output_details = usage.get("output_token_details") or {}
+                        usage_reasoning += int(output_details.get("reasoning") or
+                                               output_details.get("reasoning_tokens") or 0)
                         for call in (getattr(chunk, "tool_call_chunks", None) or []):
                             name = call.get("name")
                             if name and name not in tools_used:
@@ -295,10 +314,12 @@ async def chat(req: ChatRequest, request: Request,
                 # The bridge owns Chatwoot; we only signal.
                 yield _ev("handoff", handoff)
             log.info("turn session=%s lang=%s cur=%s tools=[%s] cards=%d "
-                     "packages=%d chips=%d%s in=%dms",
+                     "packages=%d chips=%d tokens[in=%d cached=%d cache_write=%d "
+                     "out=%d reasoning=%d]%s in=%dms",
                      req.session_id, lang or "-", currency,
                      ",".join(tools_used) or "-", len(cards), len(packages),
-                     len(chips),
+                     len(chips), usage_input, usage_cached, usage_cache_write,
+                     usage_output, usage_reasoning,
                      (f" lead={lead['lead_id']}" if lead.get("lead_id") else "")
                      + (f" paced={waited:.1f}s" if waited > 1.0 else ""),
                      int((time.perf_counter() - started) * 1000))
