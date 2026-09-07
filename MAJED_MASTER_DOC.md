@@ -68,6 +68,8 @@ majed-liquid-widget/
 │   │   ├── views/webchat_template.xml ★ يحقن الـ script في صفحات Odoo
 │   │   └── controllers/main.py        ← GET /ai_webhook/user_context
 │   ├── ai_user_context_webhook_MAJED_AVATAR.zip  ★★ اللي يترفع في Odoo
+│   ├── BOTPRESS_MAJED_SYSTEM_PROMPT.md ★ برومبت ماجد الكامل (Autonomous Node)
+│   ├── BOTPRESS_PAGE_HELP_PROMPT.md  ← تعليمات المساعدة حسب الصفحة
 │   ├── BOTPRESS_CHAT_API_SETUP.md    ← دليل إعداد Botpress Chat API
 │   ├── BOTPRESS_FLOW_BRIEF.md        ← (قديم/متجاوَز — للمرجعية فقط)
 │   ├── CHATWOOT_SETUP.md             ← دليل ضبط Chatwoot
@@ -407,7 +409,8 @@ When user responds after sales pitch:
   `MAJED_SHOP_CODE` / `MAJED_CART_TEASER_CODE` (كود عرض الدورة المجانية `free100` شغّال زي ما هو).
 - **تغيير الحملة أو إنهاءها من Railway بدون تعديل كود:** غيّر `MAJED_OFFER_AR`
   (و`MAJED_OFFER_EN`) → **Redeploy** → كل البوب-أبات تتغيّر مع بعض.
-- ⚠️ لازم تغيّر معاها قسم «عرض اليوم الوطني» في تعليمات Botpress
+- ⚠️ لازم تغيّر معاها **قسم `<national_day_offer>`** في برومبت ماجد الرئيسي
+  (`integration/BOTPRESS_MAJED_SYSTEM_PROMPT.md`) وقسم «عرض اليوم الوطني» في
   (`integration/BOTPRESS_PAGE_HELP_PROMPT.md`) عشان كلام ماجد جوه الشات ما يخالفش البوب-أب.
 
 **التحكم من Railway env vars (الأسهل — موصى به):** البريدج بيحقن `window.MajedServerConfig` في أول الملف المقدَّم من `/majed-widget.js`. الأولوية: `MajedConfig` (صفحة Odoo) > `MajedServerConfig` (Railway) > الافتراضي المدمج. غيّر القيمة → **Redeploy** على Railway → خلاص.
