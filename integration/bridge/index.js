@@ -218,6 +218,8 @@ function buildWidgetServerConfig() {
     }
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
+  // no discount code is shown by default (engo20 was retired) — set this only if a real
+  // code comes back; the campaign discount is unlocked by creating an account instead.
   if (process.env.MAJED_DISCOUNT_CODE) cfg.discountCode = process.env.MAJED_DISCOUNT_CODE;
   // current campaign line («خصم يصل إلى 50% بمناسبة اليوم الوطني 🇸🇦») — one place that feeds
   // EVERY offer teaser (course page, /shop listing, cart, and the rotating ones), so the whole
@@ -228,6 +230,7 @@ function buildWidgetServerConfig() {
   if (Object.keys(offer).length) cfg.offer = offer;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
   if (process.env.MAJED_SHOP_URL) cfg.shopUrl = process.env.MAJED_SHOP_URL;
+  if (process.env.MAJED_SIGNUP_URL) cfg.signupUrl = process.env.MAJED_SIGNUP_URL;
   // contact buttons in the widget (WhatsApp + email) — Railway wins over the Odoo page values
   if (process.env.WA_NUMBER) cfg.waNumber = process.env.WA_NUMBER;
   if (process.env.SUPPORT_EMAIL) cfg.supportEmail = process.env.SUPPORT_EMAIL;

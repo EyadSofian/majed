@@ -19,7 +19,8 @@
  *     greeting:        'أهلاً، أنا ماجد',
  *     courseUrl:       'https://engosoft.com/shop/the-freelance-masterclass-2056',
  *     promoCode:       'free100',    // كود عرض الزوار (دورة مجانية)
- *     discountCode:    'engo20',     // كود خصم المسجّلين (مش معروض أثناء حملة اليوم الوطني)
+ *     discountCode:    '',           // مفيش كود خصم حاليًا (engo20 اتلغى) — الخصم بيتفعّل بالتسجيل
+ *     signupUrl:       'https://engosoft.com/web/signup',
  *     // نص عرض الحملة الحالي بيتحكم فيه من Railway: MAJED_OFFER_AR / MAJED_OFFER_EN
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
@@ -50,7 +51,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.7.0';
+  var WIDGET_VERSION = '4.8.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -87,9 +88,12 @@
   // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر عرض اليوم الوطني
   var SHOP_URL = CFG.shopUrl || SCFG.shopUrl || 'https://engosoft.com/shop';
   var PROMO_CODE = CFG.promoCode || SCFG.promoCode || 'free100';
-  // كود خصم العملاء المسجّلين — مش معروض على البوب-أب أثناء حملة اليوم الوطني (العرض بدون كود)،
-  // لكنه فاضل متاح لو رجّعت الكود على أي تيزر من Railway (MAJED_*_CODE).
-  var DISCOUNT_CODE = CFG.discountCode || SCFG.discountCode || 'engo20';
+  // مفيش كود خصم حاليًا — كود engo20 اتلغى. الخصم بيتفعّل بإنشاء الحساب، والنسبة الدقيقة
+  // لكل دورة بيوضّحها مستشار تعليمي (شوف قسم عرض اليوم الوطني في برومبت Botpress).
+  // السطر فاضل عشان لو رجع كود في المستقبل يتحط من Railway (MAJED_DISCOUNT_CODE).
+  var DISCOUNT_CODE = CFG.discountCode || SCFG.discountCode || '';
+  // صفحة إنشاء الحساب — وجهة زر «إنشاء حساب مجاني» في تيزر العرض للزوار
+  var SIGNUP_URL = CFG.signupUrl || SCFG.signupUrl || 'https://engosoft.com/web/signup';
   // ── عرض الحملة الحالية: اليوم الوطني السعودي 🇸🇦 «خصم يصل إلى 50%» ──
   // سطر واحد مركزي بيتقري في كل البوب-أبات، فتغيير العرض (أو إنهاء الحملة) من مكان واحد.
   // من Railway بدون تعديل كود: MAJED_OFFER_AR / MAJED_OFFER_EN.
@@ -130,7 +134,7 @@
     excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
     html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>' + OFFER_AR,
-    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، وأريد الاستفادة من عرض اليوم الوطني.',
+    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، وكم الخصم عليها بالضبط ضمن عرض اليوم الوطني؟',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
     // عرض اليوم الوطني بدون كود — الخصم على أسعار الموقع مباشرة.
     // لإرجاع زرار الكود: MAJED_COURSE_CODE (+ MAJED_COURSE_CODE_LABEL) من Railway.
@@ -138,7 +142,7 @@
     codeLabel: ct.codeLabel || 'كود الخصم ' + (ct.code || DISCOUNT_CODE),
     en: ct.en || {
       html: '🛒 Need help buying «{{course}}»?<br/>' + OFFER_EN,
-      botMessage: 'I need help buying the course «{{course}}», and I want to use the National Day offer.',
+      botMessage: 'I need help buying the course «{{course}}» — what exactly is its discount in the National Day offer?',
       botMessageLabel: '💬 Help me buy',
       codeLabel: 'Discount code ' + (ct.code || DISCOUNT_CODE)
     }
@@ -311,12 +315,12 @@
     ),
     shopMotivation(
       OFFER_AR + '<br/>على <b>جميع الدورات</b> — اغتنم الفرصة قبل انتهائها',
-      'سمعت أن هناك خصمًا يصل إلى 50% على جميع الدورات بمناسبة اليوم الوطني، كيف أستفيد منه؟',
-      '🏷️ استفد من العرض',
+      'سمعت أن هناك خصمًا يصل إلى 50% بمناسبة اليوم الوطني، كم الخصم على الدورة التي تناسبني بالضبط؟',
+      '🏷️ اعرف خصمك',
       { en: {
         html: OFFER_EN + '<br/>on <b>all courses</b> — grab it before it ends',
-        botMessage: 'I heard there\'s up to 50% off all courses for Saudi National Day, how do I use it?',
-        botMessageLabel: '🏷️ Get the offer'
+        botMessage: 'I heard there\'s up to 50% off for Saudi National Day — what exactly is the discount on the course that suits me?',
+        botMessageLabel: '🏷️ Get your discount'
       } }
     )
   ];
@@ -349,12 +353,12 @@
     {
       showOn: ['/shop/cart'],
       html: OFFER_AR + '<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
-      botMessage: 'أريد الاستفادة من عرض اليوم الوطني على طلبي في السلة، كيف أكمل الطلب؟',
-      botMessageLabel: '🏷️ استفد من العرض',
+      botMessage: 'أريد الاستفادة من عرض اليوم الوطني على طلبي في السلة، كم الخصم عليه بالضبط؟',
+      botMessageLabel: '🏷️ اعرف خصمك',
       en: {
         html: OFFER_EN + '<br/>Complete your order and use the offer before it ends',
-        botMessage: 'I want to use the National Day offer on my cart order, how do I complete it?',
-        botMessageLabel: '🏷️ Get the offer'
+        botMessage: 'I want to use the National Day offer on my cart order — what exactly is my discount?',
+        botMessageLabel: '🏷️ Get your discount'
       }
     }
   ];
@@ -379,12 +383,31 @@
         }
       },
       {
-        // عرض اليوم الوطني — يظهر لكل الزوار (مسجّل أو لا) على أي صفحة، لأنه عرض عام مش ميزة مسجّلين
+        // عرض اليوم الوطني للزوار — الخصم بيتفعّل بإنشاء الحساب، فالزرار بيوّدي على التسجيل
+        guestOnly: true,
+        html: OFFER_AR + '<br/>على <b>جميع الدورات</b> — أنشئ حسابك واستفد منه 👇',
+        link: SIGNUP_URL, linkText: 'إنشاء حساب مجاني',
+        botMessage: 'أريد الاستفادة من عرض اليوم الوطني، كم الخصم على الدورة التي تناسبني بالضبط؟',
+        botMessageLabel: '🏷️ اعرف خصمك',
+        en: {
+          html: OFFER_EN + '<br/>on <b>all courses</b> — create your account to unlock it 👇',
+          linkText: 'Create a free account',
+          botMessage: 'I want to use the National Day offer — what exactly is the discount on the course that suits me?',
+          botMessageLabel: '🏷️ Get your discount'
+        }
+      },
+      {
+        // نفس العرض للعملاء المسجّلين — الحساب موجود، فالزرار بيوّدي على المتجر
+        loggedInOnly: true,
         html: OFFER_AR + '<br/>على <b>جميع الدورات</b> — تصفّح واختر دورتك 👇',
         link: SHOP_URL, linkText: 'تصفّح الدورات',
+        botMessage: 'كم الخصم على الدورة التي تناسبني بالضبط ضمن عرض اليوم الوطني؟',
+        botMessageLabel: '🏷️ اعرف خصمك',
         en: {
           html: OFFER_EN + '<br/>on <b>all courses</b> — browse and pick yours 👇',
-          linkText: 'Browse courses'
+          linkText: 'Browse courses',
+          botMessage: 'What exactly is the discount on the course that suits me in the National Day offer?',
+          botMessageLabel: '🏷️ Get your discount'
         }
       },
       SIGNUP_TEASER,
