@@ -219,6 +219,13 @@ function buildWidgetServerConfig() {
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
   if (process.env.MAJED_DISCOUNT_CODE) cfg.discountCode = process.env.MAJED_DISCOUNT_CODE;
+  // current campaign line («خصم يصل إلى 50% بمناسبة اليوم الوطني 🇸🇦») — one place that feeds
+  // EVERY offer teaser (course page, /shop listing, cart, and the rotating ones), so the whole
+  // campaign is changed or ended from Railway with a single variable.
+  const offer = {};
+  if (process.env.MAJED_OFFER_AR) offer.ar = process.env.MAJED_OFFER_AR;
+  if (process.env.MAJED_OFFER_EN) offer.en = process.env.MAJED_OFFER_EN;
+  if (Object.keys(offer).length) cfg.offer = offer;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
   if (process.env.MAJED_SHOP_URL) cfg.shopUrl = process.env.MAJED_SHOP_URL;
   // contact buttons in the widget (WhatsApp + email) — Railway wins over the Odoo page values

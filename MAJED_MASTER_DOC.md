@@ -338,7 +338,7 @@ When user responds after sales pitch:
 |--------|-------------------|---------|
 | `SIGNUP_TEASER` | `/web/signup`, `/web/reset_password` (guestOnly) | مساعدة إنشاء الحساب خطوة بخطوة + هدية الدورة المجانية |
 | `LOGIN_TEASER` | `/web/login` (guestOnly) | نسيت الباسورد؟ مساعدة عمل ريِست عبر الإيميل |
-| `CART_TEASER` | `/shop/cart` | تشجيع إتمام الطلب + كود الخصم 20% |
+| `CART_TEASER` | `/shop/cart` | تشجيع إتمام الطلب + عرض اليوم الوطني (خصم يصل إلى 50%) |
 | `PAYMENT_TEASER` | `/shop/checkout`, `/shop/payment`, `/shop/confirmation` | شرح الفرق بين بوابات الدفع (Kashier/Apple Pay/PayPal/Tap) — بدون كلام عن العملة |
 | `COMPANY_TEASER` | `/company-requests` | طلب تدريب خاص/مخصّص للشركات (مش باقات) |
 | `ABOUT_TEASER` | `/about-us` | تعريف بإنجوسوفت وعرض المساعدة |
@@ -394,11 +394,29 @@ When user responds after sales pitch:
 }
 ```
 
+### 🇸🇦 حملة العروض (اليوم الوطني) — سطر واحد يتحكم في كل البوب-أبات
+
+سطر العرض المعروض للعميل مركزي في `majed-widget.js` (`OFFER_AR` / `OFFER_EN`)، وكل
+بوب-أبات العروض بتقراه: بوب-أب صفحة الكورس، بوب-أب المتجر `/shop`، بوب-أب السلة،
+وبوب-أبات التحفيز اللي بتتبدّل، والبوب-أب العام على كل الصفحات.
+
+- **الافتراضي الحالي:** `🇸🇦&nbsp;خصم يصل إلى <b>50%</b> بمناسبة <b>اليوم الوطني</b>`
+  (العلم في أول السطر ومربوط بـ `&nbsp;` عشان ما ينزلش لوحده في سطر على الموبايل)
+- **العرض من غير كود** — الخصم على أسعار الموقع مباشرة، فزرار نسخ الكود مقفول على
+  بوب-أبات العروض. لو حبيت ترجّعه لتيزر معيّن: `MAJED_COURSE_CODE` /
+  `MAJED_SHOP_CODE` / `MAJED_CART_TEASER_CODE` (كود عرض الدورة المجانية `free100` شغّال زي ما هو).
+- **تغيير الحملة أو إنهاءها من Railway بدون تعديل كود:** غيّر `MAJED_OFFER_AR`
+  (و`MAJED_OFFER_EN`) → **Redeploy** → كل البوب-أبات تتغيّر مع بعض.
+- ⚠️ لازم تغيّر معاها قسم «عرض اليوم الوطني» في تعليمات Botpress
+  (`integration/BOTPRESS_PAGE_HELP_PROMPT.md`) عشان كلام ماجد جوه الشات ما يخالفش البوب-أب.
+
 **التحكم من Railway env vars (الأسهل — موصى به):** البريدج بيحقن `window.MajedServerConfig` في أول الملف المقدَّم من `/majed-widget.js`. الأولوية: `MajedConfig` (صفحة Odoo) > `MajedServerConfig` (Railway) > الافتراضي المدمج. غيّر القيمة → **Redeploy** على Railway → خلاص.
 
 | Env var | الوظيفة |
 |---------|---------|
-| `MAJED_PROMO_CODE` | كود الخصم المعروض على البوب-أب |
+| `MAJED_OFFER_AR` | **سطر عرض الحملة الحالية** (اليوم الوطني) — بيظهر في **كل** بوب-أبات العروض |
+| `MAJED_OFFER_EN` | نفس السطر بالإنجليزي (يظهر لما لغة الصفحة إنجليزي) |
+| `MAJED_PROMO_CODE` | كود عرض الزوار (الدورة المجانية) المعروض على البوب-أب |
 | `MAJED_COURSE_TEASER_HTML` | نص التيزر (يدعم `{{course}}` و`<br/>`) |
 | `MAJED_COURSE_TEASER_MSG` | الرسالة اللي تتبعت للبوت عند الضغط (يدعم `{{course}}`) |
 | `MAJED_COURSE_TEASER_LABEL` | نص زرار «ساعدني في الشراء» |

@@ -19,7 +19,8 @@
  *     greeting:        'أهلاً، أنا ماجد',
  *     courseUrl:       'https://engosoft.com/shop/the-freelance-masterclass-2056',
  *     promoCode:       'free100',    // كود عرض الزوار (دورة مجانية)
- *     discountCode:    'engo20',     // كود خصم المسجّلين (20% على أي دورة)
+ *     discountCode:    'engo20',     // كود خصم المسجّلين (مش معروض أثناء حملة اليوم الوطني)
+ *     // نص عرض الحملة الحالي بيتحكم فيه من Railway: MAJED_OFFER_AR / MAJED_OFFER_EN
  *     teaserDelay:     3500,      // ms before the attention bubble appears
  *     teaserRotate:    9000,      // ms between teaser messages
  *     teasers:         [{ html, link, linkText, code, codeLabel, botMessage, botMessageLabel, showOn, showOnSelector, guestOnly, loggedInOnly }]
@@ -49,7 +50,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.6.0';
+  var WIDGET_VERSION = '4.7.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -83,11 +84,19 @@
   // تسجيل صوتي: يظهر زرار المايك فقط لو Deepgram متفعّل في البريدج (SCFG.voice) أو مفعّل من الصفحة.
   var VOICE_ON = SCFG.voice === true || CFG.voice === true;
   var COURSE_URL = CFG.courseUrl || SCFG.courseUrl || 'https://engosoft.com/shop/the-freelance-masterclass-2056';
-  // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر خصم 20%
+  // صفحة المتجر (كل الدورات) — وجهة زر «تصفّح الدورات» في تيزر عرض اليوم الوطني
   var SHOP_URL = CFG.shopUrl || SCFG.shopUrl || 'https://engosoft.com/shop';
   var PROMO_CODE = CFG.promoCode || SCFG.promoCode || 'free100';
-  // كود خصم العملاء المسجّلين (20% على أي دورة) — قابل للتخصيص من الصفحة أو Railway env
+  // كود خصم العملاء المسجّلين — مش معروض على البوب-أب أثناء حملة اليوم الوطني (العرض بدون كود)،
+  // لكنه فاضل متاح لو رجّعت الكود على أي تيزر من Railway (MAJED_*_CODE).
   var DISCOUNT_CODE = CFG.discountCode || SCFG.discountCode || 'engo20';
+  // ── عرض الحملة الحالية: اليوم الوطني السعودي 🇸🇦 «خصم يصل إلى 50%» ──
+  // سطر واحد مركزي بيتقري في كل البوب-أبات، فتغيير العرض (أو إنهاء الحملة) من مكان واحد.
+  // من Railway بدون تعديل كود: MAJED_OFFER_AR / MAJED_OFFER_EN.
+  var OF = SCFG.offer || {};
+  // العلم في أول السطر ومربوط بأول كلمة بـ &nbsp; عشان ما ينزلش لوحده في سطر على الشاشات الضيّقة.
+  var OFFER_AR = OF.ar || '🇸🇦&nbsp;خصم يصل إلى <b>50%</b> بمناسبة <b>اليوم الوطني</b>';
+  var OFFER_EN = OF.en || '🇸🇦&nbsp;Up to <b>50%</b> off for <b>Saudi National Day</b>';
   var TZ_DELAY = Number(CFG.teaserDelay) > 0 ? Number(CFG.teaserDelay) : 3500;
   var TZ_ROTATE = Number(CFG.teaserRotate) > 2000 ? Number(CFG.teaserRotate) : 9000;
   var MAX_FILE_MB = 10;
@@ -104,7 +113,7 @@
   };
 
   // تيزر صفحة الكورس — قابل للتخصيص بالكامل من Railway env vars (عبر SCFG.courseTeaser)
-  // بيظهر لأي زائر على صفحة كورس مفردة (مسجّل أو لا) بفكرة «مساعدة الشراء» + خصم 20% بكود engo20.
+  // بيظهر لأي زائر على صفحة كورس مفردة (مسجّل أو لا) بفكرة «مساعدة الشراء» + عرض اليوم الوطني.
   // مهم: المقصود صفحة الدورة الواحدة (مثال: /shop/the-freelance-masterclass-2056)،
   // مش قائمة المتجر العامة (/shop). عشان كده بنعتمد على علامتين معًا:
   //  1) showOnSelector على عنصر صفحة المنتج المفردة في Odoo (تفاصيل المنتج/الفورم الرئيسي)
@@ -120,16 +129,18 @@
     showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
     excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
-    html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>لديك خصم <b>20%</b> على هذه الدورة بالكود 👇',
-    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، ولديّ كود خصم ' + DISCOUNT_CODE + '.',
+    html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>' + OFFER_AR,
+    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، وأريد الاستفادة من عرض اليوم الوطني.',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
-    code: ct.code || DISCOUNT_CODE,
-    codeLabel: ct.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    // عرض اليوم الوطني بدون كود — الخصم على أسعار الموقع مباشرة.
+    // لإرجاع زرار الكود: MAJED_COURSE_CODE (+ MAJED_COURSE_CODE_LABEL) من Railway.
+    code: ct.code || '',
+    codeLabel: ct.codeLabel || 'كود الخصم ' + (ct.code || DISCOUNT_CODE),
     en: ct.en || {
-      html: '🛒 Need help buying «{{course}}»?<br/>You get <b>20%</b> off this course with the code 👇',
-      botMessage: 'I need help buying the course «{{course}}», and I have discount code ' + DISCOUNT_CODE + '.',
+      html: '🛒 Need help buying «{{course}}»?<br/>' + OFFER_EN,
+      botMessage: 'I need help buying the course «{{course}}», and I want to use the National Day offer.',
       botMessageLabel: '💬 Help me buy',
-      codeLabel: 'Discount code ' + DISCOUNT_CODE
+      codeLabel: 'Discount code ' + (ct.code || DISCOUNT_CODE)
     }
   };
 
@@ -141,16 +152,17 @@
     showOn: st.showOn != null ? st.showOn : ['/shop', '/course'],
     excludeOn: st.excludeOn != null ? st.excludeOn : SHOP_FLOW_EXCLUDE,
     excludeOnSelector: st.excludeOnSelector != null ? st.excludeOnSelector : '#product_details, #product_detail, .js_main_product',
-    html: st.html || 'هل تحب أن أساعدك في اختيار الدورة المناسبة لك؟ 🎯<br/>وهناك <b>خصم</b> على الدورات 👇',
-    botMessage: st.botMessage || 'هل يمكنك مساعدتي في اختيار الدورة المناسبة لي من دوراتكم؟ وقد سمعت أن هناك خصمًا على الدورات.',
+    html: st.html || 'هل تحب أن أساعدك في اختيار الدورة المناسبة لك؟ 🎯<br/>' + OFFER_AR,
+    botMessage: st.botMessage || 'هل يمكنك مساعدتي في اختيار الدورة المناسبة لي من دوراتكم؟ وقد سمعت أن هناك خصمًا يصل إلى 50% بمناسبة اليوم الوطني.',
     botMessageLabel: st.botMessageLabel || '🎯 ساعدني في الاختيار',
-    code: st.code || DISCOUNT_CODE,
-    codeLabel: st.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    // بدون كود — العرض على أسعار الموقع. لإرجاعه: MAJED_SHOP_CODE من Railway.
+    code: st.code || '',
+    codeLabel: st.codeLabel || 'كود الخصم ' + (st.code || DISCOUNT_CODE),
     en: st.en || {
-      html: 'Would you like me to help you choose the right course? 🎯<br/>And there\'s a <b>discount</b> on courses 👇',
-      botMessage: 'Can you help me choose the right course from your catalog? I heard there\'s a discount on courses.',
+      html: 'Would you like me to help you choose the right course? 🎯<br/>' + OFFER_EN,
+      botMessage: 'Can you help me choose the right course from your catalog? I heard there\'s up to 50% off for Saudi National Day.',
       botMessageLabel: '🎯 Help me choose',
-      codeLabel: 'Discount code ' + DISCOUNT_CODE
+      codeLabel: 'Discount code ' + (st.code || DISCOUNT_CODE)
     }
   };
   // ── تيزرات مخصّصة لكل صفحة (ماجد يظهر بسياق الصفحة اللي العميل واقف عليها) ──
@@ -188,20 +200,21 @@
     }
   };
 
-  // صفحة السلة — تشجيع إتمام الطلب + كود الخصم
+  // صفحة السلة — تشجيع إتمام الطلب + عرض اليوم الوطني
   var crt = SCFG.cartTeaser || {};
   var CART_TEASER = {
     showOn: crt.showOn != null ? crt.showOn : ['/shop/cart'],
-    html: crt.html || '🛒 تفصلك خطوة واحدة عن إتمام طلبك!<br/>هل تحتاج مساعدة؟ ولديك <b>خصم 20%</b> 👇',
-    botMessage: crt.botMessage || 'أنا في سلة الشراء وأرغب في إتمام الطلب، هل يمكنك مساعدتي؟ وهل يوجد خصم متاح؟',
+    html: crt.html || '🛒 تفصلك خطوة واحدة عن إتمام طلبك!<br/>' + OFFER_AR,
+    botMessage: crt.botMessage || 'أنا في سلة الشراء وأرغب في إتمام الطلب، هل يمكنك مساعدتي؟ وكيف أستفيد من عرض اليوم الوطني؟',
     botMessageLabel: crt.botMessageLabel || '🛒 ساعدني في الإتمام',
-    code: crt.code || DISCOUNT_CODE,
-    codeLabel: crt.codeLabel || 'كود الخصم ' + DISCOUNT_CODE,
+    // بدون كود — العرض على أسعار الموقع. لإرجاعه: MAJED_CART_TEASER_CODE من Railway.
+    code: crt.code || '',
+    codeLabel: crt.codeLabel || 'كود الخصم ' + (crt.code || DISCOUNT_CODE),
     en: crt.en || {
-      html: '🛒 You\'re one step away from completing your order!<br/>Need help? You have a <b>20% discount</b> 👇',
-      botMessage: 'I\'m in the cart and want to complete my order, can you help me? Is there a discount available?',
+      html: '🛒 You\'re one step away from completing your order!<br/>' + OFFER_EN,
+      botMessage: 'I\'m in the cart and want to complete my order, can you help me? How do I use the National Day offer?',
       botMessageLabel: '🛒 Help me checkout',
-      codeLabel: 'Discount code ' + DISCOUNT_CODE
+      codeLabel: 'Discount code ' + (crt.code || DISCOUNT_CODE)
     }
   };
 
@@ -297,14 +310,13 @@
       } }
     ),
     shopMotivation(
-      '🎉 خصم <b>20%</b> على <b>جميع الدورات</b>!<br/>اغتنم الفرصة قبل انتهائها',
-      'سمعت أن هناك خصم 20% على جميع الدورات، كيف أستفيد منه؟',
-      '🏷️ استفد من الخصم',
-      { code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE, en: {
-        html: '🎉 <b>20%</b> off <b>all courses</b>!<br/>Grab the offer before it ends',
-        botMessage: 'I heard there\'s a 20% discount on all courses, how do I use it?',
-        botMessageLabel: '🏷️ Get the discount',
-        codeLabel: 'Discount code ' + DISCOUNT_CODE
+      OFFER_AR + '<br/>على <b>جميع الدورات</b> — اغتنم الفرصة قبل انتهائها',
+      'سمعت أن هناك خصمًا يصل إلى 50% على جميع الدورات بمناسبة اليوم الوطني، كيف أستفيد منه؟',
+      '🏷️ استفد من العرض',
+      { en: {
+        html: OFFER_EN + '<br/>on <b>all courses</b> — grab it before it ends',
+        botMessage: 'I heard there\'s up to 50% off all courses for Saudi National Day, how do I use it?',
+        botMessageLabel: '🏷️ Get the offer'
       } }
     )
   ];
@@ -336,15 +348,13 @@
     },
     {
       showOn: ['/shop/cart'],
-      html: '🎉 خصم <b>20%</b> بانتظارك!<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
-      botMessage: 'هناك خصم 20% وأريد الاستفادة منه على طلبي في السلة، كيف أطبّقه؟',
-      botMessageLabel: '🏷️ استفد من الخصم',
-      code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE,
+      html: OFFER_AR + '<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
+      botMessage: 'أريد الاستفادة من عرض اليوم الوطني على طلبي في السلة، كيف أكمل الطلب؟',
+      botMessageLabel: '🏷️ استفد من العرض',
       en: {
-        html: '🎉 A <b>20%</b> discount is waiting!<br/>Complete your order and use the offer before it ends',
-        botMessage: 'There\'s a 20% discount and I want to use it on my cart order, how do I apply it?',
-        botMessageLabel: '🏷️ Get the discount',
-        codeLabel: 'Discount code ' + DISCOUNT_CODE
+        html: OFFER_EN + '<br/>Complete your order and use the offer before it ends',
+        botMessage: 'I want to use the National Day offer on my cart order, how do I complete it?',
+        botMessageLabel: '🏷️ Get the offer'
       }
     }
   ];
@@ -369,13 +379,12 @@
         }
       },
       {
-        // خصم 20% على أي دورة — يظهر بعد تسجيل الدخول فقط (للعملاء المسجّلين)
-        loggedInOnly: true,
-        html: '🎉 خصم <b>20%</b> على <b>أي دورة</b>!<br/>استخدم هذا الكود عند الشراء 👇',
-        link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE,
+        // عرض اليوم الوطني — يظهر لكل الزوار (مسجّل أو لا) على أي صفحة، لأنه عرض عام مش ميزة مسجّلين
+        html: OFFER_AR + '<br/>على <b>جميع الدورات</b> — تصفّح واختر دورتك 👇',
+        link: SHOP_URL, linkText: 'تصفّح الدورات',
         en: {
-          html: '🎉 <b>20%</b> off <b>any course</b>!<br/>Use this code at checkout 👇',
-          linkText: 'Browse courses', codeLabel: 'Promo code ' + DISCOUNT_CODE
+          html: OFFER_EN + '<br/>on <b>all courses</b> — browse and pick yours 👇',
+          linkText: 'Browse courses'
         }
       },
       SIGNUP_TEASER,
