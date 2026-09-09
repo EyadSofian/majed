@@ -51,7 +51,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.8.0';
+  var WIDGET_VERSION = '4.9.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -422,7 +422,8 @@
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
-  var ctxPromise = null;          // user-context fetch (once)
+  var ctxPromise = null;          // current user-context fetch
+  var ctxRequestSeq = 0;          // prevents an older auth response winning a race
   var seenIds = {};               // message-id de-dup between transcript + SSE
   var loadingTranscript = false;  // buffer SSE renders while a transcript loads
   var pendingEvents = [];
@@ -1239,7 +1240,7 @@
 
   // ---------- network ----------
   function fetchUserContext() {
-    return fetch(USER_CTX_URL, { credentials: 'same-origin' })
+    return fetch(USER_CTX_URL, { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (ctx) {
         if (!ctx) {
@@ -1264,13 +1265,34 @@
         return {};
       });
   }
-  function ensureCtx() {
-    if (!ctxPromise) ctxPromise = fetchUserContext().then(function (ud) { userData = ud || {}; return userData; });
+  function ensureCtx(force) {
+    if (force || !ctxPromise) {
+      var requestSeq = ++ctxRequestSeq;
+      ctxPromise = fetchUserContext().then(function (ud) {
+        if (requestSeq === ctxRequestSeq) userData = ud || {};
+        return userData;
+      });
+    }
     return ctxPromise;
   }
 
   function uid() { return userData.odoo_user_id || userData.email || 'anon'; }
   function isLoggedIn() { return !!(userData && (userData.email || userData.odoo_user_id)); }
+  // Login/logout can happen without a full page reload in Odoo. Re-read the
+  // session when the page becomes visible and refresh the teaser audience if
+  // the auth state changed while the widget was open.
+  function refreshUserContext() {
+    var wasLoggedIn = isLoggedIn();
+    return ensureCtx(true).then(function () {
+      var nowLoggedIn = isLoggedIn();
+      if (wasLoggedIn !== nowLoggedIn && typeof hideTeaser === 'function') {
+        hideTeaser();
+        tzIndex = 0;
+        if (typeof showTeaser === 'function') showTeaser(0);
+      }
+      return userData;
+    });
+  }
   function storageKey() { return STORE_PREFIX + uid(); }
   function listKey() { return LIST_PREFIX + uid(); }
 
@@ -1656,8 +1678,12 @@
   }
 
   // ---------- teaser (رسالة لفت الانتباه — بتتبدل) ----------
-  function tzDismissed() { try { return sessionStorage.getItem('majed:tz:off') === '1'; } catch (e) { return false; } }
-  function tzDismiss() { try { sessionStorage.setItem('majed:tz:off', '1'); } catch (e) {} }
+  // Dismissal is scoped to the widget release and auth audience. A guest who
+  // dismisses a bubble must not suppress the logged-in bubble after signing in,
+  // and old releases must not permanently hide newly shipped campaigns.
+  function tzDismissKey() { return 'majed:tz:off:' + WIDGET_VERSION + ':' + (isLoggedIn() ? 'logged-in' : 'guest'); }
+  function tzDismissed() { try { return sessionStorage.getItem(tzDismissKey()) === '1'; } catch (e) { return false; } }
+  function tzDismiss() { try { sessionStorage.setItem(tzDismissKey(), '1'); } catch (e) {} }
 
   // تيزر «مستهدَف» = مربوط بصفحة معيّنة (showOn و/أو showOnSelector)
   function tzIsTargeted(t) { return !!(t && (t.showOn != null || t.showOnSelector != null)); }
@@ -1763,7 +1789,7 @@
       if (t.loggedInOnly) return logged;    // عروض المسجّلين — تظهر بعد اللوجين فقط
       return true;
     });
-    return only.length ? only : base;
+    return only;
   }
   function renderTeaser() {
     var list = visibleTeasers();
@@ -2064,6 +2090,10 @@
   document.getElementById('mjd-hist-x').addEventListener('click', closeHistory);
   document.getElementById('mjd-new').addEventListener('click', newConversation);
 
-  // أول ظهور — التيزر بيظهر للكل (الترحيب)، وعرض الكورس بس للزوار قبل اللوجين
+  // أول ظهور — التيزر بيظهر للكل (الترحيب)، وعروض الحملة تتفلتر حسب auth state.
   ensureCtx().then(function () { showTeaser(); });
+  window.addEventListener('pageshow', function () { refreshUserContext(); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) refreshUserContext();
+  });
 })();

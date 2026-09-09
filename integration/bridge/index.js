@@ -94,8 +94,11 @@ const config = {
   botpressChatBase: (process.env.BOTPRESS_CHAT_API_BASE || 'https://chat.botpress.cloud').replace(/\/$/, ''),
   botpressChatWebhookId: process.env.BOTPRESS_CHAT_WEBHOOK_ID || '',
 
-  // CORS — the Odoo site origin that hosts the widget.
-  widgetOrigin: process.env.WIDGET_ORIGIN || '*',
+  // CORS — one origin or a comma-separated allowlist. A configured parent
+  // domain also allows its HTTPS subdomains (e.g. engosoft.com →
+  // demo.engosoft.com), which keeps staging/production Odoo hosts working.
+  widgetOrigins: String(process.env.WIDGET_ORIGINS || process.env.WIDGET_ORIGIN || '*')
+    .split(',').map((s) => s.trim()).filter(Boolean),
 
   // «نور» welcome
   welcomeEnabled: (process.env.WELCOME_ENABLED || 'true').toLowerCase() !== 'false',
@@ -174,8 +177,25 @@ function lruSet(max) {
 }
 
 // ── CORS ───────────────────────────────────────────────────────────
+function allowedWidgetOrigin(origin) {
+  if (!origin) return '';
+  if (config.widgetOrigins.includes('*')) return '*';
+  let requested;
+  try { requested = new URL(origin); } catch (_) { return ''; }
+  for (const value of config.widgetOrigins) {
+    let allowed;
+    try { allowed = new URL(value); } catch (_) { continue; }
+    if (requested.origin === allowed.origin) return origin;
+    const isHttpsSubdomain = requested.protocol === allowed.protocol &&
+      allowed.protocol === 'https:' &&
+      requested.hostname.endsWith(`.${allowed.hostname}`);
+    if (isHttpsSubdomain) return origin;
+  }
+  return '';
+}
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', config.widgetOrigin);
+  const origin = allowedWidgetOrigin(req.headers.origin);
+  if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -1608,7 +1628,7 @@ app.get('/debug/config', (_req, res) => {
       chatWebhookId: bpConfigured(),
       activeMappings: bpMap.size,
     },
-    widgetOrigin: config.widgetOrigin,
+    widgetOrigins: config.widgetOrigins,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
     subscribe: {
       enabled: config.subscribeEnabled,
