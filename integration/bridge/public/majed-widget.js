@@ -51,7 +51,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.9.0';
+  var WIDGET_VERSION = '4.10.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -133,18 +133,36 @@
     showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
     excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
-    html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>' + OFFER_AR,
-    botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، وكم الخصم عليها بالضبط ضمن عرض اليوم الوطني؟',
-    botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
+    html: ct.html || '💳 ادفع عبر بوابة <b>كاشير</b> واحصل على <b>20% خصم إضافي</b> على «{{course}}»<br/>استخدم كود الخصم <b>engo20</b>',
+    botMessage: ct.botMessage || 'أريد شراء دورة «{{course}}» عبر بوابة كاشير والاستفادة من خصم 20% الإضافي، كيف أستخدم كود engo20؟',
+    botMessageLabel: ct.botMessageLabel || '💳 طريقة الدفع والخصم',
     // عرض اليوم الوطني بدون كود — الخصم على أسعار الموقع مباشرة.
     // لإرجاع زرار الكود: MAJED_COURSE_CODE (+ MAJED_COURSE_CODE_LABEL) من Railway.
-    code: ct.code || '',
-    codeLabel: ct.codeLabel || 'كود الخصم ' + (ct.code || DISCOUNT_CODE),
+    code: ct.code || 'engo20',
+    codeLabel: ct.codeLabel || 'كود الخصم engo20',
     en: ct.en || {
-      html: '🛒 Need help buying «{{course}}»?<br/>' + OFFER_EN,
-      botMessage: 'I need help buying the course «{{course}}» — what exactly is its discount in the National Day offer?',
-      botMessageLabel: '💬 Help me buy',
-      codeLabel: 'Discount code ' + (ct.code || DISCOUNT_CODE)
+      html: '💳 Pay via <b>Kashier</b> and get an <b>extra 20% off</b> «{{course}}»<br/>Use promo code <b>engo20</b>',
+      botMessage: 'I want to buy «{{course}}» via Kashier and use the extra 20% discount. How do I apply engo20?',
+      botMessageLabel: '💳 Payment & discount',
+      code: ct.code || 'engo20',
+      codeLabel: ct.codeLabel || 'Promo code engo20'
+    }
+  };
+
+  // صفحة الـSales Page — نفس عرض كاشير، ويظهر بجانب التيزرات العامة.
+  var SALES_TEASER = {
+    showOn: ['/special-offer/', '/sales-page', '/sales_page', '/sales/'],
+    html: '💳 استخدم بوابة <b>كاشير</b> واحصل على <b>20% خصم إضافي</b><br/>كود الخصم: <b>engo20</b>',
+    botMessage: 'أريد استخدام بوابة كاشير والحصول على خصم 20% الإضافي. كيف أستخدم كود engo20؟',
+    botMessageLabel: '💳 اعرف طريقة الدفع والخصم',
+    code: 'engo20',
+    codeLabel: 'كود الخصم engo20',
+    en: {
+      html: '💳 Use <b>Kashier</b> and get an <b>extra 20% off</b><br/>Promo code: <b>engo20</b>',
+      botMessage: 'I want to use Kashier and get the extra 20% discount. How do I apply engo20?',
+      botMessageLabel: '💳 Payment & discount',
+      code: 'engo20',
+      codeLabel: 'Promo code engo20'
     }
   };
 
@@ -416,6 +434,7 @@
       PAYMENT_TEASER,
       COMPANY_TEASER,
       ABOUT_TEASER,
+      SALES_TEASER,
       COURSE_TEASER,
       CATALOG_TEASER
     ].concat(SHOP_MOTIVATION_TEASERS, CART_MOTIVATION_TEASERS);
@@ -1777,12 +1796,10 @@
 
   // التيزرات المعروضة دلوقتي:
   //  1) فلترة حسب الصفحة (showOn / showOnSelector).
-  //  2) لو فيه تيزر مخصّص للصفحة دي → اعرض المخصّصة لوحدها وخفي العامة (عشان صفحة الكورس متطلعش الترحيب).
+  //  2) التيزرات المخصّصة للصفحة تضاف بجانب التيزرات العامة، ولا تستبدلها.
   //  3) حسب حالة اللوجين: guestOnly للزوار فقط، loggedInOnly للمسجّلين فقط، والباقي للكل.
   function visibleTeasers() {
     var base = TEASERS.filter(tzMatchesPage);
-    var targeted = base.filter(tzIsTargeted);
-    if (targeted.length) base = targeted;
     var logged = isLoggedIn();
     var only = base.filter(function (t) {
       if (t.guestOnly) return !logged;      // عروض الزوار — تختفي بعد اللوجين
