@@ -1683,6 +1683,12 @@ app.get('/debug/config', (_req, res) => {
       chatWebhookId: bpConfigured(),
       activeMappings: bpMap.size,
     },
+    takeover: { enabled: config.assignPausesBot },
+    notifications: {
+      webhook: Boolean(config.notifyWebhookUrl),
+      liveChat: config.notifyOnLiveChat,
+      handoff: config.notifyOnHandoff,
+    },
     widgetOrigins: config.widgetOrigins,
     welcome: { enabled: config.welcomeEnabled, card: config.welcomeCardEnabled },
     subscribe: {
