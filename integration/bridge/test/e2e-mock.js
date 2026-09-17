@@ -29,6 +29,7 @@ const state = {
   bpUsers: 0,
   bpConvs: 0,
   bpMessages: [], // { text, payload }
+  notifications: [],
   sseRes: null, // botpress listen stream
   msgSeq: 1000,
 };
@@ -121,6 +122,10 @@ function mockApp() {
     state.assignments.push(q.body);
     r.json({ ok: true });
   });
+  m.post('/notify', (q, r) => {
+    state.notifications.push(q.body);
+    r.json({ ok: true });
+  });
 
   // — Botpress Chat API —
   m.post('/bp/wh1/users', (_q, r) => {
@@ -209,6 +214,7 @@ function check(name, cond, extra) {
       BOTPRESS_CHAT_WEBHOOK_ID: 'wh1',
       WIDGET_ORIGIN: 'https://demo.engosoft.com',
       WELCOME_ENABLED: 'false',
+      NOTIFY_WEBHOOK_URL: `${MOCK}/notify`,
       SUBSCRIBE_ADMIN_TOKEN: 'admin-token',
       SUBSCRIBE_STORE_FILE: subscribeStore,
     },
@@ -280,6 +286,45 @@ function check(name, cond, extra) {
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'message_created', id: 777, message_type: 'outgoing', content: 'رد الموظف', conversation: { id: 9001 } });
     await sleep(150);
     check('same id not delivered twice', ws.events.filter((e) => e.content === 'رد الموظف').length === seen);
+
+    console.log('TEST 6b — self-assignment pauses bot even while status stays pending');
+    const bpBeforeTakeover = (await axios.get(`${MOCK}/__state`)).data.bpMessages.length;
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'assignee_changed', id: 9001, assignee: { id: 17, name: 'Asmaa Fathy' },
+    });
+    await axios.post(`${BRIDGE}/widget/message`, {
+      conversationId: '9001', text: 'رسالة بعد التعيين', userData: {},
+    });
+    await sleep(300);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('self-assigned pending conversation does not reach Botpress', st.bpMessages.length === bpBeforeTakeover);
+    check('first live-chat notification is sent once', st.notifications.filter((n) => n.kind === 'live_chat').length === 1);
+
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'assignee_changed', id: 9001, assignee: null,
+    });
+    await axios.post(`${BRIDGE}/widget/message`, {
+      conversationId: '9001', text: 'رجعنا بعد إلغاء التعيين', userData: {},
+    });
+    await sleep(350);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('bot resumes after explicit unassignment', st.bpMessages.some((m) => m.text === 'رجعنا بعد إلغاء التعيين'));
+
+    console.log('TEST 6c — queued Botpress reply is dropped after takeover');
+    await axios.post(`${BRIDGE}/widget/message`, {
+      conversationId: '9001', text: 'رد متأخر', userData: {},
+    });
+    await sleep(20);
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'assignee_changed', id: 9001, assignee: { id: 17 },
+    });
+    await sleep(300);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('queued reply is not written after takeover',
+      !st.cwMessages.some((m) => m.body.content === 'رد البوت: رد متأخر'));
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'assignee_changed', id: 9001, assignee: null,
+    });
 
     console.log('TEST 7 — status=open pauses bot, pending resumes');
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'open' });

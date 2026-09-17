@@ -26,6 +26,8 @@
 
 const express = require('express');
 const axios = require('axios');
+const { notify } = require('./notify');
+const { extractAssignee, Takeover } = require('./takeover');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -142,6 +144,16 @@ const config = {
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
   deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
   deepgramLanguage: process.env.DEEPGRAM_LANGUAGE || 'ar',
+
+  // Agent takeover: assigning a conversation pauses Majed even when Chatwoot
+  // leaves its status as pending.
+  assignPausesBot: (process.env.ASSIGN_PAUSES_BOT || 'true').toLowerCase() !== 'false',
+
+  // Notifications are delivered by the existing n8n workflow.
+  notifyWebhookUrl: process.env.NOTIFY_WEBHOOK_URL || '',
+  notifyWebhookToken: process.env.NOTIFY_WEBHOOK_TOKEN || '',
+  notifyOnLiveChat: (process.env.NOTIFY_ON_LIVE_CHAT || 'true').toLowerCase() !== 'false',
+  notifyOnHandoff: (process.env.NOTIFY_ON_HANDOFF || 'true').toLowerCase() !== 'false',
 };
 
 // Legacy var: if someone still sets BOTPRESS_WEBHOOK_URL, try to salvage a chat id
@@ -897,6 +909,27 @@ async function sendRecentOutgoingToClient(convId, res) {
 // ── Conversation status cache (bot gating) ─────────────────────────
 const convStatus = new Map(); // cwConvId -> 'pending' | 'open' | 'resolved' | 'snoozed'
 
+const takeover = new Takeover(config.assignPausesBot);
+
+function applyAssignment(convId, assigneeId) {
+  if (!takeover.apply(convId, assigneeId)) return false;
+  console.log(assigneeId
+    ? `ASSIGN conv ${convId} → agent ${assigneeId} (Majed paused)`
+    : `UNASSIGN conv ${convId} (Majed resumes)`);
+  return true;
+}
+
+function botPausedFor(convId, status) {
+  return status === 'open' || takeover.isAssigned(convId);
+}
+
+function convUrl(convId) {
+  if (!config.chatwootBaseUrl || !config.chatwootAccountId) return String(convId);
+  return `${config.chatwootBaseUrl}/app/accounts/${config.chatwootAccountId}/conversations/${convId}`;
+}
+
+const notifiedLive = new Set();
+
 async function getConvStatus(cwConvId) {
   if (convStatus.has(cwConvId)) return convStatus.get(cwConvId);
   try {
@@ -1003,6 +1036,10 @@ async function performHandoff(cwConvId, teamId) {
   if (teamId) await cwAssign(cwConvId, { team_id: Number(teamId) });
   console.log(`HANDOFF conv ${cwConvId}${teamId ? ` → team ${teamId}` : ''} (status: open)`);
   armHandoffReturn(cwConvId, teamId);
+  notify(config, 'handoff', {
+    convId: cwConvId,
+    convUrl: convUrl(cwConvId),
+  }).catch((error) => console.warn('handoff notify failed:', error.message));
 }
 
 // ── Auto-return-to-bot after an unanswered handoff ─────────────────
@@ -1239,6 +1276,11 @@ function normalizeBotMessages(payload) {
 // content_attributes so the reconnect/catchup replay (which reads Chatwoot) reproduces the
 // same widget id and de-dups correctly against the live push.
 async function handleBotReply(cwConvId, payload, bpMsgId) {
+  const status = await getConvStatus(cwConvId);
+  if (botPausedFor(cwConvId, status)) {
+    console.log(`SKIP queued bot reply (human handling) conv ${cwConvId}`);
+    return;
+  }
   const messages = normalizeBotMessages(payload);
   let idx = 0;
   for (const msg of messages) {
@@ -1523,13 +1565,26 @@ function welcomeNoteIfNeeded(mapping, cwConvId) {
 
 // Forward one customer message to Botpress (status-gated).
 async function forwardToBot(cwConvId, text, { name, userData }) {
+  const id = String(cwConvId);
+  if (config.notifyOnLiveChat && !notifiedLive.has(id)) {
+    notifiedLive.add(id);
+    notify(config, 'live_chat', {
+      name,
+      email: userData?.email || userData?.userEmail,
+      message: text,
+      page: userData?.page || userData?.currentUrl,
+      convId: cwConvId,
+      convUrl: convUrl(cwConvId),
+    }).catch((error) => console.warn('live chat notify failed:', error.message));
+  }
   if (!bpConfigured()) {
     console.warn('SKIP Botpress (not configured) — set BOTPRESS_CHAT_WEBHOOK_ID');
     return;
   }
   const status = await getConvStatus(cwConvId);
-  if (status === 'open') {
-    console.log(`SKIP bot (agent handling, status=open) conv ${cwConvId}`);
+  if (botPausedFor(cwConvId, status)) {
+    const reason = status === 'open' ? 'status=open' : 'agent assigned';
+    console.log(`SKIP bot (${reason}) conv ${cwConvId}`);
     return;
   }
   const mapping = await ensureBotpress(cwConvId, { name, userData });
@@ -2130,9 +2185,20 @@ app.post('/chatwoot/webhook', async (req, res) => {
       const status = p.status || p.conversation?.status;
       if (convId && status) {
         convStatus.set(convId, status);
+        if (status === 'resolved') takeover.clear(convId);
         console.log(`STATUS conv ${convId} → ${status}${status === 'open' ? ' (bot paused)' : status === 'pending' ? ' (bot resumed)' : ''}`);
       }
       return res.status(200).json({ status: 'ok' });
+    }
+
+    // Chatwoot may emit either assignee_changed or conversation_updated when
+    // an employee self-assigns. Assignment pauses Majed even if status stays
+    // pending; explicit unassignment lets the bot resume.
+    if (p.event === 'assignee_changed' || p.event === 'conversation_updated') {
+      const convId = String(p.id || p.conversation?.id || p.conversation_id || '');
+      const assignee = extractAssignee(p);
+      if (convId && assignee.present) applyAssignment(convId, assignee.id);
+      if (p.event === 'assignee_changed') return res.status(200).json({ status: 'ok' });
     }
 
     if (p.event !== 'message_created') return res.status(200).json({ status: 'skipped' });
@@ -2161,6 +2227,9 @@ app.post('/chatwoot/webhook', async (req, res) => {
       if (isBridgeOutgoingEcho(convId, p.content, outAttrs)) {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_bot_echo' });
       }
+      // A real agent reply is also a takeover signal. This covers inboxes that
+      // do not send assignee_changed webhooks.
+      if (p.sender?.id != null) applyAssignment(convId, p.sender.id);
       // Human agent (or flow) reply → widget. Never re-forwarded to Botpress.
       pushToWidget(convId, {
         id: p.id,
