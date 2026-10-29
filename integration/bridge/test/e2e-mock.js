@@ -146,6 +146,7 @@ function mockApp() {
     setTimeout(() => {
       let payload;
       if (userText.includes('موظف')) payload = { type: 'text', text: '[[HANDOFF:3]] حوّلتك لزميل بشري' };
+      else if (userText.includes('شكوى')) payload = { type: 'text', text: 'تم تسجيل مشكلتك 🙏\n[[HANDOFF:2]] ملخص: العميل لم يصله رابط إعادة التعيين' };
       else if (userText.includes('اختيارات')) payload = { type: 'choice', text: 'اختار اللي يناسبك:', options: [{ label: 'مسار هندسي', value: 'engineering' }, { label: 'مسار إداري', value: 'management' }] };
       else if (userText.includes('بدون امتداد')) payload = { type: 'image', imageUrl: 'https://files.bpcontent.cloud/2026/06/10/img-no-ext' };
       else if (userText.includes('صورة')) payload = { type: 'image', imageUrl: 'https://example.com/majed.png', title: 'صورة توضيحية' };
@@ -326,6 +327,17 @@ function check(name, cond, extra) {
       event: 'assignee_changed', id: 9001, assignee: null,
     });
 
+    console.log('TEST 6d — bridge-authored outgoing echo (token user as sender) does not pause Majed');
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, {
+      event: 'message_created', id: 7790, message_type: 'outgoing', content: 'أهلاً 👋 أنا ماجد',
+      content_attributes: { mjd_src: 'welcome' },
+      conversation: { id: 9001, status: 'pending' }, sender: { id: 4, type: 'user', name: 'API owner' },
+    });
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'بعد الترحيب', userData: {} });
+    await sleep(350);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('welcome echo from the token user does not pause the bot', st.bpMessages.some((m) => m.text === 'بعد الترحيب'));
+
     console.log('TEST 7 — status=open pauses bot, pending resumes');
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'open' });
     await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'رسالة أثناء الموظف', userData: {} });
@@ -359,6 +371,19 @@ function check(name, cond, extra) {
     check('team 3 assigned', st.assignments.some((a) => a.team_id === 3), JSON.stringify(st.assignments));
     check('marker stripped from customer-visible text',
       st.cwMessages.some((m) => m.body.content === 'حوّلتك لزميل بشري') && !st.cwMessages.some((m) => (m.body.content || '').includes('HANDOFF')));
+
+    console.log('TEST 9b — handoff summary goes to staff only');
+    await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'pending' });
+    await axios.post(`${BRIDGE}/widget/message`, { conversationId: '9001', text: 'عندي شكوى', userData: {} });
+    await sleep(900);
+    st = (await axios.get(`${MOCK}/__state`)).data;
+    check('customer sees the reply without the summary',
+      st.cwMessages.some((m) => !m.body.private && m.body.content === 'تم تسجيل مشكلتك 🙏') &&
+      !st.cwMessages.some((m) => !m.body.private && (m.body.content || '').includes('ملخص')));
+    check('summary saved as a private note',
+      st.cwMessages.some((m) => m.body.private && (m.body.content || '').includes('العميل لم يصله رابط إعادة التعيين')));
+    check('handoff notification carries the summary',
+      st.notifications.some((n) => n.kind === 'handoff' && n.summary === 'العميل لم يصله رابط إعادة التعيين'));
 
     console.log('TEST 10 — Botpress choice + media payloads');
     await axios.post(`${BRIDGE}/chatwoot/webhook`, { event: 'conversation_status_changed', id: 9001, status: 'pending' });

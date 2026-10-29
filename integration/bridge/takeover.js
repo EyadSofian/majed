@@ -21,6 +21,21 @@ function extractAssignee(payload) {
   return { present: false, id: null };
 }
 
+// Everything the bridge writes into Chatwoot (Majed's replies, the widget welcome,
+// the auto-return apology) is posted with the bridge's API token, so Chatwoot
+// reports that token's user as the sender. Those messages carry one of these
+// markers in content_attributes and must never count as a human takeover.
+const BRIDGE_MARKERS = ['bp_id', 'mjd_src'];
+
+function isHumanAgentReply(payload, attrs) {
+  if (!payload || payload.private) return false;
+  const sender = payload.sender;
+  if (!sender || sender.id == null) return false;
+  if (sender.type && sender.type !== 'user') return false; // agent_bot / contact
+  const a = attrs || {};
+  return !BRIDGE_MARKERS.some((key) => a[key]);
+}
+
 class Takeover {
   constructor(enabled = true) {
     this.enabled = enabled;
@@ -49,4 +64,4 @@ class Takeover {
   }
 }
 
-module.exports = { extractAssignee, Takeover };
+module.exports = { extractAssignee, isHumanAgentReply, Takeover };

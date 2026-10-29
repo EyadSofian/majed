@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { extractAssignee, Takeover } = require('../takeover');
+const { extractAssignee, isHumanAgentReply, Takeover } = require('../takeover');
 const { notify, compose, setHttp } = require('../notify');
 
 assert.deepStrictEqual(
@@ -28,6 +28,21 @@ assert.strictEqual(takeover.isAssigned(9001), true);
 assert.strictEqual(takeover.apply('9001', 17), false);
 assert.strictEqual(takeover.apply('9001', null), true);
 assert.strictEqual(takeover.isAssigned('9001'), false);
+
+// The bridge posts with a user API token, so its own messages echo back with that
+// user as sender — only an unmarked user message is a real agent reply.
+const tokenUser = { id: 4, name: 'API owner', type: 'user' };
+assert.strictEqual(isHumanAgentReply({ sender: tokenUser }, {}), true);
+assert.strictEqual(isHumanAgentReply({ sender: tokenUser }, { mjd_src: 'welcome' }), false);
+assert.strictEqual(isHumanAgentReply({ sender: tokenUser }, { mjd_src: 'auto_return' }), false);
+assert.strictEqual(isHumanAgentReply({ sender: tokenUser }, { bp_id: 'bp-1-0' }), false);
+assert.strictEqual(isHumanAgentReply({ sender: tokenUser, private: true }, {}), false);
+assert.strictEqual(isHumanAgentReply({ sender: { id: 9, type: 'agent_bot' } }, {}), false);
+assert.strictEqual(isHumanAgentReply({ sender: { name: 'no id' } }, {}), false);
+
+const handoff = compose('handoff', { reason: 'تحويل لتيم 2', summary: 'العميل لم يصله رابط إعادة التعيين', convId: 9001 });
+assert.ok(handoff.subject.includes('تحويل لتيم 2'));
+assert.ok(handoff.text.includes('العميل لم يصله رابط إعادة التعيين'));
 
 const live = compose('live_chat', { name: 'أحمد', message: 'عايز مساعدة', convId: 9001 });
 assert.ok(live.subject.includes('أحمد'));

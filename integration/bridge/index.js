@@ -27,7 +27,7 @@
 const express = require('express');
 const axios = require('axios');
 const { notify } = require('./notify');
-const { extractAssignee, Takeover } = require('./takeover');
+const { extractAssignee, isHumanAgentReply, Takeover } = require('./takeover');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -250,19 +250,10 @@ function buildWidgetServerConfig() {
     }
   }
   if (process.env.MAJED_PROMO_CODE) cfg.promoCode = process.env.MAJED_PROMO_CODE;
-  // no discount code is shown by default (engo20 was retired) — set this only if a real
-  // code comes back; the campaign discount is unlocked by creating an account instead.
+  // the 20% discount code (engo20 by default) — valid only when paying via Kashier.
   if (process.env.MAJED_DISCOUNT_CODE) cfg.discountCode = process.env.MAJED_DISCOUNT_CODE;
-  // current campaign line («خصم يصل إلى 50% بمناسبة اليوم الوطني 🇸🇦») — one place that feeds
-  // EVERY offer teaser (course page, /shop listing, cart, and the rotating ones), so the whole
-  // campaign is changed or ended from Railway with a single variable.
-  const offer = {};
-  if (process.env.MAJED_OFFER_AR) offer.ar = process.env.MAJED_OFFER_AR;
-  if (process.env.MAJED_OFFER_EN) offer.en = process.env.MAJED_OFFER_EN;
-  if (Object.keys(offer).length) cfg.offer = offer;
   if (process.env.MAJED_COURSE_URL) cfg.courseUrl = process.env.MAJED_COURSE_URL;
   if (process.env.MAJED_SHOP_URL) cfg.shopUrl = process.env.MAJED_SHOP_URL;
-  if (process.env.MAJED_SIGNUP_URL) cfg.signupUrl = process.env.MAJED_SIGNUP_URL;
   // contact buttons in the widget (WhatsApp + email) — Railway wins over the Odoo page values
   if (process.env.WA_NUMBER) cfg.waNumber = process.env.WA_NUMBER;
   if (process.env.SUPPORT_EMAIL) cfg.supportEmail = process.env.SUPPORT_EMAIL;
@@ -274,7 +265,8 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_COURSE_TEASER_MSG) course.botMessage = process.env.MAJED_COURSE_TEASER_MSG;
   if (process.env.MAJED_COURSE_TEASER_LABEL) course.botMessageLabel = process.env.MAJED_COURSE_TEASER_LABEL;
   if (process.env.MAJED_COURSE_CODE_LABEL) course.codeLabel = process.env.MAJED_COURSE_CODE_LABEL;
-  if (process.env.MAJED_COURSE_CODE) course.code = process.env.MAJED_COURSE_CODE;
+  // per-teaser code vars are passed even when empty: an empty value hides that teaser's code button
+  if (process.env.MAJED_COURSE_CODE !== undefined) course.code = process.env.MAJED_COURSE_CODE;
   if (process.env.MAJED_COURSE_SHOWON) course.showOn = splitList(process.env.MAJED_COURSE_SHOWON);
   if (process.env.MAJED_COURSE_SHOWON_SELECTOR) course.showOnSelector = process.env.MAJED_COURSE_SHOWON_SELECTOR;
   if (process.env.MAJED_COURSE_EXCLUDE_ON) course.excludeOn = splitList(process.env.MAJED_COURSE_EXCLUDE_ON);
@@ -285,7 +277,7 @@ function buildWidgetServerConfig() {
   if (process.env.MAJED_SHOP_TEASER_MSG) shop.botMessage = process.env.MAJED_SHOP_TEASER_MSG;
   if (process.env.MAJED_SHOP_TEASER_LABEL) shop.botMessageLabel = process.env.MAJED_SHOP_TEASER_LABEL;
   if (process.env.MAJED_SHOP_CODE_LABEL) shop.codeLabel = process.env.MAJED_SHOP_CODE_LABEL;
-  if (process.env.MAJED_SHOP_CODE) shop.code = process.env.MAJED_SHOP_CODE;
+  if (process.env.MAJED_SHOP_CODE !== undefined) shop.code = process.env.MAJED_SHOP_CODE;
   if (process.env.MAJED_SHOP_SHOWON) shop.showOn = splitList(process.env.MAJED_SHOP_SHOWON);
   if (process.env.MAJED_SHOP_EXCLUDE_SELECTOR) shop.excludeOnSelector = process.env.MAJED_SHOP_EXCLUDE_SELECTOR;
   if (process.env.MAJED_SHOP_EXCLUDE_ON) shop.excludeOn = splitList(process.env.MAJED_SHOP_EXCLUDE_ON);
@@ -298,7 +290,7 @@ function buildWidgetServerConfig() {
     if (process.env[`${prefix}_MSG`]) t.botMessage = process.env[`${prefix}_MSG`];
     if (process.env[`${prefix}_LABEL`]) t.botMessageLabel = process.env[`${prefix}_LABEL`];
     if (process.env[`${prefix}_SHOWON`]) t.showOn = splitList(process.env[`${prefix}_SHOWON`]);
-    if (process.env[`${prefix}_CODE`]) t.code = process.env[`${prefix}_CODE`];
+    if (process.env[`${prefix}_CODE`] !== undefined) t.code = process.env[`${prefix}_CODE`];
     if (process.env[`${prefix}_CODE_LABEL`]) t.codeLabel = process.env[`${prefix}_CODE_LABEL`];
     return Object.keys(t).length ? t : null;
   }
@@ -463,8 +455,10 @@ async function findContactConversation(email) {
 
 async function cwSendMessage(convId, { content, messageType, contentType, contentAttributes, isPrivate }) {
   const body = { content: content || '', message_type: messageType || 'outgoing', private: !!isPrivate };
-  if (contentType && contentType !== 'text') {
-    body.content_type = contentType;
+  if (contentType && contentType !== 'text') body.content_type = contentType;
+  // Plain-text messages carry attributes too (bp_id / mjd_src), so the webhook echo can be
+  // recognised as bridge-authored instead of a human agent reply.
+  if (body.content_type || (contentAttributes && Object.keys(contentAttributes).length)) {
     body.content_attributes = contentAttributes || {};
   }
   const { data } = await axios.post(cwUrl(`conversations/${convId}/messages`), body, {
@@ -523,6 +517,9 @@ async function cwAssign(convId, { team_id, assignee_id }) {
   if (!Object.keys(body).length) return;
   await axios.post(cwUrl(`conversations/${convId}/assignments`), body, { headers: cwHeaders(), timeout: 15000 });
 }
+async function cwUnassignAgent(convId) {
+  await axios.post(cwUrl(`conversations/${convId}/assignments`), { assignee_id: null }, { headers: cwHeaders(), timeout: 15000 });
+}
 
 // ── «نور» welcome card ─────────────────────────────────────────────
 function welcomeCard() {
@@ -530,6 +527,7 @@ function welcomeCard() {
     content: 'طرق التواصل المباشر:',
     contentType: 'cards',
     contentAttributes: {
+      mjd_src: 'welcome',
       items: [
         {
           title: config.welcomeCardTitle,
@@ -1027,18 +1025,26 @@ async function bpSendText(mapping, text) {
   await bpSendPayload(mapping, { type: 'text', text });
 }
 
-// Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]]
+// Handoff marker in bot replies: [[HANDOFF]] or [[HANDOFF:3]], optionally followed by a
+// staff-only summary on the same line: [[HANDOFF:2]] ملخص: <one sentence>
 const HANDOFF_RE = /\[\[\s*HANDOFF(?::(\d+))?\s*\]\]/i;
+const HANDOFF_SUMMARY_RE = /\[\[\s*HANDOFF(?::\d+)?\s*\]\][ \t]*(?:ملخص|summary)[ \t]*:[ \t]*([^\n]*)/i;
 
-async function performHandoff(cwConvId, teamId) {
+async function performHandoff(cwConvId, teamId, { summary } = {}) {
   await cwSetStatus(cwConvId, 'open');
   convStatus.set(cwConvId, 'open');
   if (teamId) await cwAssign(cwConvId, { team_id: Number(teamId) });
   console.log(`HANDOFF conv ${cwConvId}${teamId ? ` → team ${teamId}` : ''} (status: open)`);
   armHandoffReturn(cwConvId, teamId);
+  if (summary) {
+    cwSendMessage(cwConvId, { content: `📝 ملخص ماجد للتحويل:\n${summary}`, messageType: 'outgoing', isPrivate: true })
+      .catch((e) => console.warn('handoff summary note failed:', e.response?.status || e.message));
+  }
   notify(config, 'handoff', {
     convId: cwConvId,
     convUrl: convUrl(cwConvId),
+    reason: teamId ? `تحويل لتيم ${teamId}` : '',
+    summary,
   }).catch((error) => console.warn('handoff notify failed:', error.message));
 }
 
@@ -1087,15 +1093,29 @@ async function agentRepliedSince(cwConvId, handoffAtMs) {
   );
 }
 
-async function returnConversationToBot(cwConvId) {
+async function returnConversationToBot(cwConvId, { agentAssigned } = {}) {
   const id = String(cwConvId);
+  // An agent assigned (e.g. by team auto-assignment) who never replied would keep Majed
+  // paused through the takeover guard even after the status flips back to pending.
+  if (agentAssigned || takeover.isAssigned(id)) {
+    try {
+      await cwUnassignAgent(id);
+    } catch (e) {
+      console.warn(`auto-return unassign failed (conv ${id}):`, e.response?.status || e.message);
+    }
+    takeover.clear(id);
+  }
   await cwSetStatus(id, 'pending');
   convStatus.set(id, 'pending');
   disarmHandoffReturn(id);
   console.log(`AUTO-RETURN conv ${id}: no agent reply within ${Math.round(config.autoReturnMs / 60000)}m → pending (bot resumes)`);
   if (config.autoReturnMessage) {
     try {
-      const created = await cwSendMessage(id, { content: config.autoReturnMessage, messageType: 'outgoing' });
+      const created = await cwSendMessage(id, {
+        content: config.autoReturnMessage,
+        messageType: 'outgoing',
+        contentAttributes: { mjd_src: 'auto_return' },
+      });
       pushToWidget(id, { ...created, message_type: 'outgoing' });
     } catch (e) {
       console.warn(`auto-return message failed (conv ${id}):`, e.response?.status || e.message);
@@ -1129,7 +1149,8 @@ async function sweepHandoffReturns() {
         disarmHandoffReturn(id);
         continue;
       }
-      await returnConversationToBot(id);
+      const assignee = conv?.meta?.assignee ?? conv?.payload?.meta?.assignee;
+      await returnConversationToBot(id, { agentAssigned: Boolean(assignee && assignee.id) });
     } catch (e) {
       console.warn(`handoff sweep failed (conv ${id}):`, e.response?.status || e.message);
     }
@@ -1287,9 +1308,12 @@ async function handleBotReply(cwConvId, payload, bpMsgId) {
     let content = msg.content || '';
     const hm = content.match(HANDOFF_RE);
     if (hm) {
-      content = content.replace(HANDOFF_RE, '').trim();
+      // the «ملخص: …» after the marker is for staff only — never shown to the customer
+      const sm = content.match(HANDOFF_SUMMARY_RE);
+      const summary = sm ? sm[1].trim() : '';
+      content = content.replace(sm ? sm[0] : HANDOFF_RE, '').trim();
       try {
-        await performHandoff(cwConvId, hm[1]);
+        await performHandoff(cwConvId, hm[1], { summary });
       } catch (e) {
         console.error('handoff failed:', e.response?.data || e.message);
       }
@@ -1404,7 +1428,7 @@ async function handleSseEvent(cwConvId, mapping, ev) {
     const p = data?.payload || {};
     const action = (p.action || p.type || '').toString().toLowerCase();
     if (action === 'handoff') {
-      await performHandoff(cwConvId, p.team_id || p.teamId);
+      await performHandoff(cwConvId, p.team_id || p.teamId, { summary: pickText(p.summary, p.reason) });
     }
     return;
   }
@@ -1832,10 +1856,14 @@ app.get('/widget/stream', async (req, res) => {
       const conv = await cwGetConversation(convId).catch(() => null);
       const attrs = conv?.custom_attributes || conv?.payload?.custom_attributes || {};
       if (!attrs.majed_welcome_sent) {
-        const m1 = await cwSendMessage(convId, { content: config.welcomeText, messageType: 'outgoing' });
+        const m1 = await cwSendMessage(convId, {
+          content: config.welcomeText,
+          messageType: 'outgoing',
+          contentAttributes: { mjd_src: 'welcome' },
+        });
         pushToWidget(convId, m1);
         if (config.welcomeChoices.length) {
-          const choiceAttrs = { items: config.welcomeChoices.map((t) => ({ title: t, value: t })) };
+          const choiceAttrs = { items: config.welcomeChoices.map((t) => ({ title: t, value: t })), mjd_src: 'welcome' };
           const m1b = await cwSendMessage(convId, {
             content: config.welcomeChoicesText,
             messageType: 'outgoing',
@@ -2152,7 +2180,7 @@ app.post('/botpress/webhook', async (req, res) => {
         content: typeof text === 'string' ? text : '',
         messageType: 'outgoing',
         contentType,
-        contentAttributes,
+        contentAttributes: { ...(contentAttributes || {}), mjd_src: 'flow' },
       });
       console.log(`OUT Chatwoot conv ${convId} (flow): ${(text || '').toString().slice(0, 60)}`);
       pushToWidget(convId, created);
@@ -2234,8 +2262,10 @@ app.post('/chatwoot/webhook', async (req, res) => {
         return res.status(200).json({ status: 'skipped', reason: 'bridge_bot_echo' });
       }
       // A real agent reply is also a takeover signal. This covers inboxes that
-      // do not send assignee_changed webhooks.
-      if (p.sender?.id != null) applyAssignment(convId, p.sender.id);
+      // do not send assignee_changed webhooks. Bridge-written messages (welcome,
+      // auto-return, bot replies) also arrive with the token user as sender, so
+      // only an unmarked user message counts.
+      if (isHumanAgentReply(p, outAttrs)) applyAssignment(convId, p.sender.id);
       // Human agent (or flow) reply → widget. Never re-forwarded to Botpress.
       pushToWidget(convId, {
         id: p.id,
