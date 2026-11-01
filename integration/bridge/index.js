@@ -306,6 +306,12 @@ function buildWidgetServerConfig() {
   if (company) cfg.companyTeaser = company;
   const about = pageTeaser('MAJED_ABOUT_TEASER');
   if (about) cfg.aboutTeaser = about;
+  // current campaign (Black Friday «الخمسين خمسين»): its popup shows first on every page and the
+  // 20% engo20 popups are hidden while it runs. MAJED_CAMPAIGN_ENABLED=false ends it.
+  if ((process.env.MAJED_CAMPAIGN_ENABLED || '').toLowerCase() === 'false') cfg.campaign = false;
+  const campaign = pageTeaser('MAJED_CAMPAIGN_TEASER') || {};
+  if (process.env.MAJED_CAMPAIGN_URL) campaign.link = process.env.MAJED_CAMPAIGN_URL;
+  if (Object.keys(campaign).length) cfg.campaignTeaser = campaign;
   // voice input toggle — only advertise the mic button when a Deepgram key is set.
   if (config.deepgramApiKey) cfg.voice = true;
   return cfg;

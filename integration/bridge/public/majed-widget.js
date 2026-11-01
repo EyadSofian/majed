@@ -31,7 +31,9 @@
  *       // excludeOn: string | string[] — يخفي التيزر لو الـ URL طابق أحد الأنماط دي (يكسب على showOn).
  *       //            مفيد لمنع تيزر المتجر/الكورس من الظهور على '/shop/cart' و'/shop/payment'.
  *       // excludeOnSelector: CSS selector — يخفي التيزر لو العنصر ده موجود في الصفحة.
- *       // ملاحظة: لو في تيزر مستهدَف مطابق للصفحة، بيظهر لوحده وبتختفي التيزرات العامة (زي الترحيب).
+ *       // priority: true — يظهر أول واحد قبل أي تيزر تاني (تيزر الحملة).
+ *       // discount: true — تيزر خصم 20%؛ بيختفي طول ما حملة (زي الجمعة البيضاء) شغّالة.
+ *       // ملاحظة: التيزر المستهدَف المطابق للصفحة بيظهر قبل التيزرات العامة (زي الترحيب).
  *       // botMessage / botMessageLabel: زرار يفتح الشات ويبعت رسالة جاهزة للبوت (يشغّل فلو المبيعات).
  *       // {{course}} داخل html أو botMessage يتحوّل تلقائيًا لاسم الكورس المقروء من الصفحة الحالية.
  *       // en: { html, botMessage, botMessageLabel, linkText, codeLabel } — النص الإنجليزي.
@@ -49,7 +51,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.11.0';
+  var WIDGET_VERSION = '4.12.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -124,6 +126,7 @@
     showOn: ct.showOn != null ? ct.showOn : ['/shop/', '/course/', '/training_package/'],
     excludeOn: ct.excludeOn != null ? ct.excludeOn : SHOP_FLOW_EXCLUDE,
     showOnSelector: ct.showOnSelector || '#product_details, #product_detail, .js_main_product',
+    discount: true,
     html: ct.html || '🛒 هل تحتاج مساعدة في شراء «{{course}}»؟<br/>لديك خصم <b>20%</b> بالكود عند الدفع عبر <b>كاشير</b> 👇',
     botMessage: ct.botMessage || 'أحتاج مساعدة في شراء دورة «{{course}}»، ولديّ كود خصم ' + DISCOUNT_CODE + ' للدفع عبر كاشير.',
     botMessageLabel: ct.botMessageLabel || '💬 ساعدني في الشراء',
@@ -140,6 +143,7 @@
   // صفحات الـSales Page / العروض — نفس خصم كاشير.
   var SALES_TEASER = {
     showOn: ['/special-offer/', '/sales-page', '/sales_page', '/sales/'],
+    discount: true,
     html: '💳 ادفع عبر بوابة <b>كاشير</b> واحصل على خصم <b>20%</b><br/>كود الخصم: <b>' + DISCOUNT_CODE + '</b>',
     botMessage: 'أريد الدفع عبر بوابة كاشير والحصول على خصم 20%، كيف أستخدم كود ' + DISCOUNT_CODE + '؟',
     botMessageLabel: '💳 اعرف طريقة الدفع والخصم',
@@ -161,6 +165,7 @@
     showOn: st.showOn != null ? st.showOn : ['/shop', '/course'],
     excludeOn: st.excludeOn != null ? st.excludeOn : SHOP_FLOW_EXCLUDE,
     excludeOnSelector: st.excludeOnSelector != null ? st.excludeOnSelector : '#product_details, #product_detail, .js_main_product',
+    discount: true,
     html: st.html || 'هل تحب أن أساعدك في اختيار الدورة المناسبة لك؟ 🎯<br/>وهناك خصم <b>20%</b> عند الدفع عبر <b>كاشير</b> 👇',
     botMessage: st.botMessage || 'هل يمكنك مساعدتي في اختيار الدورة المناسبة لي من دوراتكم؟ وقد سمعت أن هناك خصم 20% عند الدفع عبر كاشير.',
     botMessageLabel: st.botMessageLabel || '🎯 ساعدني في الاختيار',
@@ -212,6 +217,7 @@
   var crt = SCFG.cartTeaser || {};
   var CART_TEASER = {
     showOn: crt.showOn != null ? crt.showOn : ['/shop/cart'],
+    discount: true,
     html: crt.html || '🛒 تفصلك خطوة واحدة عن إتمام طلبك!<br/>هل تحتاج مساعدة؟ ولديك <b>خصم 20%</b> عند الدفع عبر <b>كاشير</b> 👇',
     botMessage: crt.botMessage || 'أنا في سلة الشراء وأرغب في إتمام الطلب، هل يمكنك مساعدتي؟ وكيف أستخدم كود الخصم مع كاشير؟',
     botMessageLabel: crt.botMessageLabel || '🛒 ساعدني في الإتمام',
@@ -320,7 +326,7 @@
       '🎉 خصم <b>20%</b> على <b>جميع الدورات</b> عند الدفع عبر <b>كاشير</b>!<br/>اغتنم الفرصة قبل انتهائها',
       'سمعت أن هناك خصم 20% على جميع الدورات عند الدفع عبر كاشير، كيف أستفيد منه؟',
       '🏷️ استفد من الخصم',
-      { code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE, en: {
+      { discount: true, code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE, en: {
         html: '🎉 <b>20%</b> off <b>all courses</b> when paying via <b>Kashier</b>!<br/>Grab the offer before it ends',
         botMessage: 'I heard there\'s 20% off all courses when paying via Kashier, how do I use it?',
         botMessageLabel: '🏷️ Get the discount',
@@ -356,6 +362,7 @@
     },
     {
       showOn: ['/shop/cart'],
+      discount: true,
       html: '🎉 خصم <b>20%</b> بانتظارك عند الدفع عبر <b>كاشير</b>!<br/>أكمل طلبك واستفد من العرض قبل انتهائه',
       botMessage: 'هناك خصم 20% عند الدفع عبر كاشير وأريد الاستفادة منه على طلبي في السلة، كيف أطبّقه؟',
       botMessageLabel: '🏷️ استفد من الخصم',
@@ -391,6 +398,7 @@
       {
         // خصم 20% على أي دورة عبر كاشير — يظهر بعد تسجيل الدخول فقط (للعملاء المسجّلين)
         loggedInOnly: true,
+        discount: true,
         html: '🎉 خصم <b>20%</b> على <b>أي دورة</b> عند الدفع عبر <b>كاشير</b>!<br/>استخدم هذا الكود عند الشراء 👇',
         link: SHOP_URL, linkText: 'تصفّح الدورات', code: DISCOUNT_CODE, codeLabel: 'كود الخصم ' + DISCOUNT_CODE,
         en: {
@@ -408,6 +416,31 @@
       COURSE_TEASER,
       CATALOG_TEASER
     ].concat(SHOP_MOTIVATION_TEASERS, CART_MOTIVATION_TEASERS);
+
+  // ── حملة الجمعة البيضاء 🛍️ — بوب-أب «الخمسين خمسين» على كل الصفحات ──
+  // بيظهر أول واحد (priority) قبل أي بوب-أب تاني، وطول ما الحملة شغّالة بتختفي بوب-أبات خصم 20%
+  // (كل تيزر عليه discount:true) لأن كود engo20 متوقف مؤقتًا.
+  // إنهاء الحملة من Railway بدون تعديل كود: MAJED_CAMPAIGN_ENABLED=false → Redeploy، وبوب-أبات
+  // الـ 20% بترجع لوحدها. النص: MAJED_CAMPAIGN_TEASER_HTML / _MSG / _LABEL، والرابط: MAJED_CAMPAIGN_URL.
+  var cpt = SCFG.campaignTeaser || {};
+  var CAMPAIGN_ON = SCFG.campaign !== false && CFG.campaign !== false;
+  var CAMPAIGN_TEASER = {
+    priority: true,
+    html: cpt.html || '🛍️ لا تفوّت عروض <b>الجمعة البيضاء</b> من إنجوسوفت<br/><b>جمعة تُغيّر مَسارك</b><br/>عرض الخمسين خمسين.. <b>50% خصم</b>، <b>50% كاش باك</b> دورات مسجلة',
+    botMessage: cpt.botMessage || 'أريد معرفة تفاصيل عرض الجمعة البيضاء «الخمسين خمسين»: 50% خصم و50% كاش باك.',
+    botMessageLabel: cpt.botMessageLabel || '🛍️ اعرف تفاصيل العرض',
+    link: cpt.link || SHOP_URL,
+    linkText: 'تصفّح الدورات',
+    en: cpt.en || {
+      html: '🛍️ Don\'t miss Engosoft\'s <b>Black Friday</b> offers<br/><b>A Friday that changes your path</b><br/>The 50/50 offer: <b>50% off</b> live courses, <b>50% cashback</b> on recorded courses',
+      botMessage: 'I want to know the details of the Black Friday 50/50 offer: 50% off and 50% cashback.',
+      botMessageLabel: '🛍️ Offer details',
+      linkText: 'Browse courses'
+    }
+  };
+  if (CAMPAIGN_ON) {
+    TEASERS = [CAMPAIGN_TEASER].concat(TEASERS.filter(function (t) { return !t.discount; }));
+  }
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
@@ -1766,8 +1799,8 @@
 
   // التيزرات المعروضة دلوقتي:
   //  1) فلترة حسب الصفحة (showOn / showOnSelector).
-  //  2) التيزرات المخصّصة للصفحة تضاف بجانب التيزرات العامة، ولا تستبدلها — لكنها بتظهر الأول،
-  //     عشان بوب-أب الصفحة (زي الكورس أو السلة) يبقى أول حاجة العميل يشوفها والعامة تتبدّل بعده.
+  //  2) الترتيب: تيزر الحملة (priority) الأول، بعده التيزرات المخصّصة للصفحة (زي الكورس أو السلة)،
+  //     وبعدهم العامة — المخصّصة بتضاف جنب العامة ومابتستبدلهاش.
   //  3) حسب حالة اللوجين: guestOnly للزوار فقط، loggedInOnly للمسجّلين فقط، والباقي للكل.
   function visibleTeasers() {
     var base = TEASERS.filter(tzMatchesPage);
@@ -1777,7 +1810,9 @@
       if (t.loggedInOnly) return logged;    // عروض المسجّلين — تظهر بعد اللوجين فقط
       return true;
     });
-    return only.filter(tzIsTargeted).concat(only.filter(function (t) { return !tzIsTargeted(t); }));
+    var first = only.filter(function (t) { return t.priority; });
+    var rest = only.filter(function (t) { return !t.priority; });
+    return first.concat(rest.filter(tzIsTargeted), rest.filter(function (t) { return !tzIsTargeted(t); }));
   }
   function renderTeaser() {
     var list = visibleTeasers();
