@@ -31,6 +31,10 @@
  *       // excludeOn: string | string[] — يخفي التيزر لو الـ URL طابق أحد الأنماط دي (يكسب على showOn).
  *       //            مفيد لمنع تيزر المتجر/الكورس من الظهور على '/shop/cart' و'/shop/payment'.
  *       // excludeOnSelector: CSS selector — يخفي التيزر لو العنصر ده موجود في الصفحة.
+ *       // showOnHome: true — يظهر في الصفحة الرئيسية (/ و /ar و /en و /home).
+ *       // showOnText: string | string[] — يظهر لو كلمة منهم موجودة في عنوان الصفحة أو الـ h1 أو
+ *       //            الـ breadcrumb (مثلاً 'ميكانيك' أو 'HVAC') — مفيد لما رابط القسم مش ثابت.
+ *       // activeFrom / activeUntil: تاريخ ISO — التيزر يظهر في الفترة دي بس (عروض بمدة محدّدة).
  *       // priority: true — يظهر أول واحد قبل أي تيزر تاني (تيزر الحملة).
  *       // discount: true — تيزر خصم 20%؛ بيختفي طول ما حملة (زي الجمعة البيضاء) شغّالة.
  *       // ملاحظة: التيزر المستهدَف المطابق للصفحة بيظهر قبل التيزرات العامة (زي الترحيب).
@@ -51,7 +55,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.12.0';
+  var WIDGET_VERSION = '4.13.0';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -441,6 +445,41 @@
   if (CAMPAIGN_ON) {
     TEASERS = [CAMPAIGN_TEASER].concat(TEASERS.filter(function (t) { return !t.discount; }));
   }
+
+  // ── «جمعة مهندس الميكانيكا» ⚙️ — خصم 90% على أي دورة ميكانيكا مسجّلة لمدة 24 ساعة ──
+  // بيظهر في الصفحة الرئيسية وصفحات الميكانيكا بس، وأول واحد (قبل بوب-أب الجمعة البيضاء).
+  // صفحة الميكانيكا = رابطها فيه كلمة من MECH_URL_HINTS، أو عنوانها/الـ h1/الـ breadcrumb فيه كلمة من
+  // MECH_TEXT_HINTS (قسم الميكانيكا أو صفحة دورة HVAC / Fire Fighting / Plumbing ...).
+  // من Railway: MAJED_MECH_FRIDAY_ENABLED=false بيوقفه، MAJED_MECH_FRIDAY_UNTIL (ISO) بيخفيه لوحده بعد
+  // الـ 24 ساعة، MAJED_MECH_FRIDAY_TEASER_SHOWON / MAJED_MECH_FRIDAY_TEXT لروابط/كلمات صفحات الميكانيكا،
+  // MAJED_MECH_FRIDAY_URL لزرار الرابط، وMAJED_MECH_FRIDAY_TEASER_HTML / _MSG / _LABEL للنص.
+  var MECH_URL_HINTS = ['mechanic', 'ميكانيك', 'hvac', 'fire-fighting', 'firefighting', 'plumbing', 'medical-gas'];
+  var MECH_TEXT_HINTS = ['ميكانيك', 'mechanical', 'hvac', 'تكييف', 'fire fighting', 'firefighting',
+    'مكافحة الحريق', 'plumbing', 'سباكة', 'medical gas', 'غازات طبية', 'piping', 'pumps', 'مضخات'];
+  var mft = SCFG.mechFridayTeaser || {};
+  var MECH_FRIDAY_ON = SCFG.mechFriday !== false && CFG.mechFriday !== false;
+  var MECH_FRIDAY_TEASER = {
+    priority: true,
+    showOnHome: true,
+    showOn: mft.showOn != null ? mft.showOn : MECH_URL_HINTS,
+    showOnText: mft.showOnText != null ? mft.showOnText : MECH_TEXT_HINTS,
+    activeFrom: mft.activeFrom,
+    activeUntil: mft.activeUntil,
+    html: mft.html || '⚙️ اسأل عن <b>جمعة مهندس الميكانيكا</b>..<br/>خصم <b>90%</b> على أي دورة ميكانيكا مسجّلة لمدة <b>24 ساعة</b>',
+    botMessage: mft.botMessage || 'أريد معرفة تفاصيل عرض «جمعة مهندس الميكانيكا»: خصم 90% على أي دورة ميكانيكا مسجّلة لمدة 24 ساعة.',
+    botMessageLabel: mft.botMessageLabel || '⚙️ اسأل عن العرض',
+    link: mft.link || SHOP_URL,
+    linkText: mft.link ? 'دورات الميكانيكا' : 'تصفّح الدورات',
+    code: mft.code,
+    codeLabel: mft.codeLabel,
+    en: mft.en || {
+      html: '⚙️ Ask about <b>Mechanical Engineer Friday</b>..<br/><b>90% off</b> any recorded mechanical course for <b>24 hours</b>',
+      botMessage: 'I want to know the details of the «Mechanical Engineer Friday» offer: 90% off any recorded mechanical course for 24 hours.',
+      botMessageLabel: '⚙️ Ask about the offer',
+      linkText: mft.link ? 'Mechanical courses' : 'Browse courses'
+    }
+  };
+  if (MECH_FRIDAY_ON) TEASERS = [MECH_FRIDAY_TEASER].concat(TEASERS);
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
@@ -1707,43 +1746,82 @@
   function tzDismissed() { try { return sessionStorage.getItem(tzDismissKey()) === '1'; } catch (e) { return false; } }
   function tzDismiss() { try { sessionStorage.setItem(tzDismissKey(), '1'); } catch (e) {} }
 
-  // تيزر «مستهدَف» = مربوط بصفحة معيّنة (showOn و/أو showOnSelector)
-  function tzIsTargeted(t) { return !!(t && (t.showOn != null || t.showOnSelector != null)); }
+  // تيزر «مستهدَف» = مربوط بصفحة معيّنة (showOn / showOnSelector / showOnHome / showOnText)
+  function tzIsTargeted(t) {
+    return !!(t && (t.showOn != null || t.showOnSelector != null || t.showOnHome || t.showOnText != null));
+  }
+
+  // الصفحة الرئيسية: / أو /home، بالعربي أو الإنجليزي (/ar، /en، /en_US/ …)
+  function tzIsHome() {
+    try { return /^\/(?:(?:ar|en)(?:[_-][a-z0-9]{2,4})?\/?)?(?:home\/?)?$/.test(location.pathname.toLowerCase()); }
+    catch (e) { return false; }
+  }
+  // الـ URL الحالي (host+path+query) بحروف صغيرة — مع نسخة مفكوكة الترميز عشان الأنماط العربي
+  // (زي 'ميكانيك') تطابق الروابط اللي المتصفح بيرمّزها (%d9%85…).
+  function tzUrlHas(pats) {
+    var here = '';
+    try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { return false; }
+    var dec = here;
+    try { dec = decodeURIComponent(here); } catch (e) {}
+    var list = Array.isArray(pats) ? pats : [pats];
+    for (var i = 0; i < list.length; i++) {
+      var p = String(list[i] || '').trim().toLowerCase();
+      if (p && (here.indexOf(p) !== -1 || dec.indexOf(p) !== -1)) return true;
+    }
+    return false;
+  }
+  // كلمة من الأنماط موجودة في عنوان الصفحة أو الـ h1 أو الـ breadcrumb؟ (مش كل نص الصفحة — عشان
+  // قائمة الأقسام الجانبية في /shop فيها «ميكانيكا» على كل صفحة)
+  function tzTextHas(pats) {
+    var parts = [document.title || ''];
+    try {
+      var els = document.querySelectorAll('h1, .breadcrumb');
+      for (var j = 0; j < els.length && j < 6; j++) parts.push(els[j].textContent || '');
+    } catch (e) {}
+    var txt = parts.join(' ').replace(/\s+/g, ' ').toLowerCase();
+    var list = Array.isArray(pats) ? pats : [pats];
+    for (var i = 0; i < list.length; i++) {
+      var p = String(list[i] || '').trim().toLowerCase();
+      if (p && txt.indexOf(p) !== -1) return true;
+    }
+    return false;
+  }
+  // عروض بمدة (activeFrom / activeUntil بتاريخ ISO): برّه الفترة → التيزر مايظهرش.
+  // تاريخ مش صالح بيتجاهل (التيزر يفضل ظاهر) عشان غلطة في الإعداد ماتخفيش العرض.
+  function tzInWindow(t) {
+    var now = Date.now();
+    var from = t.activeFrom ? Date.parse(t.activeFrom) : NaN;
+    var until = t.activeUntil ? Date.parse(t.activeUntil) : NaN;
+    if (!isNaN(from) && now < from) return false;
+    if (!isNaN(until) && now >= until) return false;
+    return true;
+  }
 
   // هل التيزر مسموح يظهر على الصفحة الحالية؟
   //  - excludeOnSelector: لو العنصر ده موجود في الصفحة → التيزر مايظهرش (مثلاً قائمة الدورات
   //    تستثني صفحة الدورة المفردة اللي فيها تفاصيل المنتج)
   //  - showOn: substring أو مصفوفة في الـ URL (host+path+query)
   //  - showOnSelector: يظهر لو عنصر بالـ selector ده موجود في الصفحة (مفيد لصفحات الكورس/المنتج)
+  //  - showOnHome: الصفحة الرئيسية — showOnText: كلمة في عنوان الصفحة/الـ h1/الـ breadcrumb
+  //  - activeFrom / activeUntil: برّه فترة العرض → مايظهرش
   //  - من غير أي منهم → يظهر في كل صفحة
   function tzMatchesPage(t) {
     if (!t) return false;
-    var here = '';
-    try { here = (location.host + location.pathname + location.search).toLowerCase(); } catch (e) { here = ''; }
+    if (!tzInWindow(t)) return false;
     // excludeOn: لو الـ URL طابق أحد الأنماط دي → التيزر مايظهرش (يكسب على showOn).
     // بيمنع تسرّب تيزرات المتجر/الكورس العامة على صفحات السلة/الدفع (لأن '/shop/cart'
     // بتحتوي على '/shop' كـ substring).
-    if (t.excludeOn != null) {
-      var ex = Array.isArray(t.excludeOn) ? t.excludeOn : [t.excludeOn];
-      for (var j = 0; j < ex.length; j++) {
-        var ep = String(ex[j] || '').trim().toLowerCase();
-        if (ep && here.indexOf(ep) !== -1) return false;
-      }
-    }
+    if (t.excludeOn != null && tzUrlHas(t.excludeOn)) return false;
     if (t.excludeOnSelector) {
       try { if (document.querySelector(t.excludeOnSelector)) return false; } catch (e) {}
     }
     if (!tzIsTargeted(t)) return true;
+    if (t.showOnHome && tzIsHome()) return true;
     if (t.showOnSelector) {
       try { if (document.querySelector(t.showOnSelector)) return true; } catch (e) {}
     }
-    if (t.showOn != null) {
-      var pats = Array.isArray(t.showOn) ? t.showOn : [t.showOn];
-      for (var i = 0; i < pats.length; i++) {
-        var p = String(pats[i] || '').trim().toLowerCase();
-        if (p && here.indexOf(p) !== -1) return true;
-      }
-    }
+    if (t.showOn != null && tzUrlHas(t.showOn)) return true;
+    if (t.showOnText != null && tzTextHas(t.showOnText)) return true;
     return false;
   }
 
