@@ -55,7 +55,7 @@
   window.__majedWidgetLoaded = true;
 
   // bump on every release; AVATAR_VERSION = sha256[0:16] of public/majed-avatar.png
-  var WIDGET_VERSION = '4.13.0';
+  var WIDGET_VERSION = '4.13.1';
   var AVATAR_VERSION = 'a73382e0227f2703';
   var ODOO_AVATAR_PATH = '/ai_user_context_webhook/static/src/img/majed-avatar.png';
 
@@ -445,41 +445,6 @@
   if (CAMPAIGN_ON) {
     TEASERS = [CAMPAIGN_TEASER].concat(TEASERS.filter(function (t) { return !t.discount; }));
   }
-
-  // ── «جمعة مهندس الميكانيكا» ⚙️ — خصم 90% على أي دورة ميكانيكا مسجّلة لمدة 24 ساعة ──
-  // بيظهر في الصفحة الرئيسية وصفحات الميكانيكا بس، وأول واحد (قبل بوب-أب الجمعة البيضاء).
-  // صفحة الميكانيكا = رابطها فيه كلمة من MECH_URL_HINTS، أو عنوانها/الـ h1/الـ breadcrumb فيه كلمة من
-  // MECH_TEXT_HINTS (قسم الميكانيكا أو صفحة دورة HVAC / Fire Fighting / Plumbing ...).
-  // من Railway: MAJED_MECH_FRIDAY_ENABLED=false بيوقفه، MAJED_MECH_FRIDAY_UNTIL (ISO) بيخفيه لوحده بعد
-  // الـ 24 ساعة، MAJED_MECH_FRIDAY_TEASER_SHOWON / MAJED_MECH_FRIDAY_TEXT لروابط/كلمات صفحات الميكانيكا،
-  // MAJED_MECH_FRIDAY_URL لزرار الرابط، وMAJED_MECH_FRIDAY_TEASER_HTML / _MSG / _LABEL للنص.
-  var MECH_URL_HINTS = ['mechanic', 'ميكانيك', 'hvac', 'fire-fighting', 'firefighting', 'plumbing', 'medical-gas'];
-  var MECH_TEXT_HINTS = ['ميكانيك', 'mechanical', 'hvac', 'تكييف', 'fire fighting', 'firefighting',
-    'مكافحة الحريق', 'plumbing', 'سباكة', 'medical gas', 'غازات طبية', 'piping', 'pumps', 'مضخات'];
-  var mft = SCFG.mechFridayTeaser || {};
-  var MECH_FRIDAY_ON = SCFG.mechFriday !== false && CFG.mechFriday !== false;
-  var MECH_FRIDAY_TEASER = {
-    priority: true,
-    showOnHome: true,
-    showOn: mft.showOn != null ? mft.showOn : MECH_URL_HINTS,
-    showOnText: mft.showOnText != null ? mft.showOnText : MECH_TEXT_HINTS,
-    activeFrom: mft.activeFrom,
-    activeUntil: mft.activeUntil,
-    html: mft.html || '⚙️ اسأل عن <b>جمعة مهندس الميكانيكا</b>..<br/>خصم <b>90%</b> على أي دورة ميكانيكا مسجّلة لمدة <b>24 ساعة</b>',
-    botMessage: mft.botMessage || 'أريد معرفة تفاصيل عرض «جمعة مهندس الميكانيكا»: خصم 90% على أي دورة ميكانيكا مسجّلة لمدة 24 ساعة.',
-    botMessageLabel: mft.botMessageLabel || '⚙️ اسأل عن العرض',
-    link: mft.link || SHOP_URL,
-    linkText: mft.link ? 'دورات الميكانيكا' : 'تصفّح الدورات',
-    code: mft.code,
-    codeLabel: mft.codeLabel,
-    en: mft.en || {
-      html: '⚙️ Ask about <b>Mechanical Engineer Friday</b>..<br/><b>90% off</b> any recorded mechanical course for <b>24 hours</b>',
-      botMessage: 'I want to know the details of the «Mechanical Engineer Friday» offer: 90% off any recorded mechanical course for 24 hours.',
-      botMessageLabel: '⚙️ Ask about the offer',
-      linkText: mft.link ? 'Mechanical courses' : 'Browse courses'
-    }
-  };
-  if (MECH_FRIDAY_ON) TEASERS = [MECH_FRIDAY_TEASER].concat(TEASERS);
 
   // ---------- state ----------
   var convId = null, es = null, started = false, userData = {};
