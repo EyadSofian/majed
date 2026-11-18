@@ -312,16 +312,6 @@ function buildWidgetServerConfig() {
   const campaign = pageTeaser('MAJED_CAMPAIGN_TEASER') || {};
   if (process.env.MAJED_CAMPAIGN_URL) campaign.link = process.env.MAJED_CAMPAIGN_URL;
   if (Object.keys(campaign).length) cfg.campaignTeaser = campaign;
-  // «جمعة مهندس الميكانيكا» (90% off any recorded mechanical course for 24 hours): its popup shows
-  // first on the home page and the mechanical pages. MAJED_MECH_FRIDAY_ENABLED=false ends it, and
-  // MAJED_MECH_FRIDAY_FROM / _UNTIL (ISO dates) limit it to the offer's 24 hours.
-  if ((process.env.MAJED_MECH_FRIDAY_ENABLED || '').toLowerCase() === 'false') cfg.mechFriday = false;
-  const mech = pageTeaser('MAJED_MECH_FRIDAY_TEASER') || {};
-  if (process.env.MAJED_MECH_FRIDAY_TEXT) mech.showOnText = splitList(process.env.MAJED_MECH_FRIDAY_TEXT);
-  if (process.env.MAJED_MECH_FRIDAY_URL) mech.link = process.env.MAJED_MECH_FRIDAY_URL;
-  if (process.env.MAJED_MECH_FRIDAY_FROM) mech.activeFrom = process.env.MAJED_MECH_FRIDAY_FROM;
-  if (process.env.MAJED_MECH_FRIDAY_UNTIL) mech.activeUntil = process.env.MAJED_MECH_FRIDAY_UNTIL;
-  if (Object.keys(mech).length) cfg.mechFridayTeaser = mech;
   // voice input toggle — only advertise the mic button when a Deepgram key is set.
   if (config.deepgramApiKey) cfg.voice = true;
   return cfg;
